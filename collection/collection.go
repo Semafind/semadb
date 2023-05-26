@@ -6,7 +6,6 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/semafind/semadb/numerical"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 type Entry struct {
@@ -36,24 +35,73 @@ func nodeEdgeKey(nodeId string) []byte {
 	return append(nodeKey, []byte(EDGESUFFIX)...)
 }
 
-func float32ToBytes(f []float32) ([]byte, error) {
-	return msgpack.Marshal(f)
+func (c *Collection) getNodeEmbeddingTxn(txn *badger.Txn, nodeId string) ([]float32, error) {
+	item, err := txn.Get(nodeEmbedKey(nodeId))
+	if err != nil {
+		return nil, fmt.Errorf("could not get node embedding: %v", err)
+	}
+	buffer, err := item.ValueCopy(nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not copy node embedding: %v", err)
+	}
+	embedding, err := bytesToFloat32(buffer)
+	if err != nil {
+		return nil, fmt.Errorf("could not convert embedding bytes to float32: %v", err)
+	}
+	return embedding, nil
 }
 
-func bytesToFloat32(b []byte) ([]float32, error) {
-	var f []float32
-	err := msgpack.Unmarshal(b, &f)
-	return f, err
+func (c *Collection) getNodeEmbedding(nodeId string) ([]float32, error) {
+	var embedding []float32
+	err := c.db.View(func(txn *badger.Txn) error {
+		embed, err := c.getNodeEmbeddingTxn(txn, nodeId)
+		if err != nil {
+			return fmt.Errorf("could not get node embedding: %v", err)
+		}
+		embedding = embed
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("node embedding read errored: %v", err)
+	}
+	return embedding, nil
 }
 
-func edgeListToBytes(edges []string) ([]byte, error) {
-	return msgpack.Marshal(edges)
-}
-
-func bytesToEdgeList(b []byte) ([]string, error) {
-	var edges []string
-	err := msgpack.Unmarshal(b, &edges)
-	return edges, err
+func (c *Collection) getNodeNeighbours(nodeId string) ([]Entry, error) {
+	neighbours := make([]Entry, 0, 10)
+	// Start a new read only transaction
+	err := c.db.View(func(txn *badger.Txn) error {
+		// Get the node edges, i.e. the neighbours
+		item, err := txn.Get(nodeEdgeKey(nodeId))
+		if err == badger.ErrKeyNotFound {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("could not get node neighbours: %v", err)
+		}
+		// Iterate over the neighbours and get their embeddings
+		err = item.Value(func(val []byte) error {
+			edgeList, err := bytesToEdgeList(val)
+			if err != nil {
+				return fmt.Errorf("could not convert neighbours bytes to edge list: %v", err)
+			}
+			for _, neighbourId := range edgeList {
+				embedding, err := c.getNodeEmbeddingTxn(txn, neighbourId)
+				if err != nil {
+					return fmt.Errorf("could not get neighbour embedding: %v", err)
+				}
+				neighbours = append(neighbours, Entry{Id: neighbourId, Embedding: embedding})
+			}
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("could not get node neighbours: %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("node neighbours read errored: %v", err)
+	}
+	return neighbours, nil
 }
 
 // ---------------------------
@@ -65,10 +113,6 @@ type Collection struct {
 
 func NewCollection(id string, db *badger.DB) *Collection {
 	return &Collection{Id: id, db: db}
-}
-
-func putEntry(entry Entry, txn *badger.Txn) error {
-	return nil
 }
 
 func (c *Collection) getOrSetStartId(entry *Entry) (string, error) {
@@ -83,7 +127,8 @@ func (c *Collection) getOrSetStartId(entry *Entry) (string, error) {
 				return fmt.Errorf("could not convert embedding to bytes: %v", err)
 			}
 			txn.Set(nodeEmbedKey(entry.Id), embedding)
-			txn.Set(nodeEdgeKey(entry.Id), []byte{})
+			// Empty edge list
+			// txn.Set(nodeEdgeKey(entry.Id), []byte{})
 			startId = entry.Id
 			return c.increaseNodeCount(txn, 1)
 		} else if err != nil {
@@ -95,6 +140,17 @@ func (c *Collection) getOrSetStartId(entry *Entry) (string, error) {
 		})
 	})
 	return startId, err
+}
+
+func (c *Collection) putEntry(startNodeId string, entry Entry) error {
+	searchSet, visitedSet, err := c.greedySearch(startNodeId, entry.Embedding, 1, 128)
+	if err != nil {
+		return fmt.Errorf("could not perform greedy search: %v", err)
+	}
+	fmt.Println("searchSet:", searchSet)
+	fmt.Println("visitedSet:", visitedSet)
+	log.Fatal("Not Implemented")
+	return nil
 }
 
 func (c *Collection) Put(entries []Entry) error {
@@ -109,6 +165,21 @@ func (c *Collection) Put(entries []Entry) error {
 	}
 	fmt.Println("HERE--")
 	fmt.Println("startId:", startId)
+	// ---------------------------
+	for i, entry := range entries {
+		if entry.Id == startId {
+			continue
+		}
+		fmt.Println("putting entry:", i)
+		if i > 1 {
+			break
+		}
+		if err := c.putEntry(startId, entry); err != nil {
+			log.Println("could not put entry:", err)
+			continue
+		}
+	}
+	// ---------------------------
 	err = c.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(NODECOUNTKEY))
 		if err != nil {
@@ -122,6 +193,7 @@ func (c *Collection) Put(entries []Entry) error {
 	if err != nil {
 		return fmt.Errorf("could not get node count: %v", err)
 	}
+	// ---------------------------
 	fmt.Println("DONE--")
 	return nil
 }
