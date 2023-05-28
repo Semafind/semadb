@@ -6,9 +6,10 @@ import (
 )
 
 type DistSetElem struct {
-	visited  bool
-	distance float32
-	id       string
+	visited   bool
+	distance  float32
+	id        string
+	embedding []float32
 }
 
 type DistSet struct {
@@ -24,7 +25,7 @@ func NewDistSet(capacity int) *DistSet {
 // HEAP INTERFACE
 
 func (ds *DistSet) Len() int {
-	return len(ds.items)
+	return len(ds.set)
 }
 
 func (ds *DistSet) Less(i, j int) bool {
@@ -75,12 +76,33 @@ func (ds *DistSet) Contains(id string) bool {
 	return ds.set[id]
 }
 
+func (ds *DistSet) Pop() *DistSetElem {
+	// Find the first element in list that is still in set
+	i := 0
+	var toReturn *DistSetElem
+	for ; i < len(ds.items); i++ {
+		item := ds.items[i]
+		ds.items[i] = nil // avoid memory leak
+		if ds.set[item.id] {
+			toReturn = item
+			delete(ds.set, item.id)
+			break
+		}
+	}
+	ds.items = ds.items[(i + 1):]
+	return toReturn
+}
+
 func (ds *DistSet) KeepFirstK(k int) {
 	for i := k; i < ds.Len(); i++ {
 		delete(ds.set, ds.items[i].id)
 		ds.items[i] = nil // avoid memory leak
 	}
 	ds.items = ds.items[:k]
+}
+
+func (ds *DistSet) Remove(id string) {
+	delete(ds.set, id)
 }
 
 // ---------------------------

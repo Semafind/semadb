@@ -34,3 +34,18 @@ func TestDistSet_Add_Duplicate(t *testing.T) {
 	ds.Add(&DistSetElem{distance: 0.4, id: "3"})
 	assert.Equal(t, 3, ds.Len())
 }
+
+func TestDistSet_Pop_Remove(t *testing.T) {
+	ds := NewDistSet(3)
+	ds.Add(&DistSetElem{distance: 0.5, id: "2"})
+	ds.Add(&DistSetElem{distance: 1.0, id: "1"})
+	ds.Add(&DistSetElem{distance: 0.2, id: "3"})
+	ds.Sort()
+	assert.Equal(t, 3, ds.Len())
+	assert.Equal(t, "3", ds.Pop().id)
+	assert.False(t, ds.Contains("3"))
+	ds.Remove("2")
+	assert.Equal(t, 1, ds.Len())
+	assert.Equal(t, "1", ds.Pop().id)
+	assert.Equal(t, 0, ds.Len())
+}

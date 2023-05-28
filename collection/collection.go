@@ -149,6 +149,11 @@ func (c *Collection) putEntry(startNodeId string, entry Entry) error {
 	}
 	fmt.Println("searchSet:", searchSet)
 	fmt.Println("visitedSet:", visitedSet)
+	prunedNeighbours, err := c.robustPrune(entry, visitedSet, 1.2, 64)
+	if err != nil {
+		return fmt.Errorf("could not perform robust prune: %v", err)
+	}
+	fmt.Println("prunedNeighbours:", prunedNeighbours)
 	log.Fatal("Not Implemented")
 	return nil
 }
