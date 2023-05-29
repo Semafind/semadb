@@ -1,3 +1,4 @@
+/* Conversion happens because the key value store only handles bytes.*/
 package collection
 
 import "github.com/vmihailenco/msgpack/v5"
