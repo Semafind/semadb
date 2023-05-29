@@ -3,6 +3,10 @@ package collection
 import (
 	"fmt"
 	"log"
+	"math/rand"
+	"os"
+	"runtime/pprof"
+	"time"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/semafind/semadb/numerical"
@@ -48,7 +52,7 @@ func (c *Collection) getOrSetStartId(entry *Entry) (string, error) {
 
 func (c *Collection) putEntry(startNodeId string, entry Entry) error {
 	// ---------------------------
-	searchSize := 128
+	searchSize := 75
 	degreeBound := 64
 	alpha := float32(1.2)
 	// ---------------------------
@@ -68,12 +72,13 @@ func (c *Collection) putEntry(startNodeId string, entry Entry) error {
 	}
 	// ---------------------------
 	// Add the bidirectional edges
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for _, neighbourId := range prunedNeighbours {
 		neighbourEdgeEntries, err := c.getNodeNeighbours(neighbourId)
 		if err != nil {
 			return fmt.Errorf("could not get node neighbours for bidirectional edges: %v", err)
 		}
-		if len(neighbourEdgeEntries)+1 >= degreeBound {
+		if len(neighbourEdgeEntries)+1 > degreeBound+rng.Intn(degreeBound) {
 			// Prune the neighbour
 			// log.Println("pruning neighbour:", neighbourId)
 			neighbourEmbedding, err := c.getNodeEmbedding(neighbourId)
@@ -127,13 +132,25 @@ func (c *Collection) Put(entries []Entry) error {
 	fmt.Println("HERE--")
 	fmt.Println("startId:", startId)
 	// ---------------------------
+	// var wg sync.WaitGroup
+	profileFile, _ := os.Create("cpu.prof")
+	pprof.StartCPUProfile(profileFile)
+	defer pprof.StopCPUProfile()
 	for i, entry := range entries {
 		if entry.Id == startId {
 			continue
 		}
-		if i > 1000 {
+		if i > 200 {
 			break
 		}
+		// wg.Add(1)
+		// go func(entry Entry) {
+		// 	fmt.Println("putting entry:", entry.Id)
+		// 	if err := c.putEntry(startId, entry); err != nil {
+		// 		log.Println("could not put entry:", err)
+		// 	}
+		// 	wg.Done()
+		// }(entry)
 		fmt.Println("putting entry:", i)
 		if err := c.putEntry(startId, entry); err != nil {
 			log.Println("could not put entry:", err)
