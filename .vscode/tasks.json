@@ -1,0 +1,30 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "go",
+			"label": "go: test package",
+			"command": "test",
+			"args": [
+				"${fileDirname}"
+			],
+			"problemMatcher": [
+				"$go"
+			],
+			"group": "test",
+			"detail": "cd /home/nuric/semadb; go test ${fileDirname}"
+		},
+		{
+			"type": "shell",
+			"label": "go: profile",
+			"command": "go",
+			"args": [
+				"tool",
+				"pprof",
+				"-http=:8080",
+				"${workspaceFolder}/cpu.prof"
+			],
+			"problemMatcher": []
+		}
+	]
+}
