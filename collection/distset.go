@@ -94,7 +94,7 @@ func (ds *DistSet) Pop() *DistSetElem {
 }
 
 func (ds *DistSet) KeepFirstK(k int) {
-	for i := k; i < ds.Len(); i++ {
+	for i := k; i < len(ds.items); i++ {
 		delete(ds.set, ds.items[i].id)
 		ds.items[i] = nil // avoid memory leak
 	}

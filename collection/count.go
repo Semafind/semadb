@@ -48,3 +48,21 @@ func (c *Collection) increaseNodeCount(txn *badger.Txn, count uint64) error {
 	}
 	return err
 }
+
+func (c *Collection) getNodeCount() (uint64, error) {
+	var countBytes uint64
+	err := c.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(NODECOUNTKEY))
+		if err != nil {
+			return fmt.Errorf("could not get node count: %v", err)
+		}
+		return item.Value(func(val []byte) error {
+			countBytes = bytesToUint64(val)
+			return nil
+		})
+	})
+	if err != nil {
+		return 0, fmt.Errorf("could not get node count: %v", err)
+	}
+	return countBytes, nil
+}

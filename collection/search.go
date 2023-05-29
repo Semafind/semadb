@@ -51,6 +51,9 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 		}
 		distElems := make([]*DistSetElem, len(neighbours))
 		for j, neighbour := range neighbours {
+			// TODO(nuric): move distance calculation into DistSet for
+			// optimisation, we do not need to calculate nodes that are already
+			// in the set
 			distElems[j] = &DistSetElem{distance: eucDist(neighbour.Embedding, query), id: neighbour.Id, embedding: neighbour.Embedding}
 		}
 		searchSet.Add(distElems...)

@@ -8,11 +8,6 @@ import (
 	"github.com/semafind/semadb/numerical"
 )
 
-type Entry struct {
-	Id        string
-	Embedding []float32
-}
-
 // ---------------------------
 
 type Collection struct {
@@ -52,18 +47,70 @@ func (c *Collection) getOrSetStartId(entry *Entry) (string, error) {
 }
 
 func (c *Collection) putEntry(startNodeId string, entry Entry) error {
-	searchSet, visitedSet, err := c.greedySearch(startNodeId, entry.Embedding, 1, 128)
+	// ---------------------------
+	searchSize := 128
+	degreeBound := 64
+	alpha := float32(1.2)
+	// ---------------------------
+	_, visitedSet, err := c.greedySearch(startNodeId, entry.Embedding, 1, searchSize)
 	if err != nil {
 		return fmt.Errorf("could not perform greedy search: %v", err)
 	}
-	fmt.Println("searchSet:", searchSet)
-	fmt.Println("visitedSet:", visitedSet)
-	prunedNeighbours, err := c.robustPrune(entry, visitedSet, 1.2, 64)
+	// ---------------------------
+	prunedNeighbours, err := c.robustPrune(entry, visitedSet, alpha, degreeBound)
 	if err != nil {
 		return fmt.Errorf("could not perform robust prune: %v", err)
 	}
-	fmt.Println("prunedNeighbours:", prunedNeighbours)
-	log.Fatal("Not Implemented")
+	entry.Edges = prunedNeighbours
+	err = c.setNodeAsEntry(entry, 1)
+	if err != nil {
+		return fmt.Errorf("could not set node as entry: %v", err)
+	}
+	// ---------------------------
+	// Add the bidirectional edges
+	for _, neighbourId := range prunedNeighbours {
+		neighbourEdgeEntries, err := c.getNodeNeighbours(neighbourId)
+		if err != nil {
+			return fmt.Errorf("could not get node neighbours for bidirectional edges: %v", err)
+		}
+		if len(neighbourEdgeEntries)+1 >= degreeBound {
+			// Prune the neighbour
+			// log.Println("pruning neighbour:", neighbourId)
+			neighbourEmbedding, err := c.getNodeEmbedding(neighbourId)
+			if err != nil {
+				return fmt.Errorf("could not get node embedding for bidirectional edges: %v", err)
+			}
+			candidateSet := NewDistSet(len(neighbourEdgeEntries) + 1)
+			// Add current entry
+			candidateSet.Add(&DistSetElem{distance: eucDist(entry.Embedding, neighbourEmbedding), id: entry.Id, embedding: entry.Embedding})
+			// Add neighbour edge candidates to prune
+			for _, edgeEntry := range neighbourEdgeEntries {
+				candidateSet.Add(&DistSetElem{distance: eucDist(neighbourEmbedding, edgeEntry.Embedding), id: edgeEntry.Id, embedding: edgeEntry.Embedding})
+			}
+			candidateSet.Sort()
+			// Prune the neighbour
+			neighbourPrunedEdges, err := c.robustPrune(Entry{Id: neighbourId, Embedding: neighbourEmbedding}, candidateSet, alpha, degreeBound)
+			if err != nil {
+				return fmt.Errorf("could not perform robust prune for bidirectional edges: %v", err)
+			}
+			err = c.setNodeNeighbours(neighbourId, neighbourPrunedEdges)
+			if err != nil {
+				return fmt.Errorf("could not set node neighbours for bidirectional edges: %v", err)
+			}
+		} else {
+			// Append the current entry to the edge list of the neighbour
+			edgeList := make([]string, len(neighbourEdgeEntries)+1)
+			for i, edge := range neighbourEdgeEntries {
+				edgeList[i] = edge.Id
+			}
+			edgeList[len(neighbourEdgeEntries)] = entry.Id
+			err = c.setNodeNeighbours(neighbourId, edgeList)
+			if err != nil {
+				return fmt.Errorf("could not set node neighbours for bidirectional edges: %v", err)
+			}
+		}
+	}
+	// ---------------------------
 	return nil
 }
 
@@ -84,31 +131,19 @@ func (c *Collection) Put(entries []Entry) error {
 		if entry.Id == startId {
 			continue
 		}
-		fmt.Println("putting entry:", i)
-		if i > 1 {
+		if i > 1000 {
 			break
 		}
+		fmt.Println("putting entry:", i)
 		if err := c.putEntry(startId, entry); err != nil {
 			log.Println("could not put entry:", err)
 			continue
 		}
 	}
 	// ---------------------------
-	err = c.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte(NODECOUNTKEY))
-		if err != nil {
-			return fmt.Errorf("HERE--: %v", err)
-		}
-		return item.Value(func(val []byte) error {
-			fmt.Println("nodeCount:", val)
-			return nil
-		})
-	})
-	if err != nil {
-		return fmt.Errorf("could not get node count: %v", err)
-	}
+	nodeCount, _ := c.getNodeCount()
 	// ---------------------------
-	fmt.Println("DONE--")
+	fmt.Println("Final node count:", nodeCount)
 	return nil
 }
 

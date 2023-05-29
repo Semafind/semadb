@@ -6,6 +6,14 @@ import (
 	"github.com/dgraph-io/badger/v4"
 )
 
+// Entry is a node in the graph
+// Some of the fields may be empty to optimise performance
+type Entry struct {
+	Id        string
+	Embedding []float32
+	Edges     []string
+}
+
 func nodeEmbedKey(nodeId string) []byte {
 	nodeKey := []byte(nodeId)
 	return append(nodeKey, []byte(EMBEDSUFFIX)...)
@@ -83,4 +91,53 @@ func (c *Collection) getNodeNeighbours(nodeId string) ([]Entry, error) {
 		return nil, fmt.Errorf("node neighbours read errored: %v", err)
 	}
 	return neighbours, nil
+}
+
+func (c *Collection) setNodeAsEntry(entry Entry, increaseCount uint64) error {
+	err := c.db.Update(func(txn *badger.Txn) error {
+		// Set the node embedding
+		embeddingBytes, err := float32ToBytes(entry.Embedding)
+		if err != nil {
+			return fmt.Errorf("could not convert embedding to bytes: %v", err)
+		}
+		err = txn.Set(nodeEmbedKey(entry.Id), embeddingBytes)
+		if err != nil {
+			return fmt.Errorf("could not set node embedding: %v", err)
+		}
+		edgeListBytes, err := edgeListToBytes(entry.Edges)
+		if err != nil {
+			return fmt.Errorf("could not convert edge list to bytes: %v", err)
+		}
+		err = txn.Set(nodeEdgeKey(entry.Id), edgeListBytes)
+		if err != nil {
+			return fmt.Errorf("could not set node edges: %v", err)
+		}
+		if increaseCount != 0 {
+			// Update the count
+			return c.increaseNodeCount(txn, increaseCount)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("node set as entry errored: %v", err)
+	}
+	return nil
+}
+
+func (c *Collection) setNodeNeighbours(nodeId string, neighbours []string) error {
+	err := c.db.Update(func(txn *badger.Txn) error {
+		edgeListBytes, err := edgeListToBytes(neighbours)
+		if err != nil {
+			return fmt.Errorf("could not convert edge list to bytes: %v", err)
+		}
+		err = txn.Set(nodeEdgeKey(nodeId), edgeListBytes)
+		if err != nil {
+			return fmt.Errorf("could not set node edges: %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("node set neighbours errored: %v", err)
+	}
+	return nil
 }
