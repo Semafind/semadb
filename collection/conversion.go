@@ -1,16 +1,27 @@
 /* Conversion happens because the key value store only handles bytes.*/
 package collection
 
-import "github.com/vmihailenco/msgpack/v5"
+import (
+	"encoding/binary"
+	"math"
+
+	"github.com/vmihailenco/msgpack/v5"
+)
 
 func float32ToBytes(f []float32) ([]byte, error) {
-	return msgpack.Marshal(f)
+	b := make([]byte, len(f)*4)
+	for i, v := range f {
+		binary.LittleEndian.PutUint32(b[i*4:], math.Float32bits(v))
+	}
+	return b, nil
 }
 
 func bytesToFloat32(b []byte) ([]float32, error) {
-	var f []float32
-	err := msgpack.Unmarshal(b, &f)
-	return f, err
+	f := make([]float32, len(b)/4)
+	for i := range f {
+		f[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*4:]))
+	}
+	return f, nil
 }
 
 func edgeListToBytes(edges []string) ([]byte, error) {
