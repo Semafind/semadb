@@ -13,12 +13,13 @@ type DistSetElem struct {
 }
 
 type DistSet struct {
-	items []*DistSetElem
-	set   map[string]bool
+	items       []*DistSetElem
+	set         map[string]bool
+	queryVector []float32
 }
 
-func NewDistSet(capacity int) *DistSet {
-	return &DistSet{items: make([]*DistSetElem, 0, capacity), set: make(map[string]bool, capacity)}
+func NewDistSet(queryVector []float32, capacity int) *DistSet {
+	return &DistSet{queryVector: queryVector, items: make([]*DistSetElem, 0, capacity), set: make(map[string]bool, capacity)}
 }
 
 // ---------------------------
@@ -56,6 +57,18 @@ func (ds *DistSet) String() string {
 }
 
 // ---------------------------
+
+// Adding entries only computes distance if needed
+func (ds *DistSet) AddEntry(entries ...Entry) {
+	for _, entry := range entries {
+		if ds.set[entry.Id] {
+			continue
+		}
+		ds.set[entry.Id] = true
+		distance := eucDist(entry.Embedding, ds.queryVector)
+		ds.items = append(ds.items, &DistSetElem{distance: distance, id: entry.Id, embedding: entry.Embedding})
+	}
+}
 
 // Add item to distance set if it is not already present
 func (ds *DistSet) Add(items ...*DistSetElem) {

@@ -2,8 +2,6 @@ package collection
 
 import (
 	"fmt"
-
-	"github.com/dgraph-io/badger/v4"
 )
 
 func eucDist(x, y []float32) float32 {
@@ -23,15 +21,15 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 	}
 	// ---------------------------
 	// Initialise distance set
-	searchSet := NewDistSet(searchSize * 2)
-	visitedSet := NewDistSet(searchSize * 2)
+	searchSet := NewDistSet(query, searchSize*2)
+	visitedSet := NewDistSet(query, searchSize*2)
 	// ---------------------------
 	// Get the start node
 	startNodeEmbedding, err := c.getNodeEmbedding(startNodeId)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not get start node embedding: %v", err)
 	}
-	searchSet.Add(&DistSetElem{distance: eucDist(startNodeEmbedding, query), id: startNodeId, embedding: startNodeEmbedding})
+	searchSet.AddEntry(Entry{Id: startNodeId, Embedding: startNodeEmbedding})
 	// ---------------------------
 	/* This loop looks to curate the closest nodes to the query vector along the
 	 * way. It is usually implemented with two sets, we try to merged them into
@@ -49,14 +47,7 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not get node (%v) neighbours: %v", node.id, err)
 		}
-		distElems := make([]*DistSetElem, len(neighbours))
-		for j, neighbour := range neighbours {
-			// TODO(nuric): move distance calculation into DistSet for
-			// optimisation, we do not need to calculate nodes that are already
-			// in the set
-			distElems[j] = &DistSetElem{distance: eucDist(neighbour.Embedding, query), id: neighbour.Id, embedding: neighbour.Embedding}
-		}
-		searchSet.Add(distElems...)
+		searchSet.AddEntry(neighbours...)
 		searchSet.Sort()
 		if searchSet.Len() > searchSize {
 			searchSet.KeepFirstK(searchSize)
@@ -71,35 +62,15 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 func (c *Collection) robustPrune(node Entry, candidateSet *DistSet, alpha float32, degreeBound int) ([]string, error) {
 	// ---------------------------
 	// Get the node neighbours
-	var nodeNeighbours []Entry
-	nodeId := node.Id
-	nodeNeighbours, err := c.getNodeNeighbours(nodeId)
-	if err == badger.ErrKeyNotFound {
-		nodeNeighbours = make([]Entry, 0)
-	} else if err != nil {
-		return nil, fmt.Errorf("could not get node (%v) neighbours for pruning: %v", nodeId, err)
-	}
-	// ---------------------------
-	// Get the node embedding
-	var nodeEmbedding []float32
-	if node.Embedding == nil {
-		nodeEmbedding, err = c.getNodeEmbedding(nodeId)
-		if err != nil {
-			return nil, fmt.Errorf("could not get node (%v) embedding for pruning: %v", nodeId, err)
-		}
-	} else {
-		nodeEmbedding = node.Embedding
+	nodeNeighbours, err := c.getNodeNeighbours(node.Id)
+	if err != nil {
+		return nil, fmt.Errorf("could not get node (%v) neighbours for pruning: %v", node.Id, err)
 	}
 	// ---------------------------
 	// Merge neighbours into candidate set
-	for _, neighbour := range nodeNeighbours {
-		if candidateSet.Contains(neighbour.Id) {
-			continue
-		}
-		// ---------------------------
-		candidateSet.Add(&DistSetElem{distance: eucDist(neighbour.Embedding, nodeEmbedding), id: neighbour.Id, embedding: neighbour.Embedding})
-	}
+	candidateSet.AddEntry(nodeNeighbours...)
 	candidateSet.Sort()
+	candidateSet.Remove(node.Id) // Exclude the node itself
 	// ---------------------------
 	// We will overwrite existing neighbours
 	newNeighours := make([]string, 0, degreeBound)

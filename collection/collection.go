@@ -78,20 +78,25 @@ func (c *Collection) putEntry(startNodeId string, entry Entry) error {
 		if err != nil {
 			return fmt.Errorf("could not get node neighbours for bidirectional edges: %v", err)
 		}
+		// Check if the neighbour already has the entry as a neighbour
+		alreadyNeighbour := false
+		for _, edgeEntry := range neighbourEdgeEntries {
+			if edgeEntry.Id == entry.Id {
+				alreadyNeighbour = true
+				break
+			}
+		}
+		if alreadyNeighbour {
+			continue
+		}
 		if len(neighbourEdgeEntries)+1 > degreeBound+rng.Intn(degreeBound) {
-			// Prune the neighbour
-			// log.Println("pruning neighbour:", neighbourId)
 			neighbourEmbedding, err := c.getNodeEmbedding(neighbourId)
 			if err != nil {
 				return fmt.Errorf("could not get node embedding for bidirectional edges: %v", err)
 			}
-			candidateSet := NewDistSet(len(neighbourEdgeEntries) + 1)
-			// Add current entry
-			candidateSet.Add(&DistSetElem{distance: eucDist(entry.Embedding, neighbourEmbedding), id: entry.Id, embedding: entry.Embedding})
-			// Add neighbour edge candidates to prune
-			for _, edgeEntry := range neighbourEdgeEntries {
-				candidateSet.Add(&DistSetElem{distance: eucDist(neighbourEmbedding, edgeEntry.Embedding), id: edgeEntry.Id, embedding: edgeEntry.Embedding})
-			}
+			neighbourEdgeEntries = append(neighbourEdgeEntries, entry)
+			candidateSet := NewDistSet(neighbourEmbedding, len(neighbourEdgeEntries))
+			candidateSet.AddEntry(neighbourEdgeEntries...)
 			candidateSet.Sort()
 			// Prune the neighbour
 			neighbourPrunedEdges, err := c.robustPrune(Entry{Id: neighbourId, Embedding: neighbourEmbedding}, candidateSet, alpha, degreeBound)
@@ -133,14 +138,14 @@ func (c *Collection) Put(entries []Entry) error {
 	fmt.Println("startId:", startId)
 	// ---------------------------
 	// var wg sync.WaitGroup
-	profileFile, _ := os.Create("cpu.prof")
+	profileFile, _ := os.Create("dump/cpu.prof")
 	pprof.StartCPUProfile(profileFile)
 	defer pprof.StopCPUProfile()
 	for i, entry := range entries {
 		if entry.Id == startId {
 			continue
 		}
-		if i > 200 {
+		if i > 1000 {
 			break
 		}
 		// wg.Add(1)
