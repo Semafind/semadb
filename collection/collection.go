@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
+	"github.com/schollz/progressbar/v3"
 	"github.com/semafind/semadb/numerical"
 )
 
@@ -134,20 +135,17 @@ func (c *Collection) Put(entries []Entry) error {
 	if err != nil {
 		return fmt.Errorf("could not get start id: %v", err)
 	}
-	fmt.Println("HERE--")
-	fmt.Println("startId:", startId)
 	// ---------------------------
 	// var wg sync.WaitGroup
 	profileFile, _ := os.Create("dump/cpu.prof")
+	bar := progressbar.Default(int64(len(entries)) - 1)
 	pprof.StartCPUProfile(profileFile)
 	defer pprof.StopCPUProfile()
-	for i, entry := range entries {
+	for _, entry := range entries {
 		if entry.Id == startId {
 			continue
 		}
-		if i > 1000 {
-			break
-		}
+		bar.Add(1)
 		// wg.Add(1)
 		// go func(entry Entry) {
 		// 	fmt.Println("putting entry:", entry.Id)
@@ -156,7 +154,6 @@ func (c *Collection) Put(entries []Entry) error {
 		// 	}
 		// 	wg.Done()
 		// }(entry)
-		fmt.Println("putting entry:", i)
 		if err := c.putEntry(startId, entry); err != nil {
 			log.Println("could not put entry:", err)
 			continue

@@ -36,7 +36,7 @@ func main() {
 		log.Fatal(err)
 	}
 	// ---------------------------
-	const N = 10_000
+	const N = 1_000
 	const dims = 128
 	// Generate random key strings
 	docIds := make([]string, N)
