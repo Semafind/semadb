@@ -75,7 +75,7 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 	// Add the bidirectional edges
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for _, neighbourId := range prunedNeighbours {
-		neighbourEdgeEntries, err := nodeCache.getNodeNeighbours(neighbourId, c)
+		neighbourEdgeEntries, err := nodeCache.getNodeNeighbours(neighbourId)
 		if err != nil {
 			return fmt.Errorf("could not get node neighbours for bidirectional edges: %v", err)
 		}
@@ -91,7 +91,7 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 			continue
 		}
 		if len(neighbourEdgeEntries)+1 > degreeBound+rng.Intn(degreeBound) {
-			neighbourEntry, err := nodeCache.getNode(neighbourId, c)
+			neighbourEntry, err := nodeCache.getNode(neighbourId)
 			if err != nil {
 				return fmt.Errorf("could not get node embedding for bidirectional edges: %v", err)
 			}
@@ -141,7 +141,7 @@ func (c *Collection) Put(entries []Entry) error {
 	bar := progressbar.Default(int64(len(entries)) - 1)
 	pprof.StartCPUProfile(profileFile)
 	defer pprof.StopCPUProfile()
-	nodeCache := NewNodeCache()
+	nodeCache := NewNodeCache(c.db)
 	for _, entry := range entries {
 		if entry.Id == startId {
 			continue
@@ -159,6 +159,9 @@ func (c *Collection) Put(entries []Entry) error {
 			log.Println("could not put entry:", err)
 			continue
 		}
+	}
+	if err := nodeCache.flush(); err != nil {
+		return fmt.Errorf("could not flush node cache: %v", err)
 	}
 	// ---------------------------
 	nodeCount, _ := c.getNodeCount()

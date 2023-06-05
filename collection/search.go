@@ -25,7 +25,7 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 	visitedSet := NewDistSet(query, searchSize*2)
 	// ---------------------------
 	// Get the start node
-	startNode, err := nodeCache.getNode(startNodeId, c)
+	startNode, err := nodeCache.getNode(startNodeId)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not get start node embedding: %v", err)
 	}
@@ -43,7 +43,7 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 		}
 		node.visited = true
 		visitedSet.Add(node)
-		neighbours, err := nodeCache.getNodeNeighbours(node.id, c)
+		neighbours, err := nodeCache.getNodeNeighbours(node.id)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not get node (%v) neighbours: %v", node.id, err)
 		}
@@ -62,7 +62,7 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 func (c *Collection) robustPrune(node Entry, candidateSet *DistSet, alpha float32, degreeBound int, nodeCache *NodeCache) ([]string, error) {
 	// ---------------------------
 	// Get the node neighbours
-	nodeNeighbours, err := nodeCache.getNodeNeighbours(node.Id, c)
+	nodeNeighbours, err := nodeCache.getNodeNeighbours(node.Id)
 	if err != nil {
 		return nil, fmt.Errorf("could not get node (%v) neighbours for pruning: %v", node.Id, err)
 	}
