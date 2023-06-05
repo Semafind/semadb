@@ -13,7 +13,7 @@ func eucDist(x, y []float32) float32 {
 	return sum
 }
 
-func (c *Collection) greedySearch(startNodeId string, query []float32, k int, searchSize int) (*DistSet, *DistSet, error) {
+func (c *Collection) greedySearch(startNodeId string, query []float32, k int, searchSize int, nodeCache *NodeCache) (*DistSet, *DistSet, error) {
 	// ---------------------------
 	// Check that the search size is greater than k
 	if searchSize < k {
@@ -25,11 +25,11 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 	visitedSet := NewDistSet(query, searchSize*2)
 	// ---------------------------
 	// Get the start node
-	startNodeEmbedding, err := c.getNodeEmbedding(startNodeId)
+	startNode, err := nodeCache.getNode(startNodeId, c)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not get start node embedding: %v", err)
 	}
-	searchSet.AddEntry(Entry{Id: startNodeId, Embedding: startNodeEmbedding})
+	searchSet.AddEntry(startNode)
 	// ---------------------------
 	/* This loop looks to curate the closest nodes to the query vector along the
 	 * way. It is usually implemented with two sets, we try to merged them into
@@ -43,7 +43,7 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 		}
 		node.visited = true
 		visitedSet.Add(node)
-		neighbours, err := c.getNodeNeighbours(node.id)
+		neighbours, err := nodeCache.getNodeNeighbours(node.id, c)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not get node (%v) neighbours: %v", node.id, err)
 		}
@@ -59,10 +59,10 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 	return searchSet, visitedSet, nil
 }
 
-func (c *Collection) robustPrune(node Entry, candidateSet *DistSet, alpha float32, degreeBound int) ([]string, error) {
+func (c *Collection) robustPrune(node Entry, candidateSet *DistSet, alpha float32, degreeBound int, nodeCache *NodeCache) ([]string, error) {
 	// ---------------------------
 	// Get the node neighbours
-	nodeNeighbours, err := c.getNodeNeighbours(node.Id)
+	nodeNeighbours, err := nodeCache.getNodeNeighbours(node.Id, c)
 	if err != nil {
 		return nil, fmt.Errorf("could not get node (%v) neighbours for pruning: %v", node.Id, err)
 	}

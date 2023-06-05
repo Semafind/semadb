@@ -56,6 +56,32 @@ func (c *Collection) getNodeEmbedding(nodeId string) ([]float32, error) {
 	return embedding, nil
 }
 
+func (c *Collection) getNodeEdges(nodeId string) ([]string, error) {
+	var edges []string
+	err := c.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get(nodeEdgeKey(nodeId))
+		if err == badger.ErrKeyNotFound {
+			return nil
+		} else if err != nil {
+			return fmt.Errorf("could not get node edges: %v", err)
+		}
+		edgeList, err := item.ValueCopy(nil)
+		if err != nil {
+			return fmt.Errorf("could not copy node edges: %v", err)
+		}
+		edges, err = bytesToEdgeList(edgeList)
+		if err != nil {
+			return fmt.Errorf("could not convert edges bytes to edge list: %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("node edges read errored: %v", err)
+	}
+	return edges, nil
+}
+
+/*
 func (c *Collection) getNodeNeighbours(nodeId string) ([]Entry, error) {
 	neighbours := make([]Entry, 0, 10)
 	// Start a new read only transaction
@@ -140,4 +166,4 @@ func (c *Collection) setNodeNeighbours(nodeId string, neighbours []string) error
 		return fmt.Errorf("node set neighbours errored: %v", err)
 	}
 	return nil
-}
+}*/

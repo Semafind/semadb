@@ -51,23 +51,23 @@ func (c *Collection) getOrSetStartId(entry *Entry) (string, error) {
 	return startId, err
 }
 
-func (c *Collection) putEntry(startNodeId string, entry Entry) error {
+func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCache) error {
 	// ---------------------------
 	searchSize := 75
 	degreeBound := 64
 	alpha := float32(1.2)
 	// ---------------------------
-	_, visitedSet, err := c.greedySearch(startNodeId, entry.Embedding, 1, searchSize)
+	_, visitedSet, err := c.greedySearch(startNodeId, entry.Embedding, 1, searchSize, nodeCache)
 	if err != nil {
 		return fmt.Errorf("could not perform greedy search: %v", err)
 	}
+	nodeCache.setNode(&entry)
 	// ---------------------------
-	prunedNeighbours, err := c.robustPrune(entry, visitedSet, alpha, degreeBound)
+	prunedNeighbours, err := c.robustPrune(entry, visitedSet, alpha, degreeBound, nodeCache)
 	if err != nil {
 		return fmt.Errorf("could not perform robust prune: %v", err)
 	}
-	entry.Edges = prunedNeighbours
-	err = c.setNodeAsEntry(entry, 1)
+	nodeCache.setNodeEdges(entry.Id, prunedNeighbours)
 	if err != nil {
 		return fmt.Errorf("could not set node as entry: %v", err)
 	}
@@ -75,7 +75,7 @@ func (c *Collection) putEntry(startNodeId string, entry Entry) error {
 	// Add the bidirectional edges
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for _, neighbourId := range prunedNeighbours {
-		neighbourEdgeEntries, err := c.getNodeNeighbours(neighbourId)
+		neighbourEdgeEntries, err := nodeCache.getNodeNeighbours(neighbourId, c)
 		if err != nil {
 			return fmt.Errorf("could not get node neighbours for bidirectional edges: %v", err)
 		}
@@ -91,22 +91,22 @@ func (c *Collection) putEntry(startNodeId string, entry Entry) error {
 			continue
 		}
 		if len(neighbourEdgeEntries)+1 > degreeBound+rng.Intn(degreeBound) {
-			neighbourEmbedding, err := c.getNodeEmbedding(neighbourId)
+			neighbourEntry, err := nodeCache.getNode(neighbourId, c)
 			if err != nil {
 				return fmt.Errorf("could not get node embedding for bidirectional edges: %v", err)
 			}
-			neighbourEdgeEntries = append(neighbourEdgeEntries, entry)
-			candidateSet := NewDistSet(neighbourEmbedding, len(neighbourEdgeEntries))
+			neighbourEdgeEntries = append(neighbourEdgeEntries, neighbourEntry)
+			candidateSet := NewDistSet(neighbourEntry.Embedding, len(neighbourEdgeEntries))
 			candidateSet.AddEntry(neighbourEdgeEntries...)
 			candidateSet.Sort()
 			// Prune the neighbour
-			neighbourPrunedEdges, err := c.robustPrune(Entry{Id: neighbourId, Embedding: neighbourEmbedding}, candidateSet, alpha, degreeBound)
+			neighbourPrunedEdges, err := c.robustPrune(*neighbourEntry, candidateSet, alpha, degreeBound, nodeCache)
 			if err != nil {
 				return fmt.Errorf("could not perform robust prune for bidirectional edges: %v", err)
 			}
-			err = c.setNodeNeighbours(neighbourId, neighbourPrunedEdges)
+			nodeCache.setNodeEdges(neighbourId, neighbourPrunedEdges)
 			if err != nil {
-				return fmt.Errorf("could not set node neighbours for bidirectional edges: %v", err)
+				return fmt.Errorf("could not set node edges for bidirectional edges: %v", err)
 			}
 		} else {
 			// Append the current entry to the edge list of the neighbour
@@ -115,7 +115,7 @@ func (c *Collection) putEntry(startNodeId string, entry Entry) error {
 				edgeList[i] = edge.Id
 			}
 			edgeList[len(neighbourEdgeEntries)] = entry.Id
-			err = c.setNodeNeighbours(neighbourId, edgeList)
+			nodeCache.setNodeEdges(neighbourId, edgeList)
 			if err != nil {
 				return fmt.Errorf("could not set node neighbours for bidirectional edges: %v", err)
 			}
@@ -141,6 +141,7 @@ func (c *Collection) Put(entries []Entry) error {
 	bar := progressbar.Default(int64(len(entries)) - 1)
 	pprof.StartCPUProfile(profileFile)
 	defer pprof.StopCPUProfile()
+	nodeCache := NewNodeCache()
 	for _, entry := range entries {
 		if entry.Id == startId {
 			continue
@@ -154,7 +155,7 @@ func (c *Collection) Put(entries []Entry) error {
 		// 	}
 		// 	wg.Done()
 		// }(entry)
-		if err := c.putEntry(startId, entry); err != nil {
+		if err := c.putEntry(startId, entry, nodeCache); err != nil {
 			log.Println("could not put entry:", err)
 			continue
 		}
