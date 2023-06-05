@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"runtime/pprof"
+	"sync"
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
@@ -95,9 +96,9 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 			if err != nil {
 				return fmt.Errorf("could not get node embedding for bidirectional edges: %v", err)
 			}
-			neighbourEdgeEntries = append(neighbourEdgeEntries, neighbourEntry)
-			candidateSet := NewDistSet(neighbourEntry.Embedding, len(neighbourEdgeEntries))
+			candidateSet := NewDistSet(neighbourEntry.Embedding, len(neighbourEdgeEntries)+1)
 			candidateSet.AddEntry(neighbourEdgeEntries...)
+			candidateSet.AddEntry(neighbourEntry)
 			candidateSet.Sort()
 			// Prune the neighbour
 			neighbourPrunedEdges, err := c.robustPrune(*neighbourEntry, candidateSet, alpha, degreeBound, nodeCache)
@@ -105,9 +106,6 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 				return fmt.Errorf("could not perform robust prune for bidirectional edges: %v", err)
 			}
 			nodeCache.setNodeEdges(neighbourId, neighbourPrunedEdges)
-			if err != nil {
-				return fmt.Errorf("could not set node edges for bidirectional edges: %v", err)
-			}
 		} else {
 			// Append the current entry to the edge list of the neighbour
 			edgeList := make([]string, len(neighbourEdgeEntries)+1)
@@ -116,9 +114,6 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 			}
 			edgeList[len(neighbourEdgeEntries)] = entry.Id
 			nodeCache.setNodeEdges(neighbourId, edgeList)
-			if err != nil {
-				return fmt.Errorf("could not set node neighbours for bidirectional edges: %v", err)
-			}
 		}
 	}
 	// ---------------------------
@@ -136,7 +131,7 @@ func (c *Collection) Put(entries []Entry) error {
 		return fmt.Errorf("could not get start id: %v", err)
 	}
 	// ---------------------------
-	// var wg sync.WaitGroup
+	var wg sync.WaitGroup
 	profileFile, _ := os.Create("dump/cpu.prof")
 	bar := progressbar.Default(int64(len(entries)) - 1)
 	pprof.StartCPUProfile(profileFile)
@@ -146,20 +141,22 @@ func (c *Collection) Put(entries []Entry) error {
 		if entry.Id == startId {
 			continue
 		}
-		bar.Add(1)
-		// wg.Add(1)
-		// go func(entry Entry) {
-		// 	fmt.Println("putting entry:", entry.Id)
-		// 	if err := c.putEntry(startId, entry); err != nil {
-		// 		log.Println("could not put entry:", err)
-		// 	}
-		// 	wg.Done()
-		// }(entry)
-		if err := c.putEntry(startId, entry, nodeCache); err != nil {
-			log.Println("could not put entry:", err)
-			continue
-		}
+		wg.Add(1)
+		go func(entry Entry) {
+			// fmt.Println("putting entry:", entry.Id)
+			if err := c.putEntry(startId, entry, nodeCache); err != nil {
+				log.Println("could not put entry:", err)
+			}
+			bar.Add(1)
+			wg.Done()
+		}(entry)
+		// bar.Add(1)
+		// if err := c.putEntry(startId, entry, nodeCache); err != nil {
+		// 	log.Println("could not put entry:", err)
+		// 	continue
+		// }
 	}
+	wg.Wait()
 	if err := nodeCache.flush(); err != nil {
 		return fmt.Errorf("could not flush node cache: %v", err)
 	}

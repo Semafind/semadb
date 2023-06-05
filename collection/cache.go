@@ -55,8 +55,11 @@ func (nc *NodeCache) getNodeNeighbours(nodeId string) ([]*Entry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not get node for neighbours: %v", err)
 	}
+	var edgeList []string
 	// Check for edges
+	nc.mutex.RLock()
 	if entry.Edges == nil {
+		nc.mutex.RUnlock()
 		nc.mutex.Lock()
 		// Secondary check
 		if entry.Edges == nil {
@@ -66,12 +69,18 @@ func (nc *NodeCache) getNodeNeighbours(nodeId string) ([]*Entry, error) {
 				return nil, fmt.Errorf("could not get node edges for neighbours: %v", err)
 			}
 			entry.Edges = edges
+			edgeList = edges
+		} else {
+			edgeList = entry.Edges
 		}
 		nc.mutex.Unlock()
+	} else {
+		edgeList = entry.Edges
+		nc.mutex.RUnlock()
 	}
 	// Fetch the neighbouring entries
-	neighbours := make([]*Entry, len(entry.Edges))
-	for i, nId := range entry.Edges {
+	neighbours := make([]*Entry, len(edgeList))
+	for i, nId := range edgeList {
 		neighbour, err := nc.getNode(nId)
 		if err != nil {
 			return nil, fmt.Errorf("could not get node neighbour (%v): %v", nId, err)

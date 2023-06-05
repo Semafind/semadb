@@ -20,8 +20,6 @@ func timeTrack(start time.Time, name string) {
 
 // ---------------------------
 
-// var globalNodeCache *nodecache.NodeCache = nodecache.NewNodeCache(100, 10*time.Minute)
-
 func main() {
 	fmt.Println("Generating random key values.")
 	defer timeTrack(time.Now(), "main")
