@@ -9,8 +9,8 @@ import (
 // Entry is a node in the graph
 // Some of the fields may be empty to optimise performance
 type Entry struct {
-	Id        string
-	Embedding []float32
+	Id        string    `json:"id" binding:"required"`
+	Embedding []float32 `json:"embedding" binding:"required"`
 	Edges     []string
 }
 

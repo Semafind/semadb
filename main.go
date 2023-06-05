@@ -2,59 +2,65 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"math/rand"
-	"time"
+	"net/http"
 
 	badger "github.com/dgraph-io/badger/v4"
+	"github.com/gin-gonic/gin"
 	"github.com/semafind/semadb/collection"
-	"github.com/semafind/semadb/numerical"
 )
 
 // ---------------------------
 
-func timeTrack(start time.Time, name string) {
-	elapsed := time.Since(start)
-	log.Printf("%v took %v", name, elapsed)
+func pongHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"message": "pong from semadb",
+	})
+}
+
+// ---------------------------
+
+type AddParams struct {
+	Entries []collection.Entry `json:"entries"`
+}
+
+func collectionPutHandler(c *gin.Context) {
+	collectionId := c.Param("collectionId")
+	var addParams AddParams
+	if err := c.ShouldBindJSON(&addParams); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
+	// Handle request into collection
+	db, err := badger.Open(badger.DefaultOptions("dump/" + collectionId))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	collection := collection.NewCollection(collectionId, db)
+	err = collection.Put(addParams.Entries)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if err := db.Close(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
+	c.JSON(http.StatusOK, gin.H{
+		"colId":      collectionId,
+		"count":      len(addParams.Entries),
+		"firstEntry": fmt.Sprintf("%+v", addParams.Entries[0]),
+	})
 }
 
 // ---------------------------
 
 func main() {
-	fmt.Println("Generating random key values.")
-	defer timeTrack(time.Now(), "main")
-	// ---------------------------
-	// randCollectionId := fmt.Sprintf("%x", time.Now().Unix())
-	randCollectionId := "test"
-	fmt.Println("randCollectionId", randCollectionId)
-	// ---------------------------
-	fmt.Println("Opening badger db 1.")
-	db, err := badger.Open(badger.DefaultOptions("dump/" + randCollectionId))
-	if err != nil {
-		log.Fatal(err)
-	}
-	// ---------------------------
-	const N = 1_000
-	const dims = 128
-	// Generate random key strings
-	docIds := make([]string, N)
-	for i := range docIds {
-		docIds[i] = fmt.Sprintf("ID%x", (i+1)*rand.Intn(1000))
-	}
-	embeddings := numerical.RandMatrix(N, dims)
-	fmt.Printf("Generated random %v key values.\n", N)
-	fmt.Printf("Example vector slice: %v\n", embeddings.Data[:2])
-	// ---------------------------
-	entries := make([]collection.Entry, N)
-	for i := range entries {
-		entries[i] = collection.Entry{Id: docIds[i], Embedding: embeddings.Data[i*dims : (i+1)*dims]}
-	}
-	collection := collection.NewCollection(randCollectionId, db)
-	err = collection.Put(entries)
-	if err != nil {
-		fmt.Println(err)
-	}
-	if err := db.Close(); err != nil {
-		log.Fatal(err)
-	}
+	router := gin.Default()
+	v1 := router.Group("/v1")
+	v1.GET("/ping", pongHandler)
+	v1.POST("/collection/:collectionId", collectionPutHandler)
+	router.Run()
 }
