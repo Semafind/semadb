@@ -55,12 +55,50 @@ func collectionPutHandler(c *gin.Context) {
 	})
 }
 
+type SearchParams struct {
+	Embedding []float32 `json:"embedding"`
+	K         int       `json:"k"`
+}
+
+func collectionSearchHandler(c *gin.Context) {
+	collectionId := c.Param("collectionId")
+	// ---------------------------
+	var searchParams SearchParams
+	if err := c.ShouldBindJSON(&searchParams); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
+	// Handle request into collection
+	db, err := badger.Open(badger.DefaultOptions("dump/" + collectionId))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	collection := collection.NewCollection(collectionId, db)
+	// ---------------------------
+	result, err := collection.Search(searchParams.Embedding, searchParams.K)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
+	c.JSON(http.StatusOK, gin.H{
+		"result": fmt.Sprintf("%+v", result),
+	})
+}
+
 // ---------------------------
 
-func main() {
+func runServer() {
 	router := gin.Default()
 	v1 := router.Group("/v1")
 	v1.GET("/ping", pongHandler)
 	v1.POST("/collection/:collectionId", collectionPutHandler)
+	v1.POST("/collection/:collectionId/search", collectionSearchHandler)
 	router.Run()
+}
+
+func main() {
+	runServer()
 }

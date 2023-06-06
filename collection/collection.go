@@ -11,7 +11,6 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/schollz/progressbar/v3"
-	"github.com/semafind/semadb/numerical"
 )
 
 // ---------------------------
@@ -167,7 +166,7 @@ func (c *Collection) Put(entries []Entry) error {
 	return nil
 }
 
-func (c *Collection) Search(values numerical.Matrix, k int) ([]string, error) {
+func (c *Collection) Search(vector []float32, k int) ([]string, error) {
 	log.Fatal("not implemented")
 	return nil, nil
 }
