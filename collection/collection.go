@@ -61,59 +61,47 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 	if err != nil {
 		return fmt.Errorf("could not perform greedy search: %v", err)
 	}
-	nodeCache.setNode(&entry)
+	newNode, err := nodeCache.getNode(entry.Id)
+	if err != nil {
+		return fmt.Errorf("could not get node from cache: %v", err)
+	}
+	newNode.setEmbeddingNoLock(entry.Embedding)
 	// ---------------------------
 	prunedNeighbours, err := c.robustPrune(entry, visitedSet, alpha, degreeBound, nodeCache)
 	if err != nil {
 		return fmt.Errorf("could not perform robust prune: %v", err)
 	}
-	nodeCache.setNodeEdges(entry.Id, prunedNeighbours)
-	if err != nil {
-		return fmt.Errorf("could not set node as entry: %v", err)
-	}
+	newNode.setEdgesNoLock(prunedNeighbours)
 	// ---------------------------
 	// Add the bidirectional edges
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for _, neighbourId := range prunedNeighbours {
-		neighbourEdgeEntries, err := nodeCache.getNodeNeighbours(neighbourId)
+		neighbour, err := nodeCache.getNode(neighbourId)
+		if err != nil {
+			return fmt.Errorf("could not get node from cache for bidirectional edges: %v", err)
+		}
+		neighbour.mutex.Lock()
+		neighbourNeighbours, err := nodeCache.getNodeNeighbours(neighbourId)
 		if err != nil {
 			return fmt.Errorf("could not get node neighbours for bidirectional edges: %v", err)
 		}
-		// Check if the neighbour already has the entry as a neighbour
-		alreadyNeighbour := false
-		for _, edgeEntry := range neighbourEdgeEntries {
-			if edgeEntry.Id == entry.Id {
-				alreadyNeighbour = true
-				break
-			}
-		}
-		if alreadyNeighbour {
-			continue
-		}
-		if len(neighbourEdgeEntries)+1 > degreeBound+rng.Intn(degreeBound) {
-			neighbourEntry, err := nodeCache.getNode(neighbourId)
-			if err != nil {
-				return fmt.Errorf("could not get node embedding for bidirectional edges: %v", err)
-			}
-			candidateSet := NewDistSet(neighbourEntry.Embedding, len(neighbourEdgeEntries)+1)
-			candidateSet.AddEntry(neighbourEdgeEntries...)
-			candidateSet.AddEntry(neighbourEntry)
+		// ---------------------------
+		if len(neighbourNeighbours)+1 > degreeBound+rng.Intn(degreeBound) {
+			candidateSet := NewDistSet(neighbour.Embedding, len(neighbourNeighbours)+1)
+			candidateSet.AddEntry(neighbourNeighbours...)
+			candidateSet.AddEntry(newNode)
 			candidateSet.Sort()
 			// Prune the neighbour
-			neighbourPrunedEdges, err := c.robustPrune(*neighbourEntry, candidateSet, alpha, degreeBound, nodeCache)
+			neighbourPrunedEdges, err := c.robustPrune(neighbour.Entry, candidateSet, alpha, degreeBound, nodeCache)
 			if err != nil {
 				return fmt.Errorf("could not perform robust prune for bidirectional edges: %v", err)
 			}
-			nodeCache.setNodeEdges(neighbourId, neighbourPrunedEdges)
+			neighbour.setEdgesNoLock(neighbourPrunedEdges)
 		} else {
 			// Append the current entry to the edge list of the neighbour
-			edgeList := make([]string, len(neighbourEdgeEntries)+1)
-			for i, edge := range neighbourEdgeEntries {
-				edgeList[i] = edge.Id
-			}
-			edgeList[len(neighbourEdgeEntries)] = entry.Id
-			nodeCache.setNodeEdges(neighbourId, edgeList)
+			neighbour.setEdgesNoLock(append(neighbour.Edges, newNode.Id))
 		}
+		neighbour.mutex.Unlock()
 	}
 	// ---------------------------
 	return nil

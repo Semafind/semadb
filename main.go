@@ -152,7 +152,12 @@ func loadHDF5(dataset string) {
 	}
 	collection := collection.NewCollection(dataset, db)
 	// ---------------------------
-	collection.Put(entries[:1000])
+	if err := collection.Put(entries[:100000]); err != nil {
+		log.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func main() {

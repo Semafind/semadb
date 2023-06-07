@@ -28,6 +28,9 @@ func (nc *NodeCache) getNodeEmbedding(nodeId string) ([]float32, error) {
 	var embedding []float32
 	err := nc.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(nodeEmbedKey(nodeId))
+		if err == badger.ErrKeyNotFound {
+			return nil
+		}
 		if err != nil {
 			return fmt.Errorf("could not get node embedding: %v", err)
 		}

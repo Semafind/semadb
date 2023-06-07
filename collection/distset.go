@@ -59,7 +59,7 @@ func (ds *DistSet) String() string {
 // ---------------------------
 
 // Adding entries only computes distance if needed
-func (ds *DistSet) AddEntry(entries ...*Entry) {
+func (ds *DistSet) AddEntry(entries ...*CacheEntry) {
 	for _, entry := range entries {
 		if ds.set[entry.Id] {
 			continue
