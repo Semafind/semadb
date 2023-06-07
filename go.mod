@@ -9,6 +9,7 @@ require (
 	github.com/stretchr/testify v1.8.3
 	github.com/vmihailenco/msgpack/v5 v5.3.5
 	gonum.org/v1/gonum v0.13.0
+	gonum.org/v1/hdf5 v0.0.0-20210714002203-8c5d23bc6946
 )
 
 require (

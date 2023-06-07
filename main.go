@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 
 	badger "github.com/dgraph-io/badger/v4"
 	"github.com/gin-gonic/gin"
 	"github.com/semafind/semadb/collection"
+	"gonum.org/v1/hdf5"
 )
 
 // ---------------------------
@@ -99,6 +101,61 @@ func runServer() {
 	router.Run()
 }
 
+// ---------------------------
+
+func loadHDF5(dataset string) {
+	fname := fmt.Sprintf("data/%s.hdf5", dataset)
+	log.Println("Loading dataset", fname)
+	f, err := hdf5.OpenFile(fname, hdf5.F_ACC_RDONLY)
+	if err != nil {
+		log.Fatal(err)
+	}
+	// ---------------------------
+	dset, err := f.OpenDataset("train")
+	if err != nil {
+		log.Fatal(err)
+	}
+	// ---------------------------
+	dspace := dset.Space()
+	dataBuf := make([]float32, dspace.SimpleExtentNPoints())
+	if err := dset.Read(&dataBuf); err != nil {
+		log.Fatal(err)
+	}
+	dims, _, err := dspace.SimpleExtentDims()
+	if err != nil {
+		log.Fatal(err)
+	}
+	// ---------------------------
+	dset.Close()
+	f.Close()
+	// ---------------------------
+	// matrix := numerical.Matrix{
+	// 	Rows:   int(dims[0]),
+	// 	Cols:   int(dims[1]),
+	// 	Stride: int(dims[1]),
+	// 	Data:   dataBuf,
+	// }
+	// fmt.Println(matrix.Cols)
+	// ---------------------------
+	log.Println("Creating entries", dims)
+	entries := make([]collection.Entry, dims[0])
+	for i := uint(0); i < dims[0]; i++ {
+		entries[i] = collection.Entry{
+			Id:        fmt.Sprint(i),
+			Embedding: dataBuf[i*dims[1] : (i+1)*dims[1]],
+		}
+	}
+	// ---------------------------
+	db, err := badger.Open(badger.DefaultOptions("dump/" + dataset))
+	if err != nil {
+		log.Fatal(err)
+	}
+	collection := collection.NewCollection(dataset, db)
+	// ---------------------------
+	collection.Put(entries[:1000])
+}
+
 func main() {
-	runServer()
+	// runServer()
+	loadHDF5("glove-25-angular")
 }
