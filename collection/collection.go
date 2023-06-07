@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"runtime"
 	"runtime/pprof"
 	"sync"
 	"time"
@@ -124,25 +125,29 @@ func (c *Collection) Put(entries []Entry) error {
 	pprof.StartCPUProfile(profileFile)
 	defer pprof.StopCPUProfile()
 	nodeCache := NewNodeCache(c.db)
+	putQueue := make(chan Entry, len(entries))
+	// Start the workers
+	numWorkers := runtime.NumCPU()
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			for entry := range putQueue {
+				if err := c.putEntry(startId, entry, nodeCache); err != nil {
+					log.Println("could not put entry:", err)
+				}
+				bar.Add(1)
+				wg.Done()
+			}
+		}()
+	}
+	// Submit the entries to the workers
 	for _, entry := range entries {
 		if entry.Id == startId {
 			continue
 		}
 		wg.Add(1)
-		go func(entry Entry) {
-			// fmt.Println("putting entry:", entry.Id)
-			if err := c.putEntry(startId, entry, nodeCache); err != nil {
-				log.Println("could not put entry:", err)
-			}
-			bar.Add(1)
-			wg.Done()
-		}(entry)
-		// bar.Add(1)
-		// if err := c.putEntry(startId, entry, nodeCache); err != nil {
-		// 	log.Println("could not put entry:", err)
-		// 	continue
-		// }
+		putQueue <- entry
 	}
+	close(putQueue)
 	wg.Wait()
 	if err := nodeCache.flush(); err != nil {
 		return fmt.Errorf("could not flush node cache: %v", err)
