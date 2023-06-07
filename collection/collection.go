@@ -1,12 +1,14 @@
 package collection
 
 import (
+	"encoding/csv"
 	"fmt"
 	"log"
 	"math/rand"
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"sync"
 	"time"
 
@@ -155,6 +157,8 @@ func (c *Collection) Put(entries []Entry) error {
 	// ---------------------------
 	nodeCount, _ := c.getNodeCount()
 	// ---------------------------
+	c.dumpCacheToCSVGraph("dump/graph.csv", nodeCache)
+	// ---------------------------
 	fmt.Println("Final node count:", nodeCount)
 	return nil
 }
@@ -162,4 +166,30 @@ func (c *Collection) Put(entries []Entry) error {
 func (c *Collection) Search(vector []float32, k int) ([]string, error) {
 	log.Fatal("not implemented")
 	return nil, nil
+}
+
+func (c *Collection) dumpCacheToCSVGraph(fname string, nc *NodeCache) error {
+	// Check if fname ends with csv
+	if !strings.HasSuffix(fname, ".csv") {
+		fname += ".csv"
+	}
+	// ---------------------------
+	// Open the file
+	f, err := os.Create(fname)
+	if err != nil {
+		return fmt.Errorf("could not create file: %v", err)
+	}
+	defer f.Close()
+	// ---------------------------
+	csvWriter := csv.NewWriter(f)
+	// ---------------------------
+	for _, ce := range nc.cache {
+		edgeListRow := make([]string, len(ce.Edges)+1)
+		edgeListRow[0] = ce.Id
+		copy(edgeListRow[1:], ce.Edges)
+		if err := csvWriter.Write(edgeListRow); err != nil {
+			return fmt.Errorf("could not write to csv: %v", err)
+		}
+	}
+	return nil
 }
