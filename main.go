@@ -1,9 +1,14 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	badger "github.com/dgraph-io/badger/v4"
 	"github.com/gin-gonic/gin"
@@ -21,6 +26,10 @@ func pongHandler(c *gin.Context) {
 
 // ---------------------------
 
+var globalDB *badger.DB
+
+// ---------------------------
+
 type AddParams struct {
 	Entries []collection.Entry `json:"entries"`
 }
@@ -34,18 +43,9 @@ func collectionPutHandler(c *gin.Context) {
 	}
 	// ---------------------------
 	// Handle request into collection
-	db, err := badger.Open(badger.DefaultOptions("dump/" + collectionId))
+	collection := collection.NewCollection(collectionId, globalDB)
+	err := collection.Put(addParams.Entries)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	collection := collection.NewCollection(collectionId, db)
-	err = collection.Put(addParams.Entries)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if err := db.Close(); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -72,33 +72,28 @@ func collectionSearchHandler(c *gin.Context) {
 	}
 	// ---------------------------
 	// Handle request into collection
-	db, err := badger.Open(badger.DefaultOptions("dump/" + collectionId))
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	collection := collection.NewCollection(collectionId, db)
+	collection := collection.NewCollection(collectionId, globalDB)
 	// ---------------------------
-	result, err := collection.Search(searchParams.Embedding, searchParams.K)
+	nearestIds, err := collection.Search(searchParams.Embedding, searchParams.K)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	// ---------------------------
 	c.JSON(http.StatusOK, gin.H{
-		"result": fmt.Sprintf("%+v", result),
+		"ids": nearestIds,
 	})
 }
 
 // ---------------------------
 
-func runServer() {
+func createRouter() *gin.Engine {
 	router := gin.Default()
 	v1 := router.Group("/v1")
 	v1.GET("/ping", pongHandler)
 	v1.POST("/collection/:collectionId", collectionPutHandler)
 	v1.POST("/collection/:collectionId/search", collectionSearchHandler)
-	router.Run()
+	return router
 }
 
 // ---------------------------
@@ -160,7 +155,50 @@ func loadHDF5(dataset string) {
 	}
 }
 
+func runServer(router *gin.Engine) {
+	// router.Run()
+	db, err := badger.Open(badger.DefaultOptions("dump/benchmark"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	globalDB = db
+	// ---------------------------
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: router,
+	}
+	go func() {
+		// service connections
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %s\n", err)
+		}
+	}()
+	// ---------------------------
+	// Wait for interrupt signal to gracefully shutdown the server with
+	// a timeout of 5 seconds.
+	quit := make(chan os.Signal, 1)
+	// kill (no param) default send syscanll.SIGTERM
+	// kill -2 is syscall.SIGINT
+	// kill -9 is syscall. SIGKILL but can"t be catch, so don't need add it
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutdown Server ...")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := server.Shutdown(ctx); err != nil {
+		log.Fatal("Server Shutdown:", err)
+	}
+	cancel()
+	if err := globalDB.Close(); err != nil {
+		log.Fatal(err)
+	}
+	// catching ctx.Done(). timeout of 5 seconds.
+	<-ctx.Done()
+	log.Println("Server exiting")
+}
+
 func main() {
-	// runServer()
-	loadHDF5("glove-25-angular")
+	router := createRouter()
+	runServer(router)
+	// loadHDF5("glove-25-angular")
 }

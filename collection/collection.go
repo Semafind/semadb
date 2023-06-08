@@ -157,18 +157,30 @@ func (c *Collection) Put(entries []Entry) error {
 	// ---------------------------
 	nodeCount, _ := c.getNodeCount()
 	// ---------------------------
-	c.dumpCacheToCSVGraph("dump/graph.csv", nodeCache)
+	// c.DumpCacheToCSVGraph("dump/graph.csv", nodeCache)
 	// ---------------------------
 	fmt.Println("Final node count:", nodeCount)
 	return nil
 }
 
 func (c *Collection) Search(vector []float32, k int) ([]string, error) {
-	log.Fatal("not implemented")
-	return nil, nil
+	// ---------------------------
+	searchSize := 75
+	nodeCache := NewNodeCache(c.db)
+	// ---------------------------
+	searchSet, _, err := c.greedySearch("0", vector, k, searchSize, nodeCache)
+	if err != nil {
+		return nil, fmt.Errorf("could not perform greedy search: %v", err)
+	}
+	searchSet.KeepFirstK(k)
+	nearestNodeIds := make([]string, len(searchSet.items))
+	for i, item := range searchSet.items {
+		nearestNodeIds[i] = item.id
+	}
+	return nearestNodeIds, nil
 }
 
-func (c *Collection) dumpCacheToCSVGraph(fname string, nc *NodeCache) error {
+func (c *Collection) DumpCacheToCSVGraph(fname string, nc *NodeCache) error {
 	// Check if fname ends with csv
 	if !strings.HasSuffix(fname, ".csv") {
 		fname += ".csv"

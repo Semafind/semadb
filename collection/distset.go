@@ -111,7 +111,9 @@ func (ds *DistSet) KeepFirstK(k int) {
 		delete(ds.set, ds.items[i].id)
 		ds.items[i] = nil // avoid memory leak
 	}
-	ds.items = ds.items[:k]
+	if k < len(ds.items) {
+		ds.items = ds.items[:k]
+	}
 }
 
 func (ds *DistSet) Remove(id string) {
