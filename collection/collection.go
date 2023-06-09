@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"strings"
@@ -13,18 +14,118 @@ import (
 	"time"
 
 	"github.com/dgraph-io/badger/v4"
+	"github.com/google/uuid"
 	"github.com/schollz/progressbar/v3"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // ---------------------------
 
+type CollectionConfig struct {
+	SearchSize  int     `json:"searchSize" default:"75"`
+	DegreeBound int     `json:"degreeBound" default:"64"`
+	Alpha       float32 `json:"alpha" default:"1.2"`
+	EmbedDim    int     `json:"embedDim" binding:"required"`
+	DistMetric  string  `json:"distMetric" default:"euclidean"`
+	Description string  `json:"description"`
+}
+
 type Collection struct {
-	Id string
-	db *badger.DB
+	Id     string
+	Config CollectionConfig
+	db     *badger.DB
 }
 
 func NewCollection(id string, db *badger.DB) *Collection {
 	return &Collection{Id: id, db: db}
+}
+
+func NewNewCollection(config CollectionConfig) (*Collection, error) {
+	newId, err := uuid.NewUUID()
+	if err != nil {
+		return nil, fmt.Errorf("could not generate new collection id: %v", err)
+	}
+	colId := newId.String()
+	// ---------------------------
+	dbDir, ok := os.LookupEnv("DBDIR")
+	if !ok {
+		dbDir = "dump"
+	}
+	collectionDir := filepath.Join(dbDir, colId)
+	// ---------------------------
+	// Check if collection directory already exists
+	// This check almost certainly won't fail since UUIDs have low chance of collision
+	if _, err := os.Stat(collectionDir); !os.IsNotExist(err) {
+		return nil, fmt.Errorf("collection already exists: %v", collectionDir)
+	}
+	// ---------------------------
+	// Create collection directory
+	db, err := badger.Open(badger.DefaultOptions(collectionDir))
+	if err != nil {
+		return nil, fmt.Errorf("could not open database for collection (%v): %v", colId, err)
+	}
+	// ---------------------------
+	newCollection := &Collection{Id: colId, Config: config, db: db}
+	newCollection.writeConfig()
+	// ---------------------------
+	return newCollection, nil
+}
+
+func OpenCollection(colId string) (*Collection, error) {
+	// ---------------------------
+	dbDir, ok := os.LookupEnv("DBDIR")
+	if !ok {
+		dbDir = "dump"
+	}
+	collectionDir := filepath.Join(dbDir, colId)
+	// ---------------------------
+	// Check if collection directory already exists
+	if _, err := os.Stat(collectionDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("collection does not exist: %v", collectionDir)
+	}
+	// ---------------------------
+	// Open collection directory
+	db, err := badger.Open(badger.DefaultOptions(collectionDir))
+	if err != nil {
+		return nil, fmt.Errorf("could not open database for collection (%v): %v", colId, err)
+	}
+	// ---------------------------
+	newCollection := &Collection{Id: colId, db: db}
+	newCollection.readConfig()
+	// ---------------------------
+	return newCollection, nil
+}
+
+func (c *Collection) writeConfig() error {
+	err := c.db.Update(func(txn *badger.Txn) error {
+		configBytes, err := msgpack.Marshal(c.Config)
+		if err != nil {
+			return fmt.Errorf("could not marshal config: %v", err)
+		}
+		err = txn.Set([]byte(CONFIGKEY), configBytes)
+		if err != nil {
+			return fmt.Errorf("could not write config: %v", err)
+		}
+		return nil
+	})
+	return err
+}
+
+func (c *Collection) readConfig() error {
+	err := c.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(CONFIGKEY))
+		if err != nil {
+			return fmt.Errorf("could not get config: %v", err)
+		}
+		return item.Value(func(val []byte) error {
+			err = msgpack.Unmarshal(val, &c.Config)
+			if err != nil {
+				return fmt.Errorf("could not unmarshal config: %v", err)
+			}
+			return nil
+		})
+	})
+	return err
 }
 
 func (c *Collection) getOrSetStartId(entry *Entry) (string, error) {
