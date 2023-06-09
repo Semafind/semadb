@@ -175,9 +175,9 @@ func (c *Collection) getOrSetStartId(entry *Entry) (string, error) {
 
 func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCache) error {
 	// ---------------------------
-	searchSize := 75
-	degreeBound := 64
-	alpha := float32(1.2)
+	searchSize := c.Config.SearchSize
+	degreeBound := c.Config.DegreeBound
+	alpha := c.Config.Alpha
 	// ---------------------------
 	_, visitedSet, err := c.greedySearch(startNodeId, entry.Embedding, 1, searchSize, nodeCache)
 	if err != nil {
@@ -244,7 +244,7 @@ func (c *Collection) Put(entries []Entry) error {
 	bar := progressbar.Default(int64(len(entries)) - 1)
 	putQueue := make(chan Entry, len(entries))
 	// Start the workers
-	numWorkers := runtime.NumCPU()
+	numWorkers := runtime.NumCPU() * 4
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			for entry := range putQueue {
@@ -280,9 +280,7 @@ func (c *Collection) Put(entries []Entry) error {
 
 func (c *Collection) Search(vector []float32, k int) ([]string, error) {
 	// ---------------------------
-	searchSize := 75
-	// ---------------------------
-	searchSet, _, err := c.greedySearch("0", vector, k, searchSize, c.cache)
+	searchSet, _, err := c.greedySearch("0", vector, k, c.Config.SearchSize, c.cache)
 	if err != nil {
 		return nil, fmt.Errorf("could not perform greedy search: %v", err)
 	}

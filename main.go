@@ -30,6 +30,38 @@ var benchmarkCollection *collection.Collection
 
 // ---------------------------
 
+func newCollectionHandler(c *gin.Context) {
+	var config collection.CollectionConfig
+	if err := c.ShouldBindJSON(&config); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	log.Println("config:", config)
+	// ---------------------------
+	if benchmarkCollection != nil {
+		benchmarkCollection.Close()
+		// Delete dump directory
+		dbDir, ok := os.LookupEnv("DBDIR")
+		if !ok {
+			dbDir = "dump"
+		}
+		os.RemoveAll(dbDir)
+	}
+	// ---------------------------
+	collection, err := collection.NewCollection(config)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	benchmarkCollection = collection
+	// ---------------------------
+	c.JSON(http.StatusOK, gin.H{
+		"collectionId": collection.Id,
+	})
+}
+
+// ---------------------------
+
 type AddParams struct {
 	Entries []collection.Entry `json:"entries"`
 }
@@ -89,6 +121,7 @@ func createRouter() *gin.Engine {
 	router := gin.Default()
 	v1 := router.Group("/v1")
 	v1.GET("/ping", pongHandler)
+	v1.POST("/collection", newCollectionHandler)
 	v1.POST("/collection/:collectionId", collectionPutHandler)
 	v1.POST("/collection/:collectionId/search", collectionSearchHandler)
 	return router
@@ -159,11 +192,11 @@ func loadHDF5(dataset string) {
 
 func runServer(router *gin.Engine) {
 	// router.Run()
-	col, err := collection.OpenCollection("benchmark")
-	if err != nil {
-		log.Fatal(err)
-	}
-	benchmarkCollection = col
+	// col, err := collection.OpenCollection("benchmark")
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// benchmarkCollection = col
 	// ---------------------------
 	server := &http.Server{
 		Addr:    ":8080",
