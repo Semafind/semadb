@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"runtime/pprof"
 	"strings"
 	"sync"
 	"time"
@@ -223,10 +222,7 @@ func (c *Collection) Put(entries []Entry) error {
 	}
 	// ---------------------------
 	var wg sync.WaitGroup
-	profileFile, _ := os.Create("dump/cpu.prof")
 	bar := progressbar.Default(int64(len(entries)) - 1)
-	pprof.StartCPUProfile(profileFile)
-	defer pprof.StopCPUProfile()
 	nodeCache := NewNodeCache(c.db)
 	putQueue := make(chan Entry, len(entries))
 	// Start the workers

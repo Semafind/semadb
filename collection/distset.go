@@ -6,7 +6,6 @@ import (
 )
 
 type DistSetElem struct {
-	visited   bool
 	distance  float32
 	id        string
 	embedding []float32

@@ -37,11 +37,10 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 	 * nodes in our search list. */
 	for i := 0; i < searchSet.Len(); {
 		node := searchSet.items[i]
-		if node.visited {
+		if visitedSet.Contains(node.id) {
 			i++
 			continue
 		}
-		node.visited = true
 		visitedSet.Add(node)
 		neighbours, err := nodeCache.getNodeNeighbours(node.id)
 		if err != nil {

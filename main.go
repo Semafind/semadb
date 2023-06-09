@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime/pprof"
 	"syscall"
 	"time"
 
@@ -141,15 +142,19 @@ func loadHDF5(dataset string) {
 		}
 	}
 	// ---------------------------
-	db, err := badger.Open(badger.DefaultOptions("dump/" + dataset))
+	db, err := badger.Open(badger.DefaultOptions("dump/benchmark"))
 	if err != nil {
 		log.Fatal(err)
 	}
 	collection := collection.NewCollection(dataset, db)
 	// ---------------------------
-	if err := collection.Put(entries[:100000]); err != nil {
+	profileFile, _ := os.Create("dump/cpu.prof")
+	pprof.StartCPUProfile(profileFile)
+	defer pprof.StopCPUProfile()
+	if err := collection.Put(entries); err != nil {
 		log.Fatal(err)
 	}
+	// ---------------------------
 	if err := db.Close(); err != nil {
 		log.Fatal(err)
 	}
@@ -200,5 +205,6 @@ func runServer(router *gin.Engine) {
 func main() {
 	router := createRouter()
 	runServer(router)
-	// loadHDF5("glove-25-angular")
+	// ---------------------------
+	// loadHDF5("gist-960-euclidean")
 }
