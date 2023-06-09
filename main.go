@@ -11,7 +11,6 @@ import (
 	"syscall"
 	"time"
 
-	badger "github.com/dgraph-io/badger/v4"
 	"github.com/gin-gonic/gin"
 	"github.com/semafind/semadb/collection"
 	"gonum.org/v1/hdf5"
@@ -27,7 +26,7 @@ func pongHandler(c *gin.Context) {
 
 // ---------------------------
 
-var globalDB *badger.DB
+var benchmarkCollection *collection.Collection
 
 // ---------------------------
 
@@ -44,8 +43,7 @@ func collectionPutHandler(c *gin.Context) {
 	}
 	// ---------------------------
 	// Handle request into collection
-	collection := collection.NewCollection(collectionId, globalDB)
-	err := collection.Put(addParams.Entries)
+	err := benchmarkCollection.Put(addParams.Entries)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -64,7 +62,7 @@ type SearchParams struct {
 }
 
 func collectionSearchHandler(c *gin.Context) {
-	collectionId := c.Param("collectionId")
+	// collectionId := c.Param("collectionId")
 	// ---------------------------
 	var searchParams SearchParams
 	if err := c.ShouldBindJSON(&searchParams); err != nil {
@@ -73,9 +71,8 @@ func collectionSearchHandler(c *gin.Context) {
 	}
 	// ---------------------------
 	// Handle request into collection
-	collection := collection.NewCollection(collectionId, globalDB)
 	// ---------------------------
-	nearestIds, err := collection.Search(searchParams.Embedding, searchParams.K)
+	nearestIds, err := benchmarkCollection.Search(searchParams.Embedding, searchParams.K)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -142,11 +139,11 @@ func loadHDF5(dataset string) {
 		}
 	}
 	// ---------------------------
-	db, err := badger.Open(badger.DefaultOptions("dump/benchmark"))
+	config := collection.DefaultCollectionConfig(dims[1])
+	collection, err := collection.NewCollection(config)
 	if err != nil {
 		log.Fatal(err)
 	}
-	collection := collection.NewCollection(dataset, db)
 	// ---------------------------
 	profileFile, _ := os.Create("dump/cpu.prof")
 	pprof.StartCPUProfile(profileFile)
@@ -155,18 +152,18 @@ func loadHDF5(dataset string) {
 		log.Fatal(err)
 	}
 	// ---------------------------
-	if err := db.Close(); err != nil {
+	if err := collection.Close(); err != nil {
 		log.Fatal(err)
 	}
 }
 
 func runServer(router *gin.Engine) {
 	// router.Run()
-	db, err := badger.Open(badger.DefaultOptions("dump/benchmark"))
+	col, err := collection.OpenCollection("benchmark")
 	if err != nil {
 		log.Fatal(err)
 	}
-	globalDB = db
+	benchmarkCollection = col
 	// ---------------------------
 	server := &http.Server{
 		Addr:    ":8080",
@@ -194,7 +191,7 @@ func runServer(router *gin.Engine) {
 		log.Fatal("Server Shutdown:", err)
 	}
 	cancel()
-	if err := globalDB.Close(); err != nil {
+	if err := benchmarkCollection.Close(); err != nil {
 		log.Fatal(err)
 	}
 	// catching ctx.Done(). timeout of 5 seconds.

@@ -24,22 +24,31 @@ type CollectionConfig struct {
 	SearchSize  int     `json:"searchSize" default:"75"`
 	DegreeBound int     `json:"degreeBound" default:"64"`
 	Alpha       float32 `json:"alpha" default:"1.2"`
-	EmbedDim    int     `json:"embedDim" binding:"required"`
+	EmbedDim    uint    `json:"embedDim" binding:"required"`
 	DistMetric  string  `json:"distMetric" default:"euclidean"`
 	Description string  `json:"description"`
 }
+
+func DefaultCollectionConfig(embedDim uint) CollectionConfig {
+	return CollectionConfig{
+		SearchSize:  75,
+		DegreeBound: 64,
+		Alpha:       1.2,
+		EmbedDim:    embedDim,
+		DistMetric:  "euclidean",
+	}
+}
+
+// ---------------------------
 
 type Collection struct {
 	Id     string
 	Config CollectionConfig
 	db     *badger.DB
+	cache  *NodeCache
 }
 
-func NewCollection(id string, db *badger.DB) *Collection {
-	return &Collection{Id: id, db: db}
-}
-
-func NewNewCollection(config CollectionConfig) (*Collection, error) {
+func NewCollection(config CollectionConfig) (*Collection, error) {
 	newId, err := uuid.NewUUID()
 	if err != nil {
 		return nil, fmt.Errorf("could not generate new collection id: %v", err)
@@ -64,7 +73,7 @@ func NewNewCollection(config CollectionConfig) (*Collection, error) {
 		return nil, fmt.Errorf("could not open database for collection (%v): %v", colId, err)
 	}
 	// ---------------------------
-	newCollection := &Collection{Id: colId, Config: config, db: db}
+	newCollection := &Collection{Id: colId, Config: config, db: db, cache: NewNodeCache(db)}
 	newCollection.writeConfig()
 	// ---------------------------
 	return newCollection, nil
@@ -89,10 +98,20 @@ func OpenCollection(colId string) (*Collection, error) {
 		return nil, fmt.Errorf("could not open database for collection (%v): %v", colId, err)
 	}
 	// ---------------------------
-	newCollection := &Collection{Id: colId, db: db}
+	newCollection := &Collection{Id: colId, db: db, cache: NewNodeCache(db)}
 	newCollection.readConfig()
 	// ---------------------------
 	return newCollection, nil
+}
+
+func (c *Collection) Close() error {
+	if err := c.cache.flush(); err != nil {
+		return fmt.Errorf("could not flush cache on close: %v", err)
+	}
+	if err := c.db.Close(); err != nil {
+		return fmt.Errorf("could not close database: %v", err)
+	}
+	return nil
 }
 
 func (c *Collection) writeConfig() error {
@@ -223,14 +242,13 @@ func (c *Collection) Put(entries []Entry) error {
 	// ---------------------------
 	var wg sync.WaitGroup
 	bar := progressbar.Default(int64(len(entries)) - 1)
-	nodeCache := NewNodeCache(c.db)
 	putQueue := make(chan Entry, len(entries))
 	// Start the workers
 	numWorkers := runtime.NumCPU()
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			for entry := range putQueue {
-				if err := c.putEntry(startId, entry, nodeCache); err != nil {
+				if err := c.putEntry(startId, entry, c.cache); err != nil {
 					log.Println("could not put entry:", err)
 				}
 				bar.Add(1)
@@ -248,7 +266,7 @@ func (c *Collection) Put(entries []Entry) error {
 	}
 	close(putQueue)
 	wg.Wait()
-	if err := nodeCache.flush(); err != nil {
+	if err := c.cache.flush(); err != nil {
 		return fmt.Errorf("could not flush node cache: %v", err)
 	}
 	// ---------------------------
@@ -263,9 +281,8 @@ func (c *Collection) Put(entries []Entry) error {
 func (c *Collection) Search(vector []float32, k int) ([]string, error) {
 	// ---------------------------
 	searchSize := 75
-	nodeCache := NewNodeCache(c.db)
 	// ---------------------------
-	searchSet, _, err := c.greedySearch("0", vector, k, searchSize, nodeCache)
+	searchSet, _, err := c.greedySearch("0", vector, k, searchSize, c.cache)
 	if err != nil {
 		return nil, fmt.Errorf("could not perform greedy search: %v", err)
 	}
