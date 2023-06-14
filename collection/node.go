@@ -75,3 +75,50 @@ func (nc *NodeCache) getNodeEdges(nodeId string) ([]string, error) {
 	}
 	return edges, nil
 }
+
+func (c *Collection) getOrSetStartId(entry *Entry, override bool) (string, error) {
+	// ---------------------------
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	// ---------------------------
+	// Read-only case
+	if entry == nil && !override {
+		if c.startNodeId != "" {
+			return c.startNodeId, nil
+		}
+		err := c.db.View(func(txn *badger.Txn) error {
+			item, err := txn.Get([]byte(STARTIDKEY))
+			if err != nil {
+				return fmt.Errorf("could not get start id: %v", err)
+			}
+			return item.Value(func(val []byte) error {
+				c.startNodeId = string(val)
+				return nil
+			})
+		})
+		return c.startNodeId, err
+	}
+	// ---------------------------
+	// Write case
+	if entry != nil {
+		if !override && c.startNodeId != "" {
+			return c.startNodeId, nil
+		}
+		err := c.db.Update(func(txn *badger.Txn) error {
+			txn.Set([]byte(STARTIDKEY), []byte(entry.Id))
+			embedding, err := float32ToBytes(entry.Embedding)
+			if err != nil {
+				return fmt.Errorf("could not convert embedding to bytes: %v", err)
+			}
+			txn.Set(nodeEmbedKey(entry.Id), embedding)
+			return c.increaseNodeCount(txn, 1)
+		})
+		if err != nil {
+			return "", fmt.Errorf("could not set start id: %v", err)
+		}
+		c.startNodeId = entry.Id
+		return c.startNodeId, nil
+	}
+	// ---------------------------
+	return "", fmt.Errorf("could not set start id: invalid arguments (entry: %v, override: %v)", entry, override)
+}

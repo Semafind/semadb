@@ -42,10 +42,12 @@ func DefaultCollectionConfig(embedDim uint) CollectionConfig {
 // ---------------------------
 
 type Collection struct {
-	Id     string
-	Config CollectionConfig
-	db     *badger.DB
-	cache  *NodeCache
+	Id          string
+	Config      CollectionConfig
+	db          *badger.DB
+	cache       *NodeCache
+	startNodeId string
+	mutex       sync.Mutex
 }
 
 func NewCollection(config CollectionConfig) (*Collection, error) {
@@ -101,6 +103,11 @@ func OpenCollection(colId string) (*Collection, error) {
 	newCollection := &Collection{Id: colId, db: db, cache: NewNodeCache(db)}
 	newCollection.readConfig()
 	// ---------------------------
+	_, err = newCollection.getOrSetStartId(nil, false)
+	if err != nil {
+		return nil, fmt.Errorf("could not get or set start node id: %v", err)
+	}
+	// ---------------------------
 	return newCollection, nil
 }
 
@@ -144,33 +151,6 @@ func (c *Collection) readConfig() error {
 		})
 	})
 	return err
-}
-
-func (c *Collection) getOrSetStartId(entry *Entry) (string, error) {
-	startId := ""
-	err := c.db.Update(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte(STARTIDKEY))
-		if err == badger.ErrKeyNotFound {
-			// Initialise the database with the first node
-			txn.Set([]byte(STARTIDKEY), []byte(entry.Id))
-			embedding, err := float32ToBytes(entry.Embedding)
-			if err != nil {
-				return fmt.Errorf("could not convert embedding to bytes: %v", err)
-			}
-			txn.Set(nodeEmbedKey(entry.Id), embedding)
-			// Empty edge list
-			// txn.Set(nodeEdgeKey(entry.Id), []byte{})
-			startId = entry.Id
-			return c.increaseNodeCount(txn, 1)
-		} else if err != nil {
-			return fmt.Errorf("could not get start id: %v", err)
-		}
-		return item.Value(func(val []byte) error {
-			startId = string(val)
-			return nil
-		})
-	})
-	return startId, err
 }
 
 func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCache) error {
@@ -235,9 +215,9 @@ func (c *Collection) Put(entries []Entry) error {
 		return nil
 	}
 	// Check if the database has been initialised with at least one node
-	startId, err := c.getOrSetStartId(&entries[0])
+	startId, err := c.getOrSetStartId(&entries[0], false)
 	if err != nil {
-		return fmt.Errorf("could not get start id: %v", err)
+		return fmt.Errorf("could not get or set start node id: %v", err)
 	}
 	// ---------------------------
 	var wg sync.WaitGroup
