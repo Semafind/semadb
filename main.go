@@ -191,6 +191,7 @@ func loadHDF5(dataset string) {
 	}
 	// ---------------------------
 	profileFile, _ := os.Create("dump/cpu.prof")
+	defer profileFile.Close()
 	pprof.StartCPUProfile(profileFile)
 	defer pprof.StopCPUProfile()
 	if err := collection.Put(entries); err != nil {

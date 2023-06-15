@@ -57,7 +57,7 @@ func (c *Collection) greedySearch(startNode *CacheEntry, query []float32, k int,
 			continue
 		}
 		visitedSet.Add(node)
-		neighbours, err := nodeCache.getNodeNeighbours(node.id)
+		neighbours, err := nodeCache.getNodeNeighbours(node.cacheEntry)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not get node (%v) neighbours: %v", node.id, err)
 		}
@@ -73,7 +73,7 @@ func (c *Collection) greedySearch(startNode *CacheEntry, query []float32, k int,
 	return searchSet, visitedSet, nil
 }
 
-func (c *Collection) robustPrune(node Entry, candidateSet *DistSet, alpha float32, degreeBound int) ([]string, error) {
+func (c *Collection) robustPrune(node Entry, candidateSet *DistSet, alpha float32, degreeBound int) ([]*CacheEntry, error) {
 	// ---------------------------
 	// Get the node neighbours
 	// nodeNeighbours, err := nodeCache.getNodeNeighbours(node.Id)
@@ -87,13 +87,13 @@ func (c *Collection) robustPrune(node Entry, candidateSet *DistSet, alpha float3
 	candidateSet.Remove(node.Id) // Exclude the node itself
 	// ---------------------------
 	// We will overwrite existing neighbours
-	newNeighours := make([]string, 0, degreeBound)
+	newNeighours := make([]*CacheEntry, 0, degreeBound)
 	// ---------------------------
 	for candidateSet.Len() > 0 {
 		// ---------------------------
 		// Get the closest node
 		closestElem := candidateSet.Pop()
-		newNeighours = append(newNeighours, closestElem.id)
+		newNeighours = append(newNeighours, closestElem.cacheEntry)
 		if len(newNeighours) >= degreeBound {
 			break
 		}

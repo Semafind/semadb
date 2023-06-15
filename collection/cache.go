@@ -9,9 +9,10 @@ import (
 
 type CacheEntry struct {
 	Entry
-	dirty     bool
-	edgeDirty bool
-	mutex     sync.RWMutex
+	dirty      bool
+	edgeDirty  bool
+	mutex      sync.RWMutex
+	neighbours []*CacheEntry
 }
 
 func (ce *CacheEntry) setEmbeddingNoLock(embedding []float32) {
@@ -19,10 +20,30 @@ func (ce *CacheEntry) setEmbeddingNoLock(embedding []float32) {
 	ce.dirty = true
 }
 
-func (ce *CacheEntry) setEdgesNoLock(edges []string) {
-	ce.Edges = edges
+func (ce *CacheEntry) setNeighbours(neighbours []*CacheEntry) {
+	ce.mutex.Lock()
+	ce.neighbours = neighbours
 	ce.edgeDirty = true
+	edgeList := make([]string, len(neighbours))
+	for i, n := range neighbours {
+		edgeList[i] = n.Id
+	}
+	ce.Edges = edgeList
+	ce.mutex.Unlock()
 }
+
+func (ce *CacheEntry) appendNeighbour(neighbour *CacheEntry) {
+	ce.mutex.Lock()
+	ce.neighbours = append(ce.neighbours, neighbour)
+	ce.edgeDirty = true
+	ce.Edges = append(ce.Edges, neighbour.Id)
+	ce.mutex.Unlock()
+}
+
+// func (ce *CacheEntry) setEdgesNoLock(edges []string) {
+// 	ce.Edges = edges
+// 	ce.edgeDirty = true
+// }
 
 type NodeCache struct {
 	db       *badger.DB
@@ -68,15 +89,19 @@ func (nc *NodeCache) getNode(nodeId string) (*CacheEntry, error) {
 	return newEntry, nil
 }
 
-func (nc *NodeCache) getNodeNeighbours(nodeId string) ([]*CacheEntry, error) {
-	// Fetch start node
-	entry, err := nc.getNode(nodeId)
-	if err != nil {
-		return nil, fmt.Errorf("could not get node for neighbours: %v", err)
+func (nc *NodeCache) getNodeNeighbours(ce *CacheEntry) ([]*CacheEntry, error) {
+	ce.mutex.RLock()
+	neighbours := ce.neighbours
+	if neighbours != nil {
+		ce.mutex.RUnlock()
+		return neighbours, nil
 	}
-	edgeList := entry.Edges
+	ce.mutex.RUnlock()
+	ce.mutex.Lock()
+	defer ce.mutex.Unlock()
+	edgeList := ce.Edges
 	// Fetch the neighbouring entries
-	neighbours := make([]*CacheEntry, len(edgeList))
+	neighbours = make([]*CacheEntry, len(edgeList))
 	for i, nId := range edgeList {
 		neighbour, err := nc.getNode(nId)
 		if err != nil {
@@ -84,6 +109,7 @@ func (nc *NodeCache) getNodeNeighbours(nodeId string) ([]*CacheEntry, error) {
 		}
 		neighbours[i] = neighbour
 	}
+	ce.neighbours = neighbours
 	return neighbours, nil
 }
 

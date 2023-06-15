@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/google/uuid"
@@ -180,21 +179,17 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 	if err != nil {
 		return fmt.Errorf("could not perform robust prune: %v", err)
 	}
-	newNode.setEdgesNoLock(prunedNeighbours)
+	// newNode.setEdgesNoLock(prunedNeighbours)
+	newNode.setNeighbours(prunedNeighbours)
 	// ---------------------------
 	// Add the bidirectional edges
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for _, neighbourId := range prunedNeighbours {
-		neighbour, err := nodeCache.getNode(neighbourId)
-		if err != nil {
-			return fmt.Errorf("could not get node from cache for bidirectional edges: %v", err)
-		}
-		neighbourNeighbours, err := nodeCache.getNodeNeighbours(neighbourId)
+	for _, neighbour := range prunedNeighbours {
+		neighbourNeighbours, err := nodeCache.getNodeNeighbours(neighbour)
 		if err != nil {
 			return fmt.Errorf("could not get node neighbours for bidirectional edges: %v", err)
 		}
 		// ---------------------------
-		if len(neighbourNeighbours)+1 > degreeBound+rng.Intn(degreeBound) {
+		if len(neighbourNeighbours)+1 > degreeBound+rand.Intn(degreeBound) {
 			candidateSet := NewDistSet(neighbour.Embedding, len(neighbourNeighbours)+1, c.dist)
 			candidateSet.AddEntry(neighbourNeighbours...)
 			candidateSet.AddEntry(newNode)
@@ -204,14 +199,14 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 			if err != nil {
 				return fmt.Errorf("could not perform robust prune for bidirectional edges: %v", err)
 			}
-			neighbour.mutex.Lock()
-			neighbour.setEdgesNoLock(neighbourPrunedEdges)
+			// neighbour.mutex.Lock()
+			neighbour.setNeighbours(neighbourPrunedEdges)
 		} else {
 			// Append the current entry to the edge list of the neighbour
-			neighbour.mutex.Lock()
-			neighbour.setEdgesNoLock(append(neighbour.Edges, newNode.Id))
+			// neighbour.mutex.Lock()
+			neighbour.appendNeighbour(newNode)
 		}
-		neighbour.mutex.Unlock()
+		// neighbour.mutex.Unlock()
 	}
 	// ---------------------------
 	// Find max and minimum distances
@@ -285,8 +280,7 @@ func (c *Collection) Put(entries []Entry) error {
 	bar := progressbar.Default(int64(len(entries)) - 1)
 	putQueue := make(chan Entry, len(entries))
 	// Start the workers
-	numWorkers := runtime.NumCPU() * 4
-	// numWorkers := 1
+	numWorkers := runtime.NumCPU() * 2
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			for entry := range putQueue {

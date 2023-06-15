@@ -6,9 +6,10 @@ import (
 )
 
 type DistSetElem struct {
-	distance  float32
-	id        string
-	embedding []float32
+	distance   float32
+	id         string
+	embedding  []float32
+	cacheEntry *CacheEntry
 }
 
 type DistSet struct {
@@ -66,7 +67,7 @@ func (ds *DistSet) AddEntry(entries ...*CacheEntry) {
 		}
 		ds.set[entry.Id] = true
 		distance := ds.distFn(entry.Embedding, ds.queryVector)
-		ds.items = append(ds.items, &DistSetElem{distance: distance, id: entry.Id, embedding: entry.Embedding})
+		ds.items = append(ds.items, &DistSetElem{distance: distance, id: entry.Id, embedding: entry.Embedding, cacheEntry: entry})
 	}
 }
 
