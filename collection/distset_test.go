@@ -8,7 +8,7 @@ import (
 )
 
 func TestDistSet_Add(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 2)
+	ds := NewDistSet([]float32{1.0, 2.0}, 2, eucDist)
 	ds.Add(&DistSetElem{distance: 0.5, id: "2"})
 	ds.Add(&DistSetElem{distance: 1.0, id: "1"})
 	ds.Add(&DistSetElem{distance: 0.2, id: "3"})
@@ -26,7 +26,7 @@ func TestDistSet_Add(t *testing.T) {
 }
 
 func TestDistSet_Add_Duplicate(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 2)
+	ds := NewDistSet([]float32{1.0, 2.0}, 2, eucDist)
 	ds.Add(&DistSetElem{distance: 0.5, id: "2"})
 	ds.Add(&DistSetElem{distance: 1.0, id: "1"})
 	ds.Add(&DistSetElem{distance: 0.1, id: "1"})
@@ -41,7 +41,7 @@ func TestDistSet_Add_Duplicate(t *testing.T) {
 }
 
 func TestDistSet_KeepFirstK(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 2)
+	ds := NewDistSet([]float32{1.0, 2.0}, 2, eucDist)
 	ds.Add(&DistSetElem{distance: 0.5, id: "2"})
 	ds.Add(&DistSetElem{distance: 1.0, id: "1"})
 	ds.Add(&DistSetElem{distance: 0.2, id: "3"})
@@ -55,7 +55,7 @@ func TestDistSet_KeepFirstK(t *testing.T) {
 }
 
 func TestDistSet_Pop_Remove(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 3)
+	ds := NewDistSet([]float32{1.0, 2.0}, 3, eucDist)
 	ds.Add(&DistSetElem{distance: 0.5, id: "2"})
 	ds.Add(&DistSetElem{distance: 1.0, id: "1"})
 	ds.Add(&DistSetElem{distance: 0.2, id: "3"})
