@@ -4,6 +4,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/schollz/progressbar/v3"
 	"github.com/vmihailenco/msgpack/v5"
+	"gonum.org/v1/gonum/blas/blas32"
 )
 
 // ---------------------------
@@ -47,7 +49,7 @@ type Collection struct {
 	db          *badger.DB
 	cache       *NodeCache
 	startNodeId string
-	mutex       sync.Mutex
+	mutex       sync.RWMutex
 }
 
 func NewCollection(config CollectionConfig) (*Collection, error) {
@@ -100,15 +102,15 @@ func OpenCollection(colId string) (*Collection, error) {
 		return nil, fmt.Errorf("could not open database for collection (%v): %v", colId, err)
 	}
 	// ---------------------------
-	newCollection := &Collection{Id: colId, db: db, cache: NewNodeCache(db)}
-	newCollection.readConfig()
+	collection := &Collection{Id: colId, db: db, cache: NewNodeCache(db)}
+	collection.readConfig()
 	// ---------------------------
-	_, err = newCollection.getOrSetStartId(nil, false)
+	_, err = collection.getOrSetStartId(nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("could not get or set start node id: %v", err)
 	}
 	// ---------------------------
-	return newCollection, nil
+	return collection, nil
 }
 
 func (c *Collection) Close() error {
@@ -159,7 +161,12 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 	degreeBound := c.Config.DegreeBound
 	alpha := c.Config.Alpha
 	// ---------------------------
-	_, visitedSet, err := c.greedySearch(startNodeId, entry.Embedding, 1, searchSize, nodeCache)
+	startNode, err := c.cache.getNode(startNodeId)
+	if err != nil {
+		return fmt.Errorf("could not get start node from cache: %v", err)
+	}
+	// ---------------------------
+	_, visitedSet, err := c.greedySearch(startNode, entry.Embedding, 1, searchSize, nodeCache)
 	if err != nil {
 		return fmt.Errorf("could not perform greedy search: %v", err)
 	}
@@ -169,7 +176,7 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 	}
 	newNode.setEmbeddingNoLock(entry.Embedding)
 	// ---------------------------
-	prunedNeighbours, err := c.robustPrune(entry, visitedSet, alpha, degreeBound, nodeCache)
+	prunedNeighbours, err := c.robustPrune(entry, visitedSet, alpha, degreeBound)
 	if err != nil {
 		return fmt.Errorf("could not perform robust prune: %v", err)
 	}
@@ -182,29 +189,56 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 		if err != nil {
 			return fmt.Errorf("could not get node from cache for bidirectional edges: %v", err)
 		}
-		neighbour.mutex.Lock()
 		neighbourNeighbours, err := nodeCache.getNodeNeighbours(neighbourId)
 		if err != nil {
 			return fmt.Errorf("could not get node neighbours for bidirectional edges: %v", err)
 		}
 		// ---------------------------
 		if len(neighbourNeighbours)+1 > degreeBound+rng.Intn(degreeBound) {
-			candidateSet := NewDistSet(neighbour.Embedding, len(neighbourNeighbours)+1)
+			candidateSet := NewDistSet(neighbour.Embedding, len(neighbourNeighbours)+1, c.dist)
 			candidateSet.AddEntry(neighbourNeighbours...)
 			candidateSet.AddEntry(newNode)
 			candidateSet.Sort()
 			// Prune the neighbour
-			neighbourPrunedEdges, err := c.robustPrune(neighbour.Entry, candidateSet, alpha, degreeBound, nodeCache)
+			neighbourPrunedEdges, err := c.robustPrune(neighbour.Entry, candidateSet, alpha, degreeBound)
 			if err != nil {
 				return fmt.Errorf("could not perform robust prune for bidirectional edges: %v", err)
 			}
+			neighbour.mutex.Lock()
 			neighbour.setEdgesNoLock(neighbourPrunedEdges)
 		} else {
 			// Append the current entry to the edge list of the neighbour
+			neighbour.mutex.Lock()
 			neighbour.setEdgesNoLock(append(neighbour.Edges, newNode.Id))
 		}
 		neighbour.mutex.Unlock()
 	}
+	// ---------------------------
+	// Find max and minimum distances
+	// if len(prunedDists) < (degreeBound * 3 / 4) {
+	// 	return nil
+	// }
+	// var minDist float32 = math.MaxFloat32
+	// var maxDist float32 = 0.0
+	// var meanDist float32 = 0.0
+	// for _, dist := range prunedDists {
+	// 	if dist < minDist {
+	// 		minDist = dist
+	// 	}
+	// 	if dist > maxDist {
+	// 		maxDist = dist
+	// 	}
+	// 	meanDist += dist
+	// }
+	// meanDist /= float32(len(prunedDists))
+	// normMeanDist := (meanDist - minDist) / (maxDist - minDist + 1e-6)
+	// if len(prunedDists) >= len(startNode.Edges) && normMeanDist < 0.5 {
+	// 	log.Printf("Replacing start node %v -> %v\n", startNode.Id, newNode.Id)
+	// 	_, err := c.getOrSetStartId(&entry, true)
+	// 	if err != nil {
+	// 		return fmt.Errorf("could not get or set start node id: %v", err)
+	// 	}
+	// }
 	// ---------------------------
 	return nil
 }
@@ -214,17 +248,45 @@ func (c *Collection) Put(entries []Entry) error {
 	if len(entries) == 0 {
 		return nil
 	}
+	// ---------------------------
+	centroid := make([]float32, c.Config.EmbedDim)
+	cv := blas32.Vector{
+		N:    len(centroid),
+		Inc:  1,
+		Data: centroid,
+	}
+	for _, entry := range entries {
+		blas32.Axpy(1.0, blas32.Vector{
+			N:    len(entry.Embedding),
+			Inc:  1,
+			Data: entry.Embedding,
+		}, cv)
+	}
+	blas32.Scal(1.0/float32(len(entries)), cv)
+	// Find closest entry to the centroid
+	var closestEntry Entry
+	var closestDist float32 = math.MaxFloat32
+	for _, entry := range entries {
+		dist := c.dist(entry.Embedding, centroid)
+		if dist < closestDist {
+			closestDist = dist
+			closestEntry = entry
+		}
+	}
+	// ---------------------------
 	// Check if the database has been initialised with at least one node
-	startId, err := c.getOrSetStartId(&entries[0], false)
+	startId, err := c.getOrSetStartId(&closestEntry, false)
 	if err != nil {
 		return fmt.Errorf("could not get or set start node id: %v", err)
 	}
+	c.putEntry(startId, entries[0], c.cache)
 	// ---------------------------
 	var wg sync.WaitGroup
 	bar := progressbar.Default(int64(len(entries)) - 1)
 	putQueue := make(chan Entry, len(entries))
 	// Start the workers
 	numWorkers := runtime.NumCPU() * 4
+	// numWorkers := 1
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			for entry := range putQueue {
@@ -260,7 +322,17 @@ func (c *Collection) Put(entries []Entry) error {
 
 func (c *Collection) Search(vector []float32, k int) ([]string, error) {
 	// ---------------------------
-	searchSet, _, err := c.greedySearch("0", vector, k, c.Config.SearchSize, c.cache)
+	startId, err := c.getOrSetStartId(nil, false)
+	if err != nil {
+		return nil, fmt.Errorf("could not get start id: %v", err)
+	}
+	// ---------------------------
+	startNode, err := c.cache.getNode(startId)
+	if err != nil {
+		return nil, fmt.Errorf("could not get start node: %v", err)
+	}
+	// ---------------------------
+	searchSet, _, err := c.greedySearch(startNode, vector, k, c.Config.SearchSize, c.cache)
 	if err != nil {
 		return nil, fmt.Errorf("could not perform greedy search: %v", err)
 	}

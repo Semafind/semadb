@@ -2,6 +2,8 @@ package collection
 
 import (
 	"fmt"
+
+	"gonum.org/v1/gonum/blas/blas32"
 )
 
 func eucDist(x, y []float32) float32 {
@@ -13,7 +15,24 @@ func eucDist(x, y []float32) float32 {
 	return sum
 }
 
-func (c *Collection) greedySearch(startNodeId string, query []float32, k int, searchSize int, nodeCache *NodeCache) (*DistSet, *DistSet, error) {
+func cosineDist(x, y []float32) float32 {
+	return 1 - blas32.Dot(blas32.Vector{N: len(x), Inc: 1, Data: x}, blas32.Vector{N: len(y), Inc: 1, Data: y})
+}
+
+// func angularDist(x, y []float32) float32 {
+// 	cosineSim := blas32.Dot(blas32.Vector{N: len(x), Inc: 1, Data: x}, blas32.Vector{N: len(y), Inc: 1, Data: y})
+// 	angularDist := math.Acos(float64(cosineSim)) / math.Pi
+// 	return float32(angularDist)
+// }
+
+func (c *Collection) dist(x, y []float32) float32 {
+	if c.Config.DistMetric == "angular" {
+		return cosineDist(x, y)
+	}
+	return eucDist(x, y)
+}
+
+func (c *Collection) greedySearch(startNode *CacheEntry, query []float32, k int, searchSize int, nodeCache *NodeCache) (*DistSet, *DistSet, error) {
 	// ---------------------------
 	// Check that the search size is greater than k
 	if searchSize < k {
@@ -21,14 +40,10 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 	}
 	// ---------------------------
 	// Initialise distance set
-	searchSet := NewDistSet(query, searchSize*2)
-	visitedSet := NewDistSet(query, searchSize*2)
+	searchSet := NewDistSet(query, searchSize*2, c.dist)
+	visitedSet := NewDistSet(query, searchSize*2, c.dist)
 	// ---------------------------
 	// Get the start node
-	startNode, err := nodeCache.getNode(startNodeId)
-	if err != nil {
-		return nil, nil, fmt.Errorf("could not get start node embedding: %v", err)
-	}
 	searchSet.AddEntry(startNode)
 	// ---------------------------
 	/* This loop looks to curate the closest nodes to the query vector along the
@@ -58,17 +73,17 @@ func (c *Collection) greedySearch(startNodeId string, query []float32, k int, se
 	return searchSet, visitedSet, nil
 }
 
-func (c *Collection) robustPrune(node Entry, candidateSet *DistSet, alpha float32, degreeBound int, nodeCache *NodeCache) ([]string, error) {
+func (c *Collection) robustPrune(node Entry, candidateSet *DistSet, alpha float32, degreeBound int) ([]string, error) {
 	// ---------------------------
 	// Get the node neighbours
-	nodeNeighbours, err := nodeCache.getNodeNeighbours(node.Id)
-	if err != nil {
-		return nil, fmt.Errorf("could not get node (%v) neighbours for pruning: %v", node.Id, err)
-	}
+	// nodeNeighbours, err := nodeCache.getNodeNeighbours(node.Id)
+	// if err != nil {
+	// 	return nil, nil, fmt.Errorf("could not get node (%v) neighbours for pruning: %v", node.Id, err)
+	// }
 	// ---------------------------
 	// Merge neighbours into candidate set
-	candidateSet.AddEntry(nodeNeighbours...)
-	candidateSet.Sort()
+	// candidateSet.AddEntry(nodeNeighbours...)
+	// candidateSet.Sort()
 	candidateSet.Remove(node.Id) // Exclude the node itself
 	// ---------------------------
 	// We will overwrite existing neighbours
@@ -90,7 +105,7 @@ func (c *Collection) robustPrune(node Entry, candidateSet *DistSet, alpha float3
 				continue
 			}
 			// ---------------------------
-			if alpha*eucDist(closestElem.embedding, cand.embedding) <= cand.distance {
+			if alpha*c.dist(closestElem.embedding, cand.embedding) <= cand.distance {
 				candidateSet.Remove(cand.id)
 			}
 		}

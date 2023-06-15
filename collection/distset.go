@@ -15,10 +15,11 @@ type DistSet struct {
 	items       []*DistSetElem
 	set         map[string]bool
 	queryVector []float32
+	distFn      func([]float32, []float32) float32
 }
 
-func NewDistSet(queryVector []float32, capacity int) *DistSet {
-	return &DistSet{queryVector: queryVector, items: make([]*DistSetElem, 0, capacity), set: make(map[string]bool, capacity)}
+func NewDistSet(queryVector []float32, capacity int, distFn func([]float32, []float32) float32) *DistSet {
+	return &DistSet{queryVector: queryVector, items: make([]*DistSetElem, 0, capacity), set: make(map[string]bool, capacity), distFn: distFn}
 }
 
 // ---------------------------
@@ -64,7 +65,7 @@ func (ds *DistSet) AddEntry(entries ...*CacheEntry) {
 			continue
 		}
 		ds.set[entry.Id] = true
-		distance := eucDist(entry.Embedding, ds.queryVector)
+		distance := ds.distFn(entry.Embedding, ds.queryVector)
 		ds.items = append(ds.items, &DistSetElem{distance: distance, id: entry.Id, embedding: entry.Embedding})
 	}
 }

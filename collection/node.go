@@ -78,32 +78,42 @@ func (nc *NodeCache) getNodeEdges(nodeId string) ([]string, error) {
 
 func (c *Collection) getOrSetStartId(entry *Entry, override bool) (string, error) {
 	// ---------------------------
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	// ---------------------------
 	// Read-only case
 	if entry == nil && !override {
+		c.mutex.RLock()
 		if c.startNodeId != "" {
-			return c.startNodeId, nil
+			startId := c.startNodeId
+			c.mutex.RUnlock()
+			return startId, nil
 		}
+		c.mutex.RUnlock()
+		startId := ""
+		c.mutex.Lock()
 		err := c.db.View(func(txn *badger.Txn) error {
 			item, err := txn.Get([]byte(STARTIDKEY))
 			if err != nil {
 				return fmt.Errorf("could not get start id: %v", err)
 			}
 			return item.Value(func(val []byte) error {
-				c.startNodeId = string(val)
+				startId = string(val)
 				return nil
 			})
 		})
-		return c.startNodeId, err
+		c.startNodeId = startId
+		c.mutex.Unlock()
+		return startId, err
 	}
 	// ---------------------------
 	// Write case
 	if entry != nil {
+		c.mutex.RLock()
 		if !override && c.startNodeId != "" {
-			return c.startNodeId, nil
+			startId := c.startNodeId
+			c.mutex.RUnlock()
+			return startId, nil
 		}
+		c.mutex.RUnlock()
+		c.mutex.Lock()
 		err := c.db.Update(func(txn *badger.Txn) error {
 			txn.Set([]byte(STARTIDKEY), []byte(entry.Id))
 			embedding, err := float32ToBytes(entry.Embedding)
@@ -114,10 +124,12 @@ func (c *Collection) getOrSetStartId(entry *Entry, override bool) (string, error
 			return c.increaseNodeCount(txn, 1)
 		})
 		if err != nil {
+			c.mutex.Unlock()
 			return "", fmt.Errorf("could not set start id: %v", err)
 		}
 		c.startNodeId = entry.Id
-		return c.startNodeId, nil
+		c.mutex.Unlock()
+		return entry.Id, nil
 	}
 	// ---------------------------
 	return "", fmt.Errorf("could not set start id: invalid arguments (entry: %v, override: %v)", entry, override)

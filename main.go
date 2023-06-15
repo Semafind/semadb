@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/signal"
 	"runtime/pprof"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/semafind/semadb/collection"
+	"gonum.org/v1/gonum/blas/blas32"
 	"gonum.org/v1/hdf5"
 )
 
@@ -166,6 +168,13 @@ func loadHDF5(dataset string) {
 	log.Println("Creating entries", dims)
 	entries := make([]collection.Entry, dims[0])
 	for i := uint(0); i < dims[0]; i++ {
+		embedding := dataBuf[i*dims[1] : (i+1)*dims[1]]
+		if strings.Contains(dataset, "angular") {
+			// Normalise embedding
+			vector := blas32.Vector{N: len(embedding), Inc: 1, Data: embedding}
+			norm := blas32.Nrm2(vector)
+			blas32.Scal(1/norm, vector)
+		}
 		entries[i] = collection.Entry{
 			Id:        fmt.Sprint(i),
 			Embedding: dataBuf[i*dims[1] : (i+1)*dims[1]],
@@ -173,6 +182,9 @@ func loadHDF5(dataset string) {
 	}
 	// ---------------------------
 	config := collection.DefaultCollectionConfig(dims[1])
+	if strings.Contains(dataset, "angular") {
+		config.DistMetric = "angular"
+	}
 	collection, err := collection.NewCollection(config)
 	if err != nil {
 		log.Fatal(err)
@@ -185,9 +197,11 @@ func loadHDF5(dataset string) {
 		log.Fatal(err)
 	}
 	// ---------------------------
-	if err := collection.Close(); err != nil {
-		log.Fatal(err)
-	}
+	benchmarkCollection = collection
+	// ---------------------------
+	// if err := collection.Close(); err != nil {
+	// 	log.Fatal(err)
+	// }
 }
 
 func runServer(router *gin.Engine) {
@@ -233,8 +247,8 @@ func runServer(router *gin.Engine) {
 }
 
 func main() {
+	loadHDF5("glove-100-angular")
+	// ---------------------------
 	router := createRouter()
 	runServer(router)
-	// ---------------------------
-	// loadHDF5("gist-960-euclidean")
 }
