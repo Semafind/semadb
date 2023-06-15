@@ -8,6 +8,16 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
+func uint64ToBytes(u uint64) []byte {
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, u)
+	return b
+}
+
+func bytesToUint64(b []byte) uint64 {
+	return binary.LittleEndian.Uint64(b)
+}
+
 func float32ToBytes(f []float32) ([]byte, error) {
 	b := make([]byte, len(f)*4)
 	for i, v := range f {
@@ -24,12 +34,12 @@ func bytesToFloat32(b []byte) ([]float32, error) {
 	return f, nil
 }
 
-func edgeListToBytes(edges []string) ([]byte, error) {
+func edgeListToBytes(edges []uint64) ([]byte, error) {
 	return msgpack.Marshal(edges)
 }
 
-func bytesToEdgeList(b []byte) ([]string, error) {
-	var edges []string
+func bytesToEdgeList(b []byte) ([]uint64, error) {
+	var edges []uint64
 	err := msgpack.Unmarshal(b, &edges)
 	return edges, err
 }

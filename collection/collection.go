@@ -43,12 +43,13 @@ func DefaultCollectionConfig(embedDim uint) CollectionConfig {
 // ---------------------------
 
 type Collection struct {
-	Id          string
-	Config      CollectionConfig
-	db          *badger.DB
-	cache       *NodeCache
-	startNodeId string
-	mutex       sync.RWMutex
+	Id             string
+	Config         CollectionConfig
+	db             *badger.DB
+	cache          *NodeCache
+	startNodeId    uint64
+	startNodeIsSet bool
+	mutex          sync.RWMutex
 }
 
 func NewCollection(config CollectionConfig) (*Collection, error) {
@@ -154,7 +155,7 @@ func (c *Collection) readConfig() error {
 	return err
 }
 
-func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCache) error {
+func (c *Collection) putEntry(startNodeId uint64, entry Entry, nodeCache *NodeCache) error {
 	// ---------------------------
 	searchSize := c.Config.SearchSize
 	degreeBound := c.Config.DegreeBound
@@ -208,32 +209,6 @@ func (c *Collection) putEntry(startNodeId string, entry Entry, nodeCache *NodeCa
 		}
 		// neighbour.mutex.Unlock()
 	}
-	// ---------------------------
-	// Find max and minimum distances
-	// if len(prunedDists) < (degreeBound * 3 / 4) {
-	// 	return nil
-	// }
-	// var minDist float32 = math.MaxFloat32
-	// var maxDist float32 = 0.0
-	// var meanDist float32 = 0.0
-	// for _, dist := range prunedDists {
-	// 	if dist < minDist {
-	// 		minDist = dist
-	// 	}
-	// 	if dist > maxDist {
-	// 		maxDist = dist
-	// 	}
-	// 	meanDist += dist
-	// }
-	// meanDist /= float32(len(prunedDists))
-	// normMeanDist := (meanDist - minDist) / (maxDist - minDist + 1e-6)
-	// if len(prunedDists) >= len(startNode.Edges) && normMeanDist < 0.5 {
-	// 	log.Printf("Replacing start node %v -> %v\n", startNode.Id, newNode.Id)
-	// 	_, err := c.getOrSetStartId(&entry, true)
-	// 	if err != nil {
-	// 		return fmt.Errorf("could not get or set start node id: %v", err)
-	// 	}
-	// }
 	// ---------------------------
 	return nil
 }
@@ -314,7 +289,7 @@ func (c *Collection) Put(entries []Entry) error {
 	return nil
 }
 
-func (c *Collection) Search(vector []float32, k int) ([]string, error) {
+func (c *Collection) Search(vector []float32, k int) ([]uint64, error) {
 	// ---------------------------
 	startId, err := c.getOrSetStartId(nil, false)
 	if err != nil {
@@ -331,7 +306,7 @@ func (c *Collection) Search(vector []float32, k int) ([]string, error) {
 		return nil, fmt.Errorf("could not perform greedy search: %v", err)
 	}
 	searchSet.KeepFirstK(k)
-	nearestNodeIds := make([]string, len(searchSet.items))
+	nearestNodeIds := make([]uint64, len(searchSet.items))
 	for i, item := range searchSet.items {
 		nearestNodeIds[i] = item.id
 	}
@@ -355,8 +330,10 @@ func (c *Collection) DumpCacheToCSVGraph(fname string, nc *NodeCache) error {
 	// ---------------------------
 	for _, ce := range nc.cache {
 		edgeListRow := make([]string, len(ce.Edges)+1)
-		edgeListRow[0] = ce.Id
-		copy(edgeListRow[1:], ce.Edges)
+		edgeListRow[0] = fmt.Sprintf("%d", ce.Id)
+		for i, edge := range ce.Edges {
+			edgeListRow[i+1] = fmt.Sprintf("%d", edge)
+		}
 		if err := csvWriter.Write(edgeListRow); err != nil {
 			return fmt.Errorf("could not write to csv: %v", err)
 		}

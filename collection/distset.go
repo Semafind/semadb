@@ -7,20 +7,20 @@ import (
 
 type DistSetElem struct {
 	distance   float32
-	id         string
+	id         uint64
 	embedding  []float32
 	cacheEntry *CacheEntry
 }
 
 type DistSet struct {
 	items       []*DistSetElem
-	set         map[string]bool
+	set         map[uint64]struct{} // struct{} is a zero byte type, so it takes up no space
 	queryVector []float32
 	distFn      func([]float32, []float32) float32
 }
 
 func NewDistSet(queryVector []float32, capacity int, distFn func([]float32, []float32) float32) *DistSet {
-	return &DistSet{queryVector: queryVector, items: make([]*DistSetElem, 0, capacity), set: make(map[string]bool, capacity), distFn: distFn}
+	return &DistSet{queryVector: queryVector, items: make([]*DistSetElem, 0, capacity), set: make(map[uint64]struct{}, capacity), distFn: distFn}
 }
 
 // ---------------------------
@@ -62,10 +62,10 @@ func (ds *DistSet) String() string {
 // Adding entries only computes distance if needed
 func (ds *DistSet) AddEntry(entries ...*CacheEntry) {
 	for _, entry := range entries {
-		if ds.set[entry.Id] {
+		if _, ok := ds.set[entry.Id]; ok {
 			continue
 		}
-		ds.set[entry.Id] = true
+		ds.set[entry.Id] = struct{}{}
 		distance := ds.distFn(entry.Embedding, ds.queryVector)
 		ds.items = append(ds.items, &DistSetElem{distance: distance, id: entry.Id, embedding: entry.Embedding, cacheEntry: entry})
 	}
@@ -74,10 +74,10 @@ func (ds *DistSet) AddEntry(entries ...*CacheEntry) {
 // Add item to distance set if it is not already present
 func (ds *DistSet) Add(items ...*DistSetElem) {
 	for _, item := range items {
-		if ds.set[item.id] {
+		if _, ok := ds.set[item.id]; ok {
 			continue
 		}
-		ds.set[item.id] = true
+		ds.set[item.id] = struct{}{}
 		ds.items = append(ds.items, item)
 	}
 }
@@ -86,8 +86,9 @@ func (ds *DistSet) Sort() {
 	sort.Sort(ds)
 }
 
-func (ds *DistSet) Contains(id string) bool {
-	return ds.set[id]
+func (ds *DistSet) Contains(id uint64) bool {
+	_, ok := ds.set[id]
+	return ok
 }
 
 func (ds *DistSet) Pop() *DistSetElem {
@@ -97,7 +98,7 @@ func (ds *DistSet) Pop() *DistSetElem {
 	for ; i < len(ds.items); i++ {
 		item := ds.items[i]
 		ds.items[i] = nil // avoid memory leak
-		if ds.set[item.id] {
+		if _, ok := ds.set[item.id]; ok {
 			toReturn = item
 			delete(ds.set, item.id)
 			break
@@ -117,7 +118,7 @@ func (ds *DistSet) KeepFirstK(k int) {
 	}
 }
 
-func (ds *DistSet) Remove(id string) {
+func (ds *DistSet) Remove(id uint64) {
 	delete(ds.set, id)
 }
 

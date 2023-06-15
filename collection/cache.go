@@ -24,7 +24,7 @@ func (ce *CacheEntry) setNeighbours(neighbours []*CacheEntry) {
 	ce.mutex.Lock()
 	ce.neighbours = neighbours
 	ce.edgeDirty = true
-	edgeList := make([]string, len(neighbours))
+	edgeList := make([]uint64, len(neighbours))
 	for i, n := range neighbours {
 		edgeList[i] = n.Id
 	}
@@ -48,18 +48,18 @@ func (ce *CacheEntry) appendNeighbour(neighbour *CacheEntry) {
 type NodeCache struct {
 	db       *badger.DB
 	mutex    sync.RWMutex
-	cache    map[string]*CacheEntry
+	cache    map[uint64]*CacheEntry
 	addCount int
 }
 
 func NewNodeCache(db *badger.DB) *NodeCache {
 	return &NodeCache{
 		db:    db,
-		cache: make(map[string]*CacheEntry),
+		cache: make(map[uint64]*CacheEntry),
 	}
 }
 
-func (nc *NodeCache) getNode(nodeId string) (*CacheEntry, error) {
+func (nc *NodeCache) getNode(nodeId uint64) (*CacheEntry, error) {
 	nc.mutex.RLock()
 	entry, ok := nc.cache[nodeId]
 	nc.mutex.RUnlock()

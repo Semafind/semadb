@@ -176,7 +176,7 @@ func loadHDF5(dataset string) {
 			blas32.Scal(1/norm, vector)
 		}
 		entries[i] = collection.Entry{
-			Id:        fmt.Sprint(i),
+			Id:        uint64(i),
 			Embedding: dataBuf[i*dims[1] : (i+1)*dims[1]],
 		}
 	}

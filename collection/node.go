@@ -9,22 +9,22 @@ import (
 // Entry is a node in the graph
 // Some of the fields may be empty to optimise performance
 type Entry struct {
-	Id        string    `json:"id" binding:"required"`
+	Id        uint64    `json:"id" binding:"required"`
 	Embedding []float32 `json:"embedding" binding:"required"`
-	Edges     []string
+	Edges     []uint64
 }
 
-func nodeEmbedKey(nodeId string) []byte {
-	nodeKey := []byte(nodeId)
+func nodeEmbedKey(nodeId uint64) []byte {
+	nodeKey := uint64ToBytes(nodeId)
 	return append(nodeKey, []byte(EMBEDSUFFIX)...)
 }
 
-func nodeEdgeKey(nodeId string) []byte {
-	nodeKey := []byte(nodeId)
+func nodeEdgeKey(nodeId uint64) []byte {
+	nodeKey := uint64ToBytes(nodeId)
 	return append(nodeKey, []byte(EDGESUFFIX)...)
 }
 
-func (nc *NodeCache) getNodeEmbedding(nodeId string) ([]float32, error) {
+func (nc *NodeCache) getNodeEmbedding(nodeId uint64) ([]float32, error) {
 	var embedding []float32
 	err := nc.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(nodeEmbedKey(nodeId))
@@ -51,8 +51,8 @@ func (nc *NodeCache) getNodeEmbedding(nodeId string) ([]float32, error) {
 	return embedding, nil
 }
 
-func (nc *NodeCache) getNodeEdges(nodeId string) ([]string, error) {
-	var edges []string
+func (nc *NodeCache) getNodeEdges(nodeId uint64) ([]uint64, error) {
+	var edges []uint64
 	err := nc.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get(nodeEdgeKey(nodeId))
 		if err == badger.ErrKeyNotFound {
@@ -76,18 +76,18 @@ func (nc *NodeCache) getNodeEdges(nodeId string) ([]string, error) {
 	return edges, nil
 }
 
-func (c *Collection) getOrSetStartId(entry *Entry, override bool) (string, error) {
+func (c *Collection) getOrSetStartId(entry *Entry, override bool) (uint64, error) {
 	// ---------------------------
 	// Read-only case
 	if entry == nil && !override {
 		c.mutex.RLock()
-		if c.startNodeId != "" {
+		if c.startNodeIsSet {
 			startId := c.startNodeId
 			c.mutex.RUnlock()
 			return startId, nil
 		}
 		c.mutex.RUnlock()
-		startId := ""
+		var startId uint64
 		c.mutex.Lock()
 		err := c.db.View(func(txn *badger.Txn) error {
 			item, err := txn.Get([]byte(STARTIDKEY))
@@ -95,11 +95,12 @@ func (c *Collection) getOrSetStartId(entry *Entry, override bool) (string, error
 				return fmt.Errorf("could not get start id: %v", err)
 			}
 			return item.Value(func(val []byte) error {
-				startId = string(val)
+				startId = bytesToUint64(val)
 				return nil
 			})
 		})
 		c.startNodeId = startId
+		c.startNodeIsSet = true
 		c.mutex.Unlock()
 		return startId, err
 	}
@@ -107,7 +108,7 @@ func (c *Collection) getOrSetStartId(entry *Entry, override bool) (string, error
 	// Write case
 	if entry != nil {
 		c.mutex.RLock()
-		if !override && c.startNodeId != "" {
+		if !override && c.startNodeIsSet {
 			startId := c.startNodeId
 			c.mutex.RUnlock()
 			return startId, nil
@@ -115,7 +116,7 @@ func (c *Collection) getOrSetStartId(entry *Entry, override bool) (string, error
 		c.mutex.RUnlock()
 		c.mutex.Lock()
 		err := c.db.Update(func(txn *badger.Txn) error {
-			txn.Set([]byte(STARTIDKEY), []byte(entry.Id))
+			txn.Set([]byte(STARTIDKEY), uint64ToBytes(entry.Id))
 			embedding, err := float32ToBytes(entry.Embedding)
 			if err != nil {
 				return fmt.Errorf("could not convert embedding to bytes: %v", err)
@@ -125,12 +126,13 @@ func (c *Collection) getOrSetStartId(entry *Entry, override bool) (string, error
 		})
 		if err != nil {
 			c.mutex.Unlock()
-			return "", fmt.Errorf("could not set start id: %v", err)
+			return 0, fmt.Errorf("could not set start id: %v", err)
 		}
 		c.startNodeId = entry.Id
+		c.startNodeIsSet = true
 		c.mutex.Unlock()
 		return entry.Id, nil
 	}
 	// ---------------------------
-	return "", fmt.Errorf("could not set start id: invalid arguments (entry: %v, override: %v)", entry, override)
+	return 0, fmt.Errorf("could not set start id: invalid arguments (entry: %v, override: %v)", entry, override)
 }
