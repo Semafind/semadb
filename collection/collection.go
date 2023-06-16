@@ -43,13 +43,10 @@ func DefaultCollectionConfig(embedDim uint) CollectionConfig {
 // ---------------------------
 
 type Collection struct {
-	Id             string
-	Config         CollectionConfig
-	db             *badger.DB
-	cache          *NodeCache
-	startNodeId    uint64
-	startNodeIsSet bool
-	mutex          sync.RWMutex
+	Id     string
+	Config CollectionConfig
+	db     *badger.DB
+	cache  *NodeCache
 }
 
 func NewCollection(config CollectionConfig) (*Collection, error) {
@@ -77,7 +74,12 @@ func NewCollection(config CollectionConfig) (*Collection, error) {
 		return nil, fmt.Errorf("could not open database for collection (%v): %v", colId, err)
 	}
 	// ---------------------------
-	newCollection := &Collection{Id: colId, Config: config, db: db, cache: NewNodeCache(db)}
+	cache, err := NewNodeCache(db)
+	if err != nil {
+		return nil, fmt.Errorf("could not create node cache: %v", err)
+	}
+	// ---------------------------
+	newCollection := &Collection{Id: colId, Config: config, db: db, cache: cache}
 	newCollection.writeConfig()
 	// ---------------------------
 	return newCollection, nil
@@ -102,13 +104,12 @@ func OpenCollection(colId string) (*Collection, error) {
 		return nil, fmt.Errorf("could not open database for collection (%v): %v", colId, err)
 	}
 	// ---------------------------
-	collection := &Collection{Id: colId, db: db, cache: NewNodeCache(db)}
-	collection.readConfig()
-	// ---------------------------
-	_, err = collection.getOrSetStartId(nil, false)
+	cache, err := NewNodeCache(db)
 	if err != nil {
-		return nil, fmt.Errorf("could not get or set start node id: %v", err)
+		return nil, fmt.Errorf("could not create node cache: %v", err)
 	}
+	collection := &Collection{Id: colId, db: db, cache: cache}
+	collection.readConfig()
 	// ---------------------------
 	return collection, nil
 }
@@ -156,7 +157,7 @@ func (c *Collection) readConfig() error {
 }
 
 func (c *Collection) CacheSize() int {
-	// err := c.db.View(func(txn *badger.Txn) error {
+	// c.db.View(func(txn *badger.Txn) error {
 	// 	opts := badger.DefaultIteratorOptions
 	// 	opts.PrefetchValues = false
 	// 	it := txn.NewIterator(opts)
@@ -165,25 +166,23 @@ func (c *Collection) CacheSize() int {
 	// 		item := it.Item()
 	// 		k := item.Key()
 	// 		fmt.Printf("key=%s\n", k)
+	// 		if bytes.Equal(k, []byte(STARTIDKEY)) {
+	// 			item.Value(func(val []byte) error {
+	// 				fmt.Printf("startid=%d\n", bytesToUint64(val))
+	// 				return nil
+	// 			})
+	// 		}
 	// 	}
 	// 	return nil
 	// })
-	// if err != nil {
-	// 	fmt.Printf("could not get cache size: %v\n", err)
-	// }
 	return len(c.cache.cache)
 }
 
-func (c *Collection) putEntry(startNodeId uint64, entry Entry, nodeCache *NodeCache) error {
+func (c *Collection) putEntry(startNode *CacheEntry, entry Entry, nodeCache *NodeCache) error {
 	// ---------------------------
 	searchSize := c.Config.SearchSize
 	degreeBound := c.Config.DegreeBound
 	alpha := c.Config.Alpha
-	// ---------------------------
-	startNode, err := c.cache.getNode(startNodeId)
-	if err != nil {
-		return fmt.Errorf("could not get start node from cache: %v", err)
-	}
 	// ---------------------------
 	_, visitedSet, err := c.greedySearch(startNode, entry.Embedding, 1, searchSize, nodeCache)
 	if err != nil {
@@ -264,11 +263,11 @@ func (c *Collection) Put(entries []Entry) error {
 	}
 	// ---------------------------
 	// Check if the database has been initialised with at least one node
-	startId, err := c.getOrSetStartId(&closestEntry, false)
+	startNode, err := c.cache.getOrSetStartNode(&closestEntry)
 	if err != nil {
 		return fmt.Errorf("could not get or set start node id: %v", err)
 	}
-	c.putEntry(startId, entries[0], c.cache)
+	c.putEntry(startNode, entries[0], c.cache)
 	// ---------------------------
 	var wg sync.WaitGroup
 	bar := progressbar.Default(int64(len(entries)) - 1)
@@ -278,7 +277,7 @@ func (c *Collection) Put(entries []Entry) error {
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			for entry := range putQueue {
-				if err := c.putEntry(startId, entry, c.cache); err != nil {
+				if err := c.putEntry(startNode, entry, c.cache); err != nil {
 					log.Println("could not put entry:", err)
 				}
 				bar.Add(1)
@@ -288,7 +287,7 @@ func (c *Collection) Put(entries []Entry) error {
 	}
 	// Submit the entries to the workers
 	for _, entry := range entries {
-		if entry.Id == startId {
+		if entry.Id == startNode.Id {
 			continue
 		}
 		wg.Add(1)
@@ -300,11 +299,8 @@ func (c *Collection) Put(entries []Entry) error {
 		return fmt.Errorf("could not flush node cache: %v", err)
 	}
 	// ---------------------------
-	nodeCount, _ := c.getNodeCount()
-	// ---------------------------
 	// c.DumpCacheToCSVGraph("dump/graph.csv", nodeCache)
 	// ---------------------------
-	fmt.Println("Final node count:", nodeCount)
 	return nil
 }
 
@@ -366,7 +362,6 @@ func (c *Collection) Delete(deleteSet map[uint64]struct{}) error {
 	}
 	// ---------------------------
 	var wg sync.WaitGroup
-	bar := progressbar.Default(int64(len(toPrune)), "Delete nodes")
 	pruneQueue := make(chan uint64, len(toPrune))
 	// Start the workers
 	numWorkers := runtime.NumCPU()
@@ -376,7 +371,6 @@ func (c *Collection) Delete(deleteSet map[uint64]struct{}) error {
 				if err := c.pruneDeleteNeighbour(id, deleteSet); err != nil {
 					log.Println("could not prune entry:", err)
 				}
-				bar.Add(1)
 				wg.Done()
 			}
 		}()
@@ -392,22 +386,15 @@ func (c *Collection) Delete(deleteSet map[uint64]struct{}) error {
 		return fmt.Errorf("could not flush node cache: %v", err)
 	}
 	// ---------------------------
-	nodeCount, _ := c.getNodeCount()
-	// ---------------------------
-	fmt.Println("Final node count:", nodeCount)
 	return nil
 }
 
 func (c *Collection) Search(vector []float32, k int) ([]uint64, error) {
 	// ---------------------------
-	startId, err := c.getOrSetStartId(nil, false)
+	startNode, err := c.cache.getOrSetStartNode(nil)
+	// ---------------------------
 	if err != nil {
 		return nil, fmt.Errorf("could not get start id: %v", err)
-	}
-	// ---------------------------
-	startNode, err := c.cache.getNode(startId)
-	if err != nil {
-		return nil, fmt.Errorf("could not get start node: %v", err)
 	}
 	// ---------------------------
 	searchSet, _, err := c.greedySearch(startNode, vector, k, c.Config.SearchSize, c.cache)

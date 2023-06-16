@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -185,7 +186,7 @@ func loadHDF5(dataset string) {
 	if strings.Contains(dataset, "angular") {
 		config.DistMetric = "angular"
 	}
-	collection, err := collection.NewCollection(config)
+	benchmarkCol, err := collection.NewCollection(config)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -194,19 +195,38 @@ func loadHDF5(dataset string) {
 	defer profileFile.Close()
 	pprof.StartCPUProfile(profileFile)
 	defer pprof.StopCPUProfile()
-	if err := collection.Put(entries[:500]); err != nil {
+	if err := benchmarkCol.Put(entries); err != nil {
 		log.Fatal(err)
 	}
-	deleteSet := make(map[uint64]struct{}, 500)
-	for i := 0; i < 500; i++ {
-		deleteSet[entries[i].Id] = struct{}{}
+	fmt.Println("Cache size after insert", benchmarkCol.CacheSize())
+	numCycles := 10
+	fmt.Println("Num cycles", numCycles)
+	// 10 percent of entries
+	deleteSize := int(0.2 * float64(len(entries)))
+	fmt.Println("Delete size", deleteSize)
+	// Set rng from current time
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < numCycles; i++ {
+		deleteSet := make(map[uint64]struct{}, deleteSize)
+		deletedEntries := make([]collection.Entry, deleteSize)
+		for j := 0; j < deleteSize; j++ {
+			randId := uint64(rng.Intn(len(entries)))
+			deleteSet[randId] = struct{}{}
+			deletedEntries[j] = entries[randId]
+		}
+		fmt.Println("Deleting", len(deleteSet), "entries")
+		if err := benchmarkCol.Delete(deleteSet); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println("Cache size after delete", benchmarkCol.CacheSize())
+		// Re-insert
+		if err := benchmarkCol.Put(deletedEntries); err != nil {
+			log.Fatal(err)
+		}
 	}
-	if err := collection.Delete(deleteSet); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Cache size", collection.CacheSize())
+	fmt.Println("Cache size after delete re-insert cycles", benchmarkCol.CacheSize())
 	// ---------------------------
-	benchmarkCollection = collection
+	benchmarkCollection = benchmarkCol
 	// ---------------------------
 	// if err := collection.Close(); err != nil {
 	// 	log.Fatal(err)

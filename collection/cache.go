@@ -53,16 +53,48 @@ func (ce *CacheEntry) appendNeighbour(neighbour *CacheEntry) {
 // }
 
 type NodeCache struct {
-	db    *badger.DB
-	mutex sync.RWMutex
-	cache map[uint64]*CacheEntry
+	db        *badger.DB
+	mutex     sync.RWMutex
+	cache     map[uint64]*CacheEntry
+	startNode *CacheEntry
 }
 
-func NewNodeCache(db *badger.DB) *NodeCache {
-	return &NodeCache{
+func NewNodeCache(db *badger.DB) (*NodeCache, error) {
+	// ---------------------------
+	nc := &NodeCache{
 		db:    db,
 		cache: make(map[uint64]*CacheEntry),
 	}
+	// ---------------------------
+	// Read start node from database
+	var startId uint64 = 0
+	canLoadStartNode := false
+	err := db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(STARTIDKEY))
+		if err == badger.ErrKeyNotFound {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("could not get start node id: %v", err)
+		}
+		return item.Value(func(val []byte) error {
+			startId = bytesToUint64(val)
+			canLoadStartNode = true
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not get start node id: %v", err)
+	}
+	if canLoadStartNode {
+		startNode, err := nc.getNode(startId)
+		if err != nil {
+			return nil, fmt.Errorf("could not get start node: %v", err)
+		}
+		nc.startNode = startNode
+	}
+	// ---------------------------
+	return nc, nil
 }
 
 func (nc *NodeCache) getNode(nodeId uint64) (*CacheEntry, error) {
@@ -116,6 +148,29 @@ func (nc *NodeCache) getNodeNeighbours(ce *CacheEntry) ([]*CacheEntry, error) {
 	return neighbours, nil
 }
 
+func (nc *NodeCache) getOrSetStartNode(entry *Entry) (*CacheEntry, error) {
+	nc.mutex.RLock()
+	if nc.startNode != nil {
+		defer nc.mutex.RUnlock()
+		return nc.startNode, nil
+	}
+	nc.mutex.RUnlock()
+	// ---------------------------
+	if entry == nil {
+		return nil, fmt.Errorf("could not get start node: no start node set and no entry provided")
+	}
+	// ---------------------------
+	newStartNode, err := nc.getNode(entry.Id)
+	if err != nil {
+		return nil, fmt.Errorf("could not get new start node: %v", err)
+	}
+	newStartNode.setEmbeddingNoLock(entry.Embedding)
+	nc.mutex.Lock()
+	nc.startNode = newStartNode
+	nc.mutex.Unlock()
+	return newStartNode, nil
+}
+
 func (nc *NodeCache) flush() error {
 	nc.mutex.Lock()
 	defer nc.mutex.Unlock()
@@ -124,6 +179,22 @@ func (nc *NodeCache) flush() error {
 	// Flush dirty entries
 	for _, ce := range nc.cache {
 		if ce.deleted {
+			// Check if the node is the start node
+			if nc.startNode != nil && nc.startNode.Id == ce.Id {
+				// We need to find a new candidate if any
+				neighbours, err := nc.getNodeNeighbours(ce)
+				if err != nil {
+					return fmt.Errorf("could not get node neighbours: %v", err)
+				}
+				nc.startNode = nil
+				for _, n := range neighbours {
+					if !n.deleted {
+						nc.startNode = n
+						break
+					}
+				}
+			}
+			// ---------------------------
 			err := txn.Delete(nodeEmbedKey(ce.Id))
 			if err == badger.ErrTxnTooBig {
 				err = txn.Commit()
@@ -151,6 +222,7 @@ func (nc *NodeCache) flush() error {
 			delete(nc.cache, ce.Id)
 			continue
 		}
+		// ---------------------------
 		if ce.dirty {
 			embeddingBytes, err := float32ToBytes(ce.Embedding)
 			if err != nil {
@@ -170,6 +242,7 @@ func (nc *NodeCache) flush() error {
 			}
 			ce.dirty = false
 		}
+		// ---------------------------
 		if ce.edgeDirty {
 			edgeListBytes, err := edgeListToBytes(ce.Edges)
 			if err != nil {
@@ -188,6 +261,35 @@ func (nc *NodeCache) flush() error {
 				return fmt.Errorf("could not set node edge list: %v", err)
 			}
 			ce.edgeDirty = false
+		}
+	}
+	// ---------------------------
+	// Flush start node
+	if nc.startNode != nil {
+		err := txn.Set([]byte(STARTIDKEY), uint64ToBytes(nc.startNode.Id))
+		if err == badger.ErrTxnTooBig {
+			err = txn.Commit()
+			if err != nil {
+				return fmt.Errorf("could not commit txn: %v", err)
+			}
+			txn = nc.db.NewTransaction(true)
+			err = txn.Set([]byte(STARTIDKEY), uint64ToBytes(nc.startNode.Id))
+		}
+		if err != nil {
+			return fmt.Errorf("could not set start node id: %v", err)
+		}
+	} else {
+		err := txn.Delete([]byte(STARTIDKEY))
+		if err == badger.ErrTxnTooBig {
+			err = txn.Commit()
+			if err != nil {
+				return fmt.Errorf("could not commit txn: %v", err)
+			}
+			txn = nc.db.NewTransaction(true)
+			err = txn.Delete([]byte(STARTIDKEY))
+		}
+		if err != nil {
+			return fmt.Errorf("could not delete start node id: %v", err)
 		}
 	}
 	// ---------------------------
