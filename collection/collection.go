@@ -155,6 +155,25 @@ func (c *Collection) readConfig() error {
 	return err
 }
 
+func (c *Collection) CacheSize() int {
+	// err := c.db.View(func(txn *badger.Txn) error {
+	// 	opts := badger.DefaultIteratorOptions
+	// 	opts.PrefetchValues = false
+	// 	it := txn.NewIterator(opts)
+	// 	defer it.Close()
+	// 	for it.Rewind(); it.Valid(); it.Next() {
+	// 		item := it.Item()
+	// 		k := item.Key()
+	// 		fmt.Printf("key=%s\n", k)
+	// 	}
+	// 	return nil
+	// })
+	// if err != nil {
+	// 	fmt.Printf("could not get cache size: %v\n", err)
+	// }
+	return len(c.cache.cache)
+}
+
 func (c *Collection) putEntry(startNodeId uint64, entry Entry, nodeCache *NodeCache) error {
 	// ---------------------------
 	searchSize := c.Config.SearchSize
@@ -284,6 +303,96 @@ func (c *Collection) Put(entries []Entry) error {
 	nodeCount, _ := c.getNodeCount()
 	// ---------------------------
 	// c.DumpCacheToCSVGraph("dump/graph.csv", nodeCache)
+	// ---------------------------
+	fmt.Println("Final node count:", nodeCount)
+	return nil
+}
+
+func (c *Collection) pruneDeleteNeighbour(id uint64, deleteSet map[uint64]struct{}) error {
+	n, err := c.cache.getNode(id)
+	if err != nil {
+		return fmt.Errorf("could not get node: %v", err)
+	}
+	// ---------------------------
+	// Get the neighbours of the node
+	neighbours, err := c.cache.getNodeNeighbours(n)
+	if err != nil {
+		return fmt.Errorf("could not get node neighbours: %v", err)
+	}
+	// ---------------------------
+	candidateSet := NewDistSet(n.Embedding, c.Config.DegreeBound, c.dist)
+	for _, neighbour := range neighbours {
+		if _, ok := deleteSet[neighbour.Id]; ok {
+			// ---------------------------
+			deletedNode, err := c.cache.getNode(neighbour.Id)
+			if err != nil {
+				return fmt.Errorf("could not get node: %v", err)
+			}
+			deletedNodeNeighbours, err := c.cache.getNodeNeighbours(deletedNode)
+			if err != nil {
+				return fmt.Errorf("could not get node neighbours: %v", err)
+			}
+			candidateSet.AddEntry(deletedNodeNeighbours...)
+		} else {
+			candidateSet.AddEntry(neighbour)
+		}
+	}
+	candidateSet.Sort()
+	// ---------------------------
+	neighbourPrunedEdges, err := c.robustPrune(n.Entry, candidateSet, c.Config.Alpha, c.Config.DegreeBound)
+	if err != nil {
+		return fmt.Errorf("could not perform robust prune for deleted neighbour: %v", err)
+	}
+	n.setNeighbours(neighbourPrunedEdges)
+	return nil
+}
+
+func (c *Collection) Delete(deleteSet map[uint64]struct{}) error {
+	// ---------------------------
+	toPrune := make(map[uint64]struct{}, len(deleteSet))
+	for id := range deleteSet {
+		n, err := c.cache.getNode(id)
+		n.setDeleted()
+		if err != nil {
+			return fmt.Errorf("could not get node: %v", err)
+		}
+		ns, err := c.cache.getNodeNeighbours(n)
+		if err != nil {
+			return fmt.Errorf("could not get node neighbours: %v", err)
+		}
+		for _, n := range ns {
+			toPrune[n.Id] = struct{}{}
+		}
+	}
+	// ---------------------------
+	var wg sync.WaitGroup
+	bar := progressbar.Default(int64(len(toPrune)), "Delete nodes")
+	pruneQueue := make(chan uint64, len(toPrune))
+	// Start the workers
+	numWorkers := runtime.NumCPU()
+	for i := 0; i < numWorkers; i++ {
+		go func() {
+			for id := range pruneQueue {
+				if err := c.pruneDeleteNeighbour(id, deleteSet); err != nil {
+					log.Println("could not prune entry:", err)
+				}
+				bar.Add(1)
+				wg.Done()
+			}
+		}()
+	}
+	// Submit the entries to the workers
+	for id := range deleteSet {
+		wg.Add(1)
+		pruneQueue <- id
+	}
+	close(pruneQueue)
+	wg.Wait()
+	if err := c.cache.flush(); err != nil {
+		return fmt.Errorf("could not flush node cache: %v", err)
+	}
+	// ---------------------------
+	nodeCount, _ := c.getNodeCount()
 	// ---------------------------
 	fmt.Println("Final node count:", nodeCount)
 	return nil

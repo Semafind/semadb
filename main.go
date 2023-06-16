@@ -194,9 +194,17 @@ func loadHDF5(dataset string) {
 	defer profileFile.Close()
 	pprof.StartCPUProfile(profileFile)
 	defer pprof.StopCPUProfile()
-	if err := collection.Put(entries); err != nil {
+	if err := collection.Put(entries[:500]); err != nil {
 		log.Fatal(err)
 	}
+	deleteSet := make(map[uint64]struct{}, 500)
+	for i := 0; i < 500; i++ {
+		deleteSet[entries[i].Id] = struct{}{}
+	}
+	if err := collection.Delete(deleteSet); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Cache size", collection.CacheSize())
 	// ---------------------------
 	benchmarkCollection = collection
 	// ---------------------------
@@ -248,7 +256,7 @@ func runServer(router *gin.Engine) {
 }
 
 func main() {
-	loadHDF5("glove-100-angular")
+	loadHDF5("sift-128-euclidean")
 	// ---------------------------
 	router := createRouter()
 	runServer(router)

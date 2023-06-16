@@ -11,6 +11,7 @@ type CacheEntry struct {
 	Entry
 	dirty      bool
 	edgeDirty  bool
+	deleted    bool
 	mutex      sync.RWMutex
 	neighbours []*CacheEntry
 }
@@ -32,6 +33,12 @@ func (ce *CacheEntry) setNeighbours(neighbours []*CacheEntry) {
 	ce.mutex.Unlock()
 }
 
+func (ce *CacheEntry) setDeleted() {
+	ce.mutex.Lock()
+	ce.deleted = true
+	ce.mutex.Unlock()
+}
+
 func (ce *CacheEntry) appendNeighbour(neighbour *CacheEntry) {
 	ce.mutex.Lock()
 	ce.neighbours = append(ce.neighbours, neighbour)
@@ -46,10 +53,9 @@ func (ce *CacheEntry) appendNeighbour(neighbour *CacheEntry) {
 // }
 
 type NodeCache struct {
-	db       *badger.DB
-	mutex    sync.RWMutex
-	cache    map[uint64]*CacheEntry
-	addCount int
+	db    *badger.DB
+	mutex sync.RWMutex
+	cache map[uint64]*CacheEntry
 }
 
 func NewNodeCache(db *badger.DB) *NodeCache {
@@ -81,9 +87,6 @@ func (nc *NodeCache) getNode(nodeId uint64) (*CacheEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	if embedding == nil {
-		nc.addCount++
-	}
 	newEntry := &CacheEntry{Entry: Entry{Id: nodeId, Embedding: embedding, Edges: edges}}
 	nc.cache[nodeId] = newEntry
 	return newEntry, nil
@@ -113,39 +116,58 @@ func (nc *NodeCache) getNodeNeighbours(ce *CacheEntry) ([]*CacheEntry, error) {
 	return neighbours, nil
 }
 
-func (nc *NodeCache) flushBadgerEntries(batch []*badger.Entry) error {
-	err := nc.db.Update(func(txn *badger.Txn) error {
-		for _, entry := range batch {
-			err := txn.SetEntry(entry)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("could not update database for flush: %v", err)
-	}
-	return nil
-}
-
 func (nc *NodeCache) flush() error {
 	nc.mutex.Lock()
 	defer nc.mutex.Unlock()
-	batchSize := 256
-	batch := make([]*badger.Entry, 0, batchSize+16) // +16 to avoid reallocation
+	txn := nc.db.NewTransaction(true)
 	// ---------------------------
 	// Flush dirty entries
 	for _, ce := range nc.cache {
+		if ce.deleted {
+			err := txn.Delete(nodeEmbedKey(ce.Id))
+			if err == badger.ErrTxnTooBig {
+				err = txn.Commit()
+				if err != nil {
+					return fmt.Errorf("could not commit txn: %v", err)
+				}
+				txn = nc.db.NewTransaction(true)
+				err = txn.Delete(nodeEmbedKey(ce.Id))
+			}
+			if err != nil {
+				return fmt.Errorf("could not delete node embedding: %v", err)
+			}
+			err = txn.Delete(nodeEdgeKey(ce.Id))
+			if err == badger.ErrTxnTooBig {
+				err = txn.Commit()
+				if err != nil {
+					return fmt.Errorf("could not commit txn: %v", err)
+				}
+				txn = nc.db.NewTransaction(true)
+				err = txn.Delete(nodeEdgeKey(ce.Id))
+			}
+			if err != nil {
+				return fmt.Errorf("could not delete node edges: %v", err)
+			}
+			delete(nc.cache, ce.Id)
+			continue
+		}
 		if ce.dirty {
 			embeddingBytes, err := float32ToBytes(ce.Embedding)
 			if err != nil {
 				return fmt.Errorf("could not convert embedding to bytes: %v", err)
 			}
-			batch = append(batch, &badger.Entry{
-				Key:   nodeEmbedKey(ce.Id),
-				Value: embeddingBytes,
-			})
+			err = txn.Set(nodeEmbedKey(ce.Id), embeddingBytes)
+			if err == badger.ErrTxnTooBig {
+				err = txn.Commit()
+				if err != nil {
+					return fmt.Errorf("could not commit txn: %v", err)
+				}
+				txn = nc.db.NewTransaction(true)
+				err = txn.Set(nodeEmbedKey(ce.Id), embeddingBytes)
+			}
+			if err != nil {
+				return fmt.Errorf("could not set node embedding: %v", err)
+			}
 			ce.dirty = false
 		}
 		if ce.edgeDirty {
@@ -153,28 +175,26 @@ func (nc *NodeCache) flush() error {
 			if err != nil {
 				return fmt.Errorf("could not convert edge list to bytes: %v", err)
 			}
-			batch = append(batch, &badger.Entry{
-				Key:   nodeEdgeKey(ce.Id),
-				Value: edgeListBytes,
-			})
-			ce.edgeDirty = false
-		}
-		if len(batch) >= batchSize {
-			err := nc.flushBadgerEntries(batch)
-			if err != nil {
-				return fmt.Errorf("could not update database for flush: %v", err)
+			err = txn.Set(nodeEdgeKey(ce.Id), edgeListBytes)
+			if err == badger.ErrTxnTooBig {
+				err = txn.Commit()
+				if err != nil {
+					return fmt.Errorf("could not commit txn: %v", err)
+				}
+				txn = nc.db.NewTransaction(true)
+				err = txn.Set(nodeEdgeKey(ce.Id), edgeListBytes)
 			}
-			batch = batch[:0]
+			if err != nil {
+				return fmt.Errorf("could not set node edge list: %v", err)
+			}
+			ce.edgeDirty = false
 		}
 	}
 	// ---------------------------
 	// Flush batch
-	if len(batch) > 0 {
-		err := nc.flushBadgerEntries(batch)
-		if err != nil {
-			return fmt.Errorf("could not update database for flush: %v", err)
-		}
+	err := txn.Commit()
+	if err != nil {
+		return fmt.Errorf("could not commit final txn: %v", err)
 	}
-	nc.addCount = 0
 	return nil
 }
