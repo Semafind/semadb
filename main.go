@@ -132,6 +132,12 @@ func createRouter() *gin.Engine {
 
 // ---------------------------
 
+func normalise(embedding []float32) {
+	vector := blas32.Vector{N: len(embedding), Inc: 1, Data: embedding}
+	norm := blas32.Nrm2(vector)
+	blas32.Scal(1/norm, vector)
+}
+
 func loadHDF5(dataset string) {
 	fname := fmt.Sprintf("data/%s.hdf5", dataset)
 	log.Println("Loading dataset", fname)
@@ -172,9 +178,7 @@ func loadHDF5(dataset string) {
 		embedding := dataBuf[i*dims[1] : (i+1)*dims[1]]
 		if strings.Contains(dataset, "angular") {
 			// Normalise embedding
-			vector := blas32.Vector{N: len(embedding), Inc: 1, Data: embedding}
-			norm := blas32.Nrm2(vector)
-			blas32.Scal(1/norm, vector)
+			normalise(embedding)
 		}
 		entries[i] = collection.Entry{
 			Id:        uint64(i),
@@ -195,17 +199,60 @@ func loadHDF5(dataset string) {
 	defer profileFile.Close()
 	pprof.StartCPUProfile(profileFile)
 	defer pprof.StopCPUProfile()
+	// ---------------------------
 	if err := benchmarkCol.Put(entries); err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("Cache size after insert", benchmarkCol.CacheSize())
-	numCycles := 10
+	// ---------------------------
+	fakeEntries := make([]collection.Entry, len(entries)/10)
+	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := 0; i < len(fakeEntries); i++ {
+		fakeEntries[i] = collection.Entry{
+			Id:        uint64(rng.Intn(len(entries))),
+			Embedding: make([]float32, dims[1]),
+		}
+		// Randomise embedding
+		for j := 0; j < len(fakeEntries[i].Embedding); j++ {
+			fakeEntries[i].Embedding[j] = rng.Float32()
+			if strings.Contains(dataset, "angular") {
+				// Normalise embedding
+				normalise(fakeEntries[i].Embedding)
+			}
+		}
+	}
+	fakeIds := make(map[uint64]struct{}, len(fakeEntries))
+	for _, entry := range fakeEntries {
+		fakeIds[entry.Id] = struct{}{}
+	}
+	fmt.Println("Cache size before fake delete", benchmarkCol.CacheSize())
+	if err := benchmarkCol.Delete(fakeIds); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Cache size after fake delete", benchmarkCol.CacheSize())
+	if err := benchmarkCol.Put(fakeEntries); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Cache size after fake insert", benchmarkCol.CacheSize())
+	realEntries := make([]collection.Entry, len(fakeEntries))
+	for i := 0; i < len(fakeEntries); i++ {
+		realEntries[i] = entries[fakeEntries[i].Id]
+	}
+	if err := benchmarkCol.Delete(fakeIds); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Cache size after fake delete", benchmarkCol.CacheSize())
+	if err := benchmarkCol.Put(realEntries); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("Cache size after real insert", benchmarkCol.CacheSize())
+	// ---------------------------
+	numCycles := 1
 	fmt.Println("Num cycles", numCycles)
 	// 10 percent of entries
 	deleteSize := int(0.2 * float64(len(entries)))
 	fmt.Println("Delete size", deleteSize)
 	// Set rng from current time
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	for i := 0; i < numCycles; i++ {
 		deleteSet := make(map[uint64]struct{}, deleteSize)
 		deletedEntries := make([]collection.Entry, deleteSize)
@@ -276,7 +323,7 @@ func runServer(router *gin.Engine) {
 }
 
 func main() {
-	loadHDF5("sift-128-euclidean")
+	loadHDF5("glove-100-angular")
 	// ---------------------------
 	router := createRouter()
 	runServer(router)
