@@ -16,3 +16,5 @@ Some tools and repos that might be useful:
 - https://github.com/stretchr/testify for testing assertions
 - https://github.com/gin-gonic/gin for web framework
 - https://github.com/labstack/echo also for web framework
+- https://github.com/cespare/xxhash for fast hashing
+- https://github.com/dustin/go-humanize for human readable logging
