@@ -67,13 +67,15 @@ func main() {
 	// ---------------------------
 	time.Sleep(5 * time.Second)
 	log.Debug().Msg("Testing RPCAPI.Ping")
-	pingRequest := &PingRequest{RequestArgs: RequestArgs{Source: rpcAPI.MyHostname, Destination: "localhost:11002"}}
-	pingResponse := &PingResponse{}
-	err = rpcAPI.Ping(pingRequest, pingResponse)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to ping")
+	if rpcAPI.MyHostname == "localhost:11001" {
+		pingRequest := &PingRequest{RequestArgs: RequestArgs{Source: rpcAPI.MyHostname, Destination: "localhost:11002"}, Message: "hi"}
+		pingResponse := &PingResponse{}
+		err = rpcAPI.Ping(pingRequest, pingResponse)
+		if err != nil {
+			log.Fatal().Err(err).Msg("Failed to ping")
+		}
+		log.Debug().Interface("pingResponse", pingResponse).Msg("Ping response")
 	}
-	log.Debug().Interface("pingResponse", pingResponse).Msg("Ping response")
 	// ---------------------------
 	// runHTTPServer()
 	// ---------------------------
