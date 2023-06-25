@@ -47,6 +47,7 @@ func init() {
 	// if ginMode == "release" {
 	// 	gin.SetMode(gin.ReleaseMode)
 	// }
+	// ---------------------------
 }
 
 // ---------------------------
@@ -58,6 +59,16 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to get hostname")
 	}
 	log.Info().Str("hostname", hostname).Msg("Initial parameters")
-	log.Info().Float32("memes", 2.34).Msg("Starting HTTP Server")
+	// ---------------------------
+	// Setup kvstore
+	kvstore, err := NewKVStore()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to create kvstore")
+	}
+	log.Info().Msg("KVStore created")
+	// ---------------------------
 	runHTTPServer()
+	// ---------------------------
+	// TODO: graceful shutdown
+	kvstore.Close()
 }
