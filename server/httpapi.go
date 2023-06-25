@@ -67,11 +67,8 @@ func newCollectionHandler(c *gin.Context) {
 	}
 	log.Info().Interface("vamanaCollection", vamanaCollection).Msg("newCollectionHandler")
 	// ---------------------------
-	clusterState.mu.Lock()
-	defer clusterState.mu.Unlock()
-	// ---------------------------
 	repCount := config.GetInt("SEMADB_GENERAL_REPLICATION", 1)
-	targetServers := RendezvousHash(vamanaCollection.Id.String(), clusterState.servers, repCount)
+	targetServers := RendezvousHash(vamanaCollection.Id.String(), []string{"localhost"}, repCount)
 	// These servers will be responsible for the collection under the current cluster configuration
 	// for collection operations, we are looking for strong consistency so all of them should be up
 	// and achnowledge the collection creation, otherwise the user might not see the collection
