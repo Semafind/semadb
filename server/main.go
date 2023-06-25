@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -63,7 +66,7 @@ func main() {
 	// ---------------------------
 	// Setup RPC API
 	rpcAPI := NewRPCAPI(clusterState, kvstore)
-	rpcAPI.Serve()
+	rpcServer := rpcAPI.Serve()
 	// ---------------------------
 	time.Sleep(5 * time.Second)
 	log.Debug().Msg("Testing RPCAPI.Ping")
@@ -72,13 +75,28 @@ func main() {
 		pingResponse := &PingResponse{}
 		err = rpcAPI.Ping(pingRequest, pingResponse)
 		if err != nil {
-			log.Fatal().Err(err).Msg("Failed to ping")
+			log.Error().Err(err).Msg("Failed to ping")
 		}
 		log.Debug().Interface("pingResponse", pingResponse).Msg("Ping response")
 	}
 	// ---------------------------
 	// runHTTPServer()
 	// ---------------------------
-	// TODO: graceful shutdown
-	kvstore.Close()
+	quit := make(chan os.Signal, 1)
+	// kill (no param) default send syscanll.SIGTERM
+	// kill -2 is syscall.SIGINT
+	// kill -9 is syscall. SIGKILL but can"t be catch, so don't need add it
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	sig := <-quit
+	log.Info().Str("signal", sig.String()).Msg("Shutting down server...")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	if err := rpcServer.Shutdown(ctx); err != nil {
+		log.Error().Err(err).Msg("RPC server forced to shut")
+	}
+	cancel()
+	// ---------------------------
+	// We don't timeout here because we don't want to lose data
+	if err := kvstore.Close(); err != nil {
+		log.Error().Err(err).Msg("KVStore did not close gracefully")
+	}
 }

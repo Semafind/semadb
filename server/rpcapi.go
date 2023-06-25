@@ -38,12 +38,22 @@ func NewRPCAPI(clusterState *ClusterState, kvstore *KVStore) *RPCAPI {
 
 // ---------------------------
 
-func (api *RPCAPI) Serve() {
+func (api *RPCAPI) Serve() *http.Server {
 	rpc.Register(api)
 	rpc.HandleHTTP()
-	rpcPort := config.GetString("SEMADB_RPC_PORT", "9898")
-	log.Info().Str("rpcPort", rpcPort).Msg("RPCAPI.Serve")
-	go http.ListenAndServe(":"+rpcPort, nil)
+	server := &http.Server{
+		Addr:         api.MyHostname,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	go func() {
+		// service connections
+		log.Info().Str("rpcHost", api.MyHostname).Msg("RPCAPI.Serve")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal().Err(err).Msg("Failed to listen and serve RPCAPI")
+		}
+	}()
+	return server
 }
 
 func (api *RPCAPI) Client(destination string) (*rpc.Client, error) {
