@@ -65,7 +65,7 @@ func main() {
 	log.Info().Interface("clusterState", clusterState).Msg("Cluster state")
 	// ---------------------------
 	// Setup RPC API
-	rpcAPI := NewRPCAPI(clusterState, kvstore)
+	rpcAPI := NewRPCAPI(kvstore)
 	rpcServer := rpcAPI.Serve()
 	// ---------------------------
 	time.Sleep(5 * time.Second)

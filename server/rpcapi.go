@@ -13,14 +13,13 @@ import (
 )
 
 type RPCAPI struct {
-	MyHostname   string
-	clusterState *ClusterState
-	kvstore      *KVStore
-	clients      map[string]*rpc.Client
-	clientMu     sync.Mutex
+	MyHostname string
+	kvstore    *KVStore
+	clients    map[string]*rpc.Client
+	clientMu   sync.Mutex
 }
 
-func NewRPCAPI(clusterState *ClusterState, kvstore *KVStore) *RPCAPI {
+func NewRPCAPI(kvstore *KVStore) *RPCAPI {
 	envHostname := config.GetString("SEMADB_RPC_HOST", "")
 	if envHostname == "" {
 		hostname, err := os.Hostname()
@@ -33,7 +32,7 @@ func NewRPCAPI(clusterState *ClusterState, kvstore *KVStore) *RPCAPI {
 	rpcPort := config.GetString("SEMADB_RPC_PORT", "9898")
 	envHostname = envHostname + ":" + rpcPort
 	log.Debug().Str("hostname", envHostname).Msg("NewRPCAPI")
-	return &RPCAPI{MyHostname: envHostname, clusterState: clusterState, kvstore: kvstore, clients: make(map[string]*rpc.Client)}
+	return &RPCAPI{MyHostname: envHostname, kvstore: kvstore, clients: make(map[string]*rpc.Client)}
 }
 
 // ---------------------------
@@ -55,6 +54,15 @@ func (api *RPCAPI) Serve() *http.Server {
 	}()
 	return server
 }
+
+// func (api *RPCAPI) Close() {
+// 	log.Info().Msg("RPCAPI.Close")
+// 	for destination, client := range api.clients {
+// 		if err := client.Close(); err != nil {
+// 			log.Error().Err(err).Str("destination", destination).Msg("Failed to close RPC client")
+// 		}
+// 	}
+// }
 
 func (api *RPCAPI) Client(destination string) (*rpc.Client, error) {
 	api.clientMu.Lock()
