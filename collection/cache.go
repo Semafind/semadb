@@ -1,10 +1,18 @@
 package collection
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/dgraph-io/badger/v4"
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/gocql/gocql"
+	"github.com/schollz/progressbar/v3"
+	"github.com/tikv/client-go/v2/rawkv"
 )
 
 type CacheEntry struct {
@@ -53,11 +61,19 @@ func (ce *CacheEntry) appendNeighbour(neighbour *CacheEntry) {
 // }
 
 type NodeCache struct {
-	db        *badger.DB
-	mutex     sync.RWMutex
-	cache     map[uint64]*CacheEntry
-	startNode *CacheEntry
+	db               *badger.DB
+	mutex            sync.RWMutex
+	cache            map[uint64]*CacheEntry
+	startNode        *CacheEntry
+	sqlDB            *sql.DB
+	tikvDB           *rawkv.Client
+	cassandraSession *gocql.Session
 }
+
+const (
+	sqlServer = "127.0.0.1"
+	// sqlPass   = "semadb-pass"
+)
 
 func NewNodeCache(db *badger.DB) (*NodeCache, error) {
 	// ---------------------------
@@ -65,6 +81,27 @@ func NewNodeCache(db *badger.DB) (*NodeCache, error) {
 		db:    db,
 		cache: make(map[uint64]*CacheEntry),
 	}
+	// ---------------------------
+	if sqlDB, err := sql.Open("mysql", fmt.Sprintf("root@tcp(%s:4000)/semadb", sqlServer)); err != nil {
+		return nil, fmt.Errorf("could not open sql connection: %v", err)
+	} else {
+		nc.sqlDB = sqlDB
+	}
+	// ---------------------------
+	// if tikvDB, err := rawkv.NewClientWithOpts(context.TODO(), []string{fmt.Sprintf("%s:2379", sqlServer)}); err != nil {
+	// 	return nil, fmt.Errorf("could not open tikv connection: %v", err)
+	// } else {
+	// 	nc.tikvDB = tikvDB
+	// }
+	// cassandraConfig := gocql.NewCluster(fmt.Sprintf("%s:9042", sqlServer))
+	// cassandraConfig.Keyspace = "semadb"
+	// cassandraConfig.ProtoVersion = 4
+	// cassandraConfig.Consistency = gocql.One
+	// if cassandraSession, err := cassandraConfig.CreateSession(); err != nil {
+	// 	return nil, fmt.Errorf("could not open cassandra connection: %v", err)
+	// } else {
+	// 	nc.cassandraSession = cassandraSession
+	// }
 	// ---------------------------
 	// Read start node from database
 	var startId uint64 = 0
@@ -111,15 +148,11 @@ func (nc *NodeCache) getNode(nodeId uint64) (*CacheEntry, error) {
 	if ok {
 		return entry, nil
 	}
-	embedding, err := nc.getNodeEmbedding(nodeId)
+	readEntry, err := nc.getNodeFromDB(nodeId)
 	if err != nil {
 		return nil, err
 	}
-	edges, err := nc.getNodeEdges(nodeId)
-	if err != nil {
-		return nil, err
-	}
-	newEntry := &CacheEntry{Entry: Entry{Id: nodeId, Embedding: embedding, Edges: edges}}
+	newEntry := &CacheEntry{Entry: *readEntry}
 	nc.cache[nodeId] = newEntry
 	return newEntry, nil
 }
@@ -171,98 +204,148 @@ func (nc *NodeCache) getOrSetStartNode(entry *Entry) (*CacheEntry, error) {
 	return newStartNode, nil
 }
 
-func (nc *NodeCache) flush() error {
-	nc.mutex.Lock()
-	defer nc.mutex.Unlock()
-	txn := nc.db.NewTransaction(true)
+func (nc *NodeCache) flushToSQL() error {
+	valueStrings := make([]string, 0, len(nc.cache))
+	valueArgs := make([]interface{}, 0, len(nc.cache)*3)
 	// ---------------------------
 	// Flush dirty entries
 	for _, ce := range nc.cache {
-		if ce.deleted {
-			// Check if the node is the start node
-			if nc.startNode != nil && nc.startNode.Id == ce.Id {
-				// We need to find a new candidate if any
-				neighbours, err := nc.getNodeNeighbours(ce)
-				if err != nil {
-					return fmt.Errorf("could not get node neighbours: %v", err)
-				}
-				nc.startNode = nil
-				for _, n := range neighbours {
-					if !n.deleted {
-						nc.startNode = n
-						break
-					}
-				}
-			}
-			// ---------------------------
-			err := txn.Delete(nodeEmbedKey(ce.Id))
-			if err == badger.ErrTxnTooBig {
-				err = txn.Commit()
-				if err != nil {
-					return fmt.Errorf("could not commit txn: %v", err)
-				}
-				txn = nc.db.NewTransaction(true)
-				err = txn.Delete(nodeEmbedKey(ce.Id))
-			}
-			if err != nil {
-				return fmt.Errorf("could not delete node embedding: %v", err)
-			}
-			err = txn.Delete(nodeEdgeKey(ce.Id))
-			if err == badger.ErrTxnTooBig {
-				err = txn.Commit()
-				if err != nil {
-					return fmt.Errorf("could not commit txn: %v", err)
-				}
-				txn = nc.db.NewTransaction(true)
-				err = txn.Delete(nodeEdgeKey(ce.Id))
-			}
-			if err != nil {
-				return fmt.Errorf("could not delete node edges: %v", err)
-			}
-			delete(nc.cache, ce.Id)
-			continue
-		}
 		// ---------------------------
 		if ce.dirty {
 			embeddingBytes, err := float32ToBytes(ce.Embedding)
 			if err != nil {
 				return fmt.Errorf("could not convert embedding to bytes: %v", err)
 			}
-			err = txn.Set(nodeEmbedKey(ce.Id), embeddingBytes)
-			if err == badger.ErrTxnTooBig {
-				err = txn.Commit()
-				if err != nil {
-					return fmt.Errorf("could not commit txn: %v", err)
-				}
-				txn = nc.db.NewTransaction(true)
-				err = txn.Set(nodeEmbedKey(ce.Id), embeddingBytes)
-			}
-			if err != nil {
-				return fmt.Errorf("could not set node embedding: %v", err)
-			}
-			ce.dirty = false
-		}
-		// ---------------------------
-		if ce.edgeDirty {
 			edgeListBytes, err := edgeListToBytes(ce.Edges)
 			if err != nil {
 				return fmt.Errorf("could not convert edge list to bytes: %v", err)
 			}
-			err = txn.Set(nodeEdgeKey(ce.Id), edgeListBytes)
-			if err == badger.ErrTxnTooBig {
-				err = txn.Commit()
+			// _, err = nc.sqlDB.Exec("INSERT INTO nodes (id, embedding, edges) VALUES (?, ?, ?)", ce.Id, embeddingBytes, edgeListBytes)
+			// "INSERT INTO player (id, coins, goods) VALUES (?, ?, ?)" + strings.Repeat(",(?,?,?)", amount-1)
+			valueStrings = append(valueStrings, "(?, ?, ?)")
+			valueArgs = append(valueArgs, ce.Id, embeddingBytes, edgeListBytes)
+			if len(valueStrings) >= 10000 {
+				_, err := nc.sqlDB.Exec("INSERT INTO nodes (id, embedding, edges) VALUES "+strings.Join(valueStrings, ","), valueArgs...)
 				if err != nil {
-					return fmt.Errorf("could not commit txn: %v", err)
+					return fmt.Errorf("could not insert nodes: %v", err)
 				}
-				txn = nc.db.NewTransaction(true)
-				err = txn.Set(nodeEdgeKey(ce.Id), edgeListBytes)
+				valueStrings = valueStrings[:0]
+				valueArgs = valueArgs[:0]
 			}
-			if err != nil {
-				return fmt.Errorf("could not set node edge list: %v", err)
-			}
+			// if _, err := stmt.Exec(ce.Id, embeddingBytes, edgeListBytes); err != nil {
+			// 	return fmt.Errorf("could not insert node: %v", err)
+			// }
+			ce.dirty = false
 			ce.edgeDirty = false
 		}
 	}
+	if len(valueStrings) > 0 {
+		_, err := nc.sqlDB.Exec("INSERT INTO nodes (id, embedding, edges) VALUES "+strings.Join(valueStrings, ","), valueArgs...)
+		if err != nil {
+			return fmt.Errorf("could not insert nodes: %v", err)
+		}
+	}
+	return nil
+}
+
+func (nc *NodeCache) flushToTiKV() error {
+	// ---------------------------
+	ctx := context.TODO()
+	// ---------------------------
+	// Flush dirty entries
+	bar := progressbar.Default(int64(len(nc.cache)))
+	batchSize := 20000
+	embedKeys := make([][]byte, 0, batchSize+1)
+	edgeKeys := make([][]byte, 0, batchSize+1)
+	embedValues := make([][]byte, 0, batchSize+1)
+	edgeValues := make([][]byte, 0, batchSize+1)
+	for _, ce := range nc.cache {
+		// ---------------------------
+		if ce.dirty {
+			embeddingBytes, err := float32ToBytes(ce.Embedding)
+			if err != nil {
+				return fmt.Errorf("could not convert embedding to bytes: %v", err)
+			}
+			edgeListBytes, err := edgeListToBytes(ce.Edges)
+			if err != nil {
+				return fmt.Errorf("could not convert edge list to bytes: %v", err)
+			}
+			embedKeys = append(embedKeys, nodeEmbedKey(ce.Id))
+			edgeKeys = append(edgeKeys, nodeEdgeKey(ce.Id))
+			embedValues = append(embedValues, embeddingBytes)
+			edgeValues = append(edgeValues, edgeListBytes)
+			ce.dirty = false
+			ce.edgeDirty = false
+			bar.Add(1)
+			if len(embedKeys) >= batchSize {
+				err = nc.tikvDB.BatchPut(ctx, embedKeys, embedValues)
+				if err != nil {
+					return fmt.Errorf("could not put node embedding: %v", err)
+				}
+				err = nc.tikvDB.BatchPut(ctx, edgeKeys, edgeValues)
+				if err != nil {
+					return fmt.Errorf("could not put node edge list: %v", err)
+				}
+				embedKeys = embedKeys[:0]
+				edgeKeys = edgeKeys[:0]
+				embedValues = embedValues[:0]
+				edgeValues = edgeValues[:0]
+			}
+		}
+	}
+	if len(embedKeys) >= 0 {
+		err := nc.tikvDB.BatchPut(ctx, embedKeys, embedValues)
+		if err != nil {
+			return fmt.Errorf("could not put node embedding: %v", err)
+		}
+		err = nc.tikvDB.BatchPut(ctx, edgeKeys, edgeValues)
+		if err != nil {
+			return fmt.Errorf("could not put node edge list: %v", err)
+		}
+	}
+	return nil
+}
+
+func (nc *NodeCache) flushToCassandra() error {
+	// ---------------------------
+	// Flush dirty entries
+	bar := progressbar.Default(int64(len(nc.cache)))
+	for _, ce := range nc.cache {
+		// ---------------------------
+		if ce.dirty {
+			// ---------------------------
+			// Insert into cassandra
+			err := nc.cassandraSession.Query("INSERT INTO nodes (id, embedding, edges) VALUES (?, ?, ?)", ce.Id, ce.Embedding, ce.Edges).Consistency(gocql.Any).Exec()
+			if err != nil {
+				return fmt.Errorf("could not insert node: %v", err)
+			}
+			ce.dirty = false
+			ce.edgeDirty = false
+			bar.Add(1)
+		}
+	}
+	return nil
+}
+
+func (nc *NodeCache) flush() error {
+	nc.mutex.Lock()
+	defer nc.mutex.Unlock()
+	txn := nc.db.NewTransaction(true)
+	// ---------------------------
+	currentTime := time.Now()
+	// ---------------------------
+	err := nc.flushToSQL()
+	if err != nil {
+		return fmt.Errorf("could not flush to sql: %v", err)
+	}
+	// err := nc.flushToTiKV()
+	// if err != nil {
+	// 	return fmt.Errorf("could not flush to tikv: %v", err)
+	// }
+	// err := nc.flushToCassandra()
+	// if err != nil {
+	// 	return fmt.Errorf("could not flush to cassandra: %v", err)
+	// }
 	// ---------------------------
 	// Flush start node
 	if nc.startNode != nil {
@@ -293,8 +376,11 @@ func (nc *NodeCache) flush() error {
 		}
 	}
 	// ---------------------------
+	// Print time took
+	fmt.Printf("Flushed cache in %v\n", time.Since(currentTime))
+	// ---------------------------
 	// Flush batch
-	err := txn.Commit()
+	err = txn.Commit()
 	if err != nil {
 		return fmt.Errorf("could not commit final txn: %v", err)
 	}

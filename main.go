@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -205,73 +204,73 @@ func loadHDF5(dataset string) {
 	}
 	fmt.Println("Cache size after insert", benchmarkCol.CacheSize())
 	// ---------------------------
-	fakeEntries := make([]collection.Entry, len(entries)/10)
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < len(fakeEntries); i++ {
-		fakeEntries[i] = collection.Entry{
-			Id:        uint64(rng.Intn(len(entries))),
-			Embedding: make([]float32, dims[1]),
-		}
-		// Randomise embedding
-		for j := 0; j < len(fakeEntries[i].Embedding); j++ {
-			fakeEntries[i].Embedding[j] = rng.Float32()
-			if strings.Contains(dataset, "angular") {
-				// Normalise embedding
-				normalise(fakeEntries[i].Embedding)
-			}
-		}
-	}
-	fakeIds := make(map[uint64]struct{}, len(fakeEntries))
-	for _, entry := range fakeEntries {
-		fakeIds[entry.Id] = struct{}{}
-	}
-	fmt.Println("Cache size before fake delete", benchmarkCol.CacheSize())
-	if err := benchmarkCol.Delete(fakeIds); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Cache size after fake delete", benchmarkCol.CacheSize())
-	if err := benchmarkCol.Put(fakeEntries); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Cache size after fake insert", benchmarkCol.CacheSize())
-	realEntries := make([]collection.Entry, len(fakeEntries))
-	for i := 0; i < len(fakeEntries); i++ {
-		realEntries[i] = entries[fakeEntries[i].Id]
-	}
-	if err := benchmarkCol.Delete(fakeIds); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Cache size after fake delete", benchmarkCol.CacheSize())
-	if err := benchmarkCol.Put(realEntries); err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Cache size after real insert", benchmarkCol.CacheSize())
-	// ---------------------------
-	numCycles := 1
-	fmt.Println("Num cycles", numCycles)
-	// 10 percent of entries
-	deleteSize := int(0.2 * float64(len(entries)))
-	fmt.Println("Delete size", deleteSize)
-	// Set rng from current time
-	for i := 0; i < numCycles; i++ {
-		deleteSet := make(map[uint64]struct{}, deleteSize)
-		deletedEntries := make([]collection.Entry, deleteSize)
-		for j := 0; j < deleteSize; j++ {
-			randId := uint64(rng.Intn(len(entries)))
-			deleteSet[randId] = struct{}{}
-			deletedEntries[j] = entries[randId]
-		}
-		fmt.Println("Deleting", len(deleteSet), "entries")
-		if err := benchmarkCol.Delete(deleteSet); err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println("Cache size after delete", benchmarkCol.CacheSize())
-		// Re-insert
-		if err := benchmarkCol.Put(deletedEntries); err != nil {
-			log.Fatal(err)
-		}
-	}
-	fmt.Println("Cache size after delete re-insert cycles", benchmarkCol.CacheSize())
+	// fakeEntries := make([]collection.Entry, len(entries)/10)
+	// rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	// for i := 0; i < len(fakeEntries); i++ {
+	// 	fakeEntries[i] = collection.Entry{
+	// 		Id:        uint64(rng.Intn(len(entries))),
+	// 		Embedding: make([]float32, dims[1]),
+	// 	}
+	// 	// Randomise embedding
+	// 	for j := 0; j < len(fakeEntries[i].Embedding); j++ {
+	// 		fakeEntries[i].Embedding[j] = rng.Float32()
+	// 		if strings.Contains(dataset, "angular") {
+	// 			// Normalise embedding
+	// 			normalise(fakeEntries[i].Embedding)
+	// 		}
+	// 	}
+	// }
+	// fakeIds := make(map[uint64]struct{}, len(fakeEntries))
+	// for _, entry := range fakeEntries {
+	// 	fakeIds[entry.Id] = struct{}{}
+	// }
+	// fmt.Println("Cache size before fake delete", benchmarkCol.CacheSize())
+	// if err := benchmarkCol.Delete(fakeIds); err != nil {
+	// 	log.Fatal(err)
+	// }
+	// fmt.Println("Cache size after fake delete", benchmarkCol.CacheSize())
+	// if err := benchmarkCol.Put(fakeEntries); err != nil {
+	// 	log.Fatal(err)
+	// }
+	// fmt.Println("Cache size after fake insert", benchmarkCol.CacheSize())
+	// realEntries := make([]collection.Entry, len(fakeEntries))
+	// for i := 0; i < len(fakeEntries); i++ {
+	// 	realEntries[i] = entries[fakeEntries[i].Id]
+	// }
+	// if err := benchmarkCol.Delete(fakeIds); err != nil {
+	// 	log.Fatal(err)
+	// }
+	// fmt.Println("Cache size after fake delete", benchmarkCol.CacheSize())
+	// if err := benchmarkCol.Put(realEntries); err != nil {
+	// 	log.Fatal(err)
+	// }
+	// fmt.Println("Cache size after real insert", benchmarkCol.CacheSize())
+	// // ---------------------------
+	// numCycles := 1
+	// fmt.Println("Num cycles", numCycles)
+	// // 10 percent of entries
+	// deleteSize := int(0.2 * float64(len(entries)))
+	// fmt.Println("Delete size", deleteSize)
+	// // Set rng from current time
+	// for i := 0; i < numCycles; i++ {
+	// 	deleteSet := make(map[uint64]struct{}, deleteSize)
+	// 	deletedEntries := make([]collection.Entry, deleteSize)
+	// 	for j := 0; j < deleteSize; j++ {
+	// 		randId := uint64(rng.Intn(len(entries)))
+	// 		deleteSet[randId] = struct{}{}
+	// 		deletedEntries[j] = entries[randId]
+	// 	}
+	// 	fmt.Println("Deleting", len(deleteSet), "entries")
+	// 	if err := benchmarkCol.Delete(deleteSet); err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// 	fmt.Println("Cache size after delete", benchmarkCol.CacheSize())
+	// 	// Re-insert
+	// 	if err := benchmarkCol.Put(deletedEntries); err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// }
+	// fmt.Println("Cache size after delete re-insert cycles", benchmarkCol.CacheSize())
 	// ---------------------------
 	benchmarkCollection = benchmarkCol
 	// ---------------------------
@@ -282,11 +281,11 @@ func loadHDF5(dataset string) {
 
 func runServer(router *gin.Engine) {
 	// router.Run()
-	// col, err := collection.OpenCollection("benchmark")
-	// if err != nil {
-	// 	log.Fatal(err)
-	// }
-	// benchmarkCollection = col
+	col, err := collection.OpenCollection("glove-100-angular")
+	if err != nil {
+		log.Fatal(err)
+	}
+	benchmarkCollection = col
 	// ---------------------------
 	server := &http.Server{
 		Addr:    ":8080",
@@ -323,7 +322,7 @@ func runServer(router *gin.Engine) {
 }
 
 func main() {
-	loadHDF5("glove-100-angular")
+	// loadHDF5("glove-100-angular")
 	// ---------------------------
 	router := createRouter()
 	runServer(router)
