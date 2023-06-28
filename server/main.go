@@ -72,7 +72,7 @@ func main() {
 	time.Sleep(5 * time.Second)
 	log.Debug().Msg("Testing RPCAPI.Ping")
 	if rpcAPI.MyHostname == "localhost:11001" {
-		pingRequest := &PingRequest{RequestArgs: RequestArgs{Source: rpcAPI.MyHostname, Destination: "localhost:11002"}, Message: "hi"}
+		pingRequest := &PingRequest{RequestArgs: RequestArgs{Source: rpcAPI.MyHostname, Dest: "localhost:11002"}, Message: "hi"}
 		pingResponse := &PingResponse{}
 		err = rpcAPI.Ping(pingRequest, pingResponse)
 		if err != nil {

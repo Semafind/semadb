@@ -81,37 +81,42 @@ func (api *RPCAPI) Client(destination string) (*rpc.Client, error) {
 	return client, nil
 }
 
-func (api *RPCAPI) internalRoute(remoteFn string, args *RequestArgs, reply interface{}) error {
-	log.Debug().Interface("args", args).Str("host", api.MyHostname).Msg(remoteFn)
-	if args.Destination != api.MyHostname {
-		log.Debug().Str("destination", args.Destination).Str("host", api.MyHostname).Msg(remoteFn + ": routing")
-		client, err := api.Client(args.Destination)
-		if err != nil {
-			return fmt.Errorf("failed to get client: %v", err)
+func (api *RPCAPI) internalRoute(remoteFn string, args Destinationer, reply interface{}) error {
+	destination := args.Destination()
+	log.Debug().Str("destination", destination).Str("host", api.MyHostname).Msg(remoteFn + ": routing")
+	client, err := api.Client(destination)
+	if err != nil {
+		return fmt.Errorf("failed to get client: %v", err)
+	}
+	// Make request with timeout
+	rpcCall := client.Go(remoteFn, args, reply, nil)
+	select {
+	case <-rpcCall.Done:
+		if rpcCall.Error != nil {
+			return fmt.Errorf("failed to call %v: %v", remoteFn, rpcCall.Error)
 		}
-		// Make request with timeout
-		rpcCall := client.Go(remoteFn, args, reply, nil)
-		select {
-		case <-rpcCall.Done:
-			if rpcCall.Error != nil {
-				return fmt.Errorf("failed to call %v: %v", remoteFn, rpcCall.Error)
-			}
-		case <-time.After(10 * time.Millisecond):
-			return fmt.Errorf(remoteFn + " timed out")
-		}
-		return nil
+	case <-time.After(time.Duration(config.Cfg.RpcTimeout) * time.Millisecond):
+		return fmt.Errorf(remoteFn + " timed out")
 	}
 	return nil
 }
 
 // ---------------------------
 
+type Destinationer interface {
+	Destination() string
+}
+
 // Common to all RPC requests, this trick allows us to locally call the same RPC
 // endpoints and let the functions route to the right server assuming mesh
 // network
 type RequestArgs struct {
-	Source      string
-	Destination string
+	Source string
+	Dest   string
+}
+
+func (args RequestArgs) Destination() string {
+	return args.Dest
 }
 
 // ---------------------------
@@ -126,8 +131,9 @@ type PingResponse struct {
 }
 
 func (api *RPCAPI) Ping(args *PingRequest, reply *PingResponse) error {
-	if err := api.internalRoute("RPCAPI.Ping", &args.RequestArgs, reply); err != nil {
-		return fmt.Errorf("failed to route: %v", err)
+	log.Debug().Interface("args", args).Str("host", api.MyHostname).Msg("RPCAPI.Ping")
+	if args.Dest != api.MyHostname {
+		return api.internalRoute("RPCAPI.Ping", args, reply)
 	}
 	reply.Message = fmt.Sprintf("Pong from semadb %v, message: %v", api.MyHostname, args.Message)
 	return nil
@@ -148,8 +154,9 @@ type WriteKVResponse struct {
 }
 
 func (api *RPCAPI) WriteKV(args *WriteKVRequest, reply *WriteKVResponse) error {
-	if err := api.internalRoute("RPCAPI.WriteKV", &args.RequestArgs, reply); err != nil {
-		return fmt.Errorf("failed to route: %v", err)
+	log.Debug().Interface("args", args).Str("host", api.MyHostname).Msg("RPCAPI.WriteKV")
+	if args.Dest != api.MyHostname {
+		return api.internalRoute("RPCAPI.WriteKV", args, reply)
 	}
 	// api.kvstore.Write(args.Key, args.Value)
 	return nil

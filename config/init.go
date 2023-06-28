@@ -17,8 +17,9 @@ type Config struct {
 	// List of known servers at the beginning
 	Servers []string `envDefault:""`
 	// RPC Parameters
-	RpcHost string `envDefault:"localhost"`
-	RpcPort int    `envDefault:"9898"`
+	RpcHost    string `envDefault:"localhost"`
+	RpcPort    int    `envDefault:"9898"`
+	RpcTimeout int    `envDefault:"1000"` // milliseconds
 	// HTTP Parameters
 	HttpHost string `envDefault:"localhost"`
 	HttpPort int    `envDefault:"8080"`
