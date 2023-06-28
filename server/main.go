@@ -22,9 +22,9 @@ func setupLogging() {
 	// ---------------------------
 	// Default level for this example is info, unless debug flag is present
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	if config.GetBool("SEMADB_DEBUG", false) {
+	if config.Cfg.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		config.DumpPrefix("SEMADB")
+		log.Debug().Interface("config", config.Cfg).Msg("Environment config")
 	}
 	// ---------------------------
 	log.Debug().Msg("Debug mode enabled")

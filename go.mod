@@ -3,13 +3,13 @@ module github.com/semafind/semadb
 go 1.20
 
 require (
+	github.com/caarlos0/env/v8 v8.0.0
 	github.com/cespare/xxhash v1.1.0
 	github.com/dgraph-io/badger/v4 v4.1.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/gocql/gocql v1.5.2
 	github.com/google/uuid v1.3.0
-	github.com/joho/godotenv v1.5.1
 	github.com/rs/zerolog v1.29.1
 	github.com/schollz/progressbar/v3 v3.13.1
 	github.com/stretchr/testify v1.8.3

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/rpc"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -21,7 +22,7 @@ type RPCAPI struct {
 }
 
 func NewRPCAPI(kvstore *kvstore.KVStore) *RPCAPI {
-	envHostname := config.GetString("SEMADB_RPC_HOST", "")
+	envHostname := config.Cfg.RpcHost
 	if envHostname == "" {
 		hostname, err := os.Hostname()
 		if err != nil {
@@ -30,8 +31,8 @@ func NewRPCAPI(kvstore *kvstore.KVStore) *RPCAPI {
 		log.Warn().Str("hostname", hostname).Msg("host not set, using hostname")
 		envHostname = hostname
 	}
-	rpcPort := config.GetString("SEMADB_RPC_PORT", "9898")
-	envHostname = envHostname + ":" + rpcPort
+	rpcPort := config.Cfg.RpcPort
+	envHostname = envHostname + ":" + strconv.Itoa(rpcPort)
 	log.Debug().Str("hostname", envHostname).Msg("NewRPCAPI")
 	return &RPCAPI{MyHostname: envHostname, kvstore: kvstore, clients: make(map[string]*rpc.Client)}
 }

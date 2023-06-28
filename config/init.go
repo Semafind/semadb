@@ -1,35 +1,35 @@
 package config
 
 import (
-	"os"
-	"strings"
-
-	"github.com/joho/godotenv"
+	"github.com/caarlos0/env/v8"
 	"github.com/rs/zerolog/log"
 )
 
 // ---------------------------
 
+type Config struct {
+	Debug bool `envDefault:"false"`
+	// General replication count determines how many times a regular key (non-vector)
+	// is replicated these may include user and collection information
+	GeneralReplication int `envDefault:"1"`
+	// Key value store directory, if not set it will be set to an temporary directory
+	KVDir string `envDefault:""`
+	// List of known servers at the beginning
+	Servers []string `envDefault:""`
+	// RPC Parameters
+	RpcHost string `envDefault:"localhost"`
+	RpcPort int    `envDefault:"9898"`
+}
+
+var Cfg Config
+
+// ---------------------------
+
 func init() {
 	// Load .env file
-	err := godotenv.Load()
-	if err != nil {
-		log.Warn().Msg("No .env file found")
+	Cfg = Config{}
+	opts := env.Options{RequiredIfNoDef: true, Prefix: "SEMADB_", UseFieldNameByDefault: true}
+	if err := env.ParseWithOptions(&Cfg, opts); err != nil {
+		log.Fatal().Err(err).Msg("Failed to parse env")
 	}
 }
-
-// ---------------------------
-
-func DumpPrefix(prefix string) {
-	// Print environment config
-	config := make(map[string]string)
-	for _, e := range os.Environ() {
-		if strings.HasPrefix(e, "SEMADB_") {
-			pair := strings.Split(e, "=")
-			config[pair[0]] = pair[1]
-		}
-	}
-	log.Debug().Interface("config", config).Msg("Environment config")
-}
-
-// ---------------------------

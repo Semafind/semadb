@@ -40,9 +40,9 @@ type KVStore struct {
 }
 
 func NewKVStore() (*KVStore, error) {
-	kvDir := config.GetString("SEMADB_KVDIR", "")
+	kvDir := config.Cfg.KVDir
 	if kvDir == "" {
-		log.Warn().Msg("SEMADB_KVDIR not set, using temp dir")
+		log.Warn().Msg("kvdir not set, using temp dir")
 		tempDir, err := os.MkdirTemp("", "semadb-kvdir-*")
 		if err != nil {
 			return nil, fmt.Errorf("failed to create temp dir: %w", err)
