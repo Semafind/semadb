@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
+	"github.com/semafind/semadb/kvstore"
 )
 
 // ---------------------------
@@ -51,7 +52,7 @@ func main() {
 	log.Info().Str("hostname", hostname).Msg("Initial parameters")
 	// ---------------------------
 	// Setup kvstore
-	kvstore, err := NewKVStore()
+	kvstore, err := kvstore.NewKVStore()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create kvstore")
 	}

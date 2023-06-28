@@ -10,16 +10,17 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
+	"github.com/semafind/semadb/kvstore"
 )
 
 type RPCAPI struct {
 	MyHostname string
-	kvstore    *KVStore
+	kvstore    *kvstore.KVStore
 	clients    map[string]*rpc.Client
 	clientMu   sync.Mutex
 }
 
-func NewRPCAPI(kvstore *KVStore) *RPCAPI {
+func NewRPCAPI(kvstore *kvstore.KVStore) *RPCAPI {
 	envHostname := config.GetString("SEMADB_RPC_HOST", "")
 	if envHostname == "" {
 		hostname, err := os.Hostname()
