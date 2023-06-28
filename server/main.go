@@ -69,9 +69,9 @@ func main() {
 	rpcAPI := NewRPCAPI(kvstore)
 	rpcServer := rpcAPI.Serve()
 	// ---------------------------
-	time.Sleep(5 * time.Second)
-	log.Debug().Msg("Testing RPCAPI.Ping")
 	if rpcAPI.MyHostname == "localhost:11001" {
+		time.Sleep(2 * time.Second)
+		log.Debug().Msg("Testing RPCAPI.Ping")
 		pingRequest := &PingRequest{RequestArgs: RequestArgs{Source: rpcAPI.MyHostname, Dest: "localhost:11002"}, Message: "hi"}
 		pingResponse := &PingResponse{}
 		err = rpcAPI.Ping(pingRequest, pingResponse)

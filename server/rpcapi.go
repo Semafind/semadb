@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/rpc"
@@ -81,6 +82,8 @@ func (api *RPCAPI) Client(destination string) (*rpc.Client, error) {
 	return client, nil
 }
 
+var ErrRPCTimeout = errors.New("RPC timeout")
+
 func (api *RPCAPI) internalRoute(remoteFn string, args Destinationer, reply interface{}) error {
 	destination := args.Destination()
 	log.Debug().Str("destination", destination).Str("host", api.MyHostname).Msg(remoteFn + ": routing")
@@ -93,10 +96,10 @@ func (api *RPCAPI) internalRoute(remoteFn string, args Destinationer, reply inte
 	select {
 	case <-rpcCall.Done:
 		if rpcCall.Error != nil {
-			return fmt.Errorf("failed to call %v: %v", remoteFn, rpcCall.Error)
+			return fmt.Errorf("failed to call %v: %w", remoteFn, rpcCall.Error)
 		}
 	case <-time.After(time.Duration(config.Cfg.RpcTimeout) * time.Millisecond):
-		return fmt.Errorf(remoteFn + " timed out")
+		return fmt.Errorf(remoteFn+" timed out: %w", ErrRPCTimeout)
 	}
 	return nil
 }

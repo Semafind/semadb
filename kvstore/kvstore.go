@@ -113,24 +113,28 @@ func (kv *KVStore) Insert(key, value []byte, timestamp int64) error {
 	err := kv.db.Update(func(txn *badger.Txn) error {
 		// ---------------------------
 		// Get internal timestamp
+		internalTimestamp := int64(0)
 		item, err := txn.Get(append(key, INTERNAL_SUFFIX...))
-		if err != nil {
-			return fmt.Errorf("failed to get key: %v", err)
+		if err != nil && err != badger.ErrKeyNotFound {
+			return fmt.Errorf("failed to get key: %w", err)
 		}
-		var itemInternal KVInternal
-		err = item.Value(func(val []byte) error {
-			if err := msgpack.Unmarshal(val, &itemInternal); err != nil {
-				return fmt.Errorf("failed to unmarshal: %w", err)
+		if err == nil {
+			valErr := item.Value(func(val []byte) error {
+				var itemInternal KVInternal
+				if err := msgpack.Unmarshal(val, &itemInternal); err != nil {
+					return fmt.Errorf("failed to unmarshal: %w", err)
+				}
+				internalTimestamp = itemInternal.Timestamp
+				return nil
+			})
+			if valErr != nil {
+				return fmt.Errorf("failed to get internal value: %w", err)
 			}
-			return nil
-		})
-		if err != nil {
-			return fmt.Errorf("failed to get internal value: %w", err)
 		}
 		// Check for stale data
-		if itemInternal.Timestamp > timestamp {
-			log.Info().Int64("requested", timestamp).Int64("current", itemInternal.Timestamp).Msg("stale data")
-			return fmt.Errorf("stale data current > requested: %v > %v: %w", itemInternal.Timestamp, timestamp, ErrStaleData)
+		if internalTimestamp > timestamp {
+			log.Info().Int64("requested", timestamp).Int64("current", internalTimestamp).Msg("stale data")
+			return fmt.Errorf("stale data current > requested: %v > %v: %w", internalTimestamp, timestamp, ErrStaleData)
 		}
 		// ---------------------------
 		// Set internal value with timestamp

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -8,7 +9,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
+	"github.com/semafind/semadb/kvstore"
 	"github.com/semafind/semadb/models"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // ---------------------------
@@ -81,18 +84,68 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	}
 	log.Debug().Interface("vamanaCollection", vamanaCollection).Msg("NewCollection")
 	// ---------------------------
+	binaryId, err := vamanaCollection.Id.MarshalBinary()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	collectionKey := append(kvstore.COLLECTION_PREFIX, binaryId...)
+	collectionValue, err := msgpack.Marshal(vamanaCollection)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
 	repCount := config.Cfg.GeneralReplication
-	targetServers := RendezvousHash(vamanaCollection.Id.String(), sdbh.clusterState.Servers, repCount)
-	// These servers will be responsible for the collection under the current cluster configuration
-	// for collection operations, we are looking for strong consistency so all of them should be up
-	// and achnowledge the collection creation, otherwise the user might not see the collection
-	// if the request lands on a target server that is stale.
+	// These servers are responsible for the collection under the current cluster configuration
+	targetServers := RendezvousHash(collectionKey, sdbh.clusterState.Servers, repCount)
 	// ---------------------------
 	// Let's coordinate the collection creation with the target servers
 	log.Debug().Interface("targetServers", targetServers).Msg("NewCollection")
-	c.JSON(http.StatusOK, gin.H{
-		"collectionId": vamanaCollection.Id.String(),
-	})
+	results := make(chan error, len(targetServers))
+	for _, server := range targetServers {
+		go func(dest string) {
+			writeKVReq := &WriteKVRequest{
+				RequestArgs: RequestArgs{
+					Source: "",
+					Dest:   dest,
+				},
+				Key:   collectionKey,
+				Value: collectionValue,
+			}
+			writeKVResp := &WriteKVResponse{}
+			results <- sdbh.rpcApi.WriteKV(writeKVReq, writeKVResp)
+		}(server.Server)
+	}
+	// ---------------------------
+	// Check if at least one server succeeded
+	successCount := 0
+	conflictCount := 0
+	timeoutCount := 0
+	for i := 0; i < len(targetServers); i++ {
+		err := <-results
+		if err == nil {
+			successCount++
+		} else if errors.Is(err, kvstore.ErrStaleData) {
+			conflictCount++
+		} else if errors.Is(err, ErrRPCTimeout) {
+			timeoutCount++
+		} else {
+			log.Error().Err(err).Msg("NewCollection")
+		}
+	}
+	log.Debug().Int("successCount", successCount).Int("conflictCount", conflictCount).Int("timeoutCount", timeoutCount).Msg("NewCollection")
+	// ---------------------------
+	// Conflict case should not happen for new collection but just in case, we'll handle it here.
+	if conflictCount > 0 {
+		c.JSON(http.StatusConflict, gin.H{"error": "conflict"})
+	} else if timeoutCount == len(targetServers) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "timeout"})
+	} else if successCount == 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+	} else {
+		c.JSON(http.StatusOK, gin.H{"collectionId": vamanaCollection.Id.String()})
+	}
 }
 
 // ---------------------------
