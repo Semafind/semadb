@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -16,6 +17,16 @@ func pongHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "pong from semadb",
 	})
+}
+
+// ---------------------------
+
+type SemaDBHandlers struct {
+	rpcApi *RPCAPI
+}
+
+func NewSemaDBHandlers(rpcApi *RPCAPI) *SemaDBHandlers {
+	return &SemaDBHandlers{rpcApi: rpcApi}
 }
 
 // ---------------------------
@@ -34,7 +45,7 @@ type NewCollectionRequest struct {
 	DistMetric string `json:"distMetric" default:"euclidean"`
 }
 
-func newCollectionHandler(c *gin.Context) {
+func (*SemaDBHandlers) NewCollection(c *gin.Context) {
 	var req NewCollectionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -61,6 +72,8 @@ func newCollectionHandler(c *gin.Context) {
 			DistMetric: req.DistMetric,
 			Owner:      headers.UserID,
 			Package:    headers.Package,
+			Shards:     1,
+			Replicas:   1,
 			Algorithm:  "vamana",
 		},
 		Parameters: models.DefaultVamanaParameters(),
@@ -83,10 +96,23 @@ func newCollectionHandler(c *gin.Context) {
 
 // ---------------------------
 
-func runHTTPServer() {
+func runHTTPServer(rpcApi *RPCAPI) *http.Server {
 	router := gin.Default()
 	v1 := router.Group("/v1")
 	v1.GET("/ping", pongHandler)
-	v1.POST("/collections", newCollectionHandler)
-	router.Run(":8080")
+	// ---------------------------
+	semaDBHandlers := NewSemaDBHandlers(rpcApi)
+	v1.POST("/collections", semaDBHandlers.NewCollection)
+	// ---------------------------
+	server := &http.Server{
+		Addr:    config.Cfg.HttpHost + ":" + strconv.Itoa(config.Cfg.HttpPort),
+		Handler: router,
+	}
+	go func() {
+		log.Info().Str("httpAddr", server.Addr).Msg("HTTPAPI.Serve")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal().Err(err).Msg("failed to start http server")
+		}
+	}()
+	return server
 }

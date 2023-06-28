@@ -9,6 +9,8 @@ type Collection struct {
 	DistMetric string
 	Owner      string
 	Package    string
+	Shards     uint
+	Replicas   uint
 	Algorithm  string
 }
 

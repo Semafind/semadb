@@ -81,7 +81,7 @@ func main() {
 		log.Debug().Interface("pingResponse", pingResponse).Msg("Ping response")
 	}
 	// ---------------------------
-	// runHTTPServer()
+	httpServer := runHTTPServer(rpcAPI)
 	// ---------------------------
 	quit := make(chan os.Signal, 1)
 	// kill (no param) default send syscanll.SIGTERM
@@ -93,6 +93,9 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	if err := rpcServer.Shutdown(ctx); err != nil {
 		log.Error().Err(err).Msg("RPC server forced to shut")
+	}
+	if err := httpServer.Shutdown(ctx); err != nil {
+		log.Error().Err(err).Msg("HTTP server forced to shut")
 	}
 	cancel()
 	// ---------------------------

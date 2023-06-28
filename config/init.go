@@ -19,6 +19,9 @@ type Config struct {
 	// RPC Parameters
 	RpcHost string `envDefault:"localhost"`
 	RpcPort int    `envDefault:"9898"`
+	// HTTP Parameters
+	HttpHost string `envDefault:"localhost"`
+	HttpPort int    `envDefault:"8080"`
 }
 
 var Cfg Config
