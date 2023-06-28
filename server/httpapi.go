@@ -11,6 +11,7 @@ import (
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/kvstore"
 	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/rpcapi"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -26,10 +27,10 @@ func pongHandler(c *gin.Context) {
 
 type SemaDBHandlers struct {
 	clusterState *ClusterState
-	rpcApi       *RPCAPI
+	rpcApi       *rpcapi.RPCAPI
 }
 
-func NewSemaDBHandlers(clusterState *ClusterState, rpcApi *RPCAPI) *SemaDBHandlers {
+func NewSemaDBHandlers(clusterState *ClusterState, rpcApi *rpcapi.RPCAPI) *SemaDBHandlers {
 	return &SemaDBHandlers{clusterState: clusterState, rpcApi: rpcApi}
 }
 
@@ -105,15 +106,15 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	results := make(chan error, len(targetServers))
 	for _, server := range targetServers {
 		go func(dest string) {
-			writeKVReq := &WriteKVRequest{
-				RequestArgs: RequestArgs{
+			writeKVReq := &rpcapi.WriteKVRequest{
+				RequestArgs: rpcapi.RequestArgs{
 					Source: "",
 					Dest:   dest,
 				},
 				Key:   collectionKey,
 				Value: collectionValue,
 			}
-			writeKVResp := &WriteKVResponse{}
+			writeKVResp := &rpcapi.WriteKVResponse{}
 			results <- sdbh.rpcApi.WriteKV(writeKVReq, writeKVResp)
 		}(server.Server)
 	}
@@ -128,7 +129,7 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 			successCount++
 		} else if errors.Is(err, kvstore.ErrStaleData) {
 			conflictCount++
-		} else if errors.Is(err, ErrRPCTimeout) {
+		} else if errors.Is(err, rpcapi.ErrRPCTimeout) {
 			timeoutCount++
 		} else {
 			log.Error().Err(err).Msg("NewCollection")
@@ -150,7 +151,7 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 
 // ---------------------------
 
-func runHTTPServer(clusterState *ClusterState, rpcApi *RPCAPI) *http.Server {
+func runHTTPServer(clusterState *ClusterState, rpcApi *rpcapi.RPCAPI) *http.Server {
 	router := gin.Default()
 	v1 := router.Group("/v1")
 	v1.GET("/ping", pongHandler)

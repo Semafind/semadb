@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/kvstore"
+	"github.com/semafind/semadb/rpcapi"
 )
 
 // ---------------------------
@@ -66,14 +67,14 @@ func main() {
 	log.Info().Interface("clusterState", clusterState).Msg("Cluster state")
 	// ---------------------------
 	// Setup RPC API
-	rpcAPI := NewRPCAPI(kvstore)
+	rpcAPI := rpcapi.NewRPCAPI(kvstore)
 	rpcServer := rpcAPI.Serve()
 	// ---------------------------
 	if rpcAPI.MyHostname == "localhost:11001" {
 		time.Sleep(2 * time.Second)
 		log.Debug().Msg("Testing RPCAPI.Ping")
-		pingRequest := &PingRequest{RequestArgs: RequestArgs{Source: rpcAPI.MyHostname, Dest: "localhost:11002"}, Message: "hi"}
-		pingResponse := &PingResponse{}
+		pingRequest := &rpcapi.PingRequest{RequestArgs: rpcapi.RequestArgs{Source: rpcAPI.MyHostname, Dest: "localhost:11002"}, Message: "hi"}
+		pingResponse := &rpcapi.PingResponse{}
 		err = rpcAPI.Ping(pingRequest, pingResponse)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to ping")

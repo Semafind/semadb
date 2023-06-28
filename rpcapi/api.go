@@ -1,7 +1,6 @@
-package main
+package rpcapi
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"net/rpc"
@@ -82,8 +81,6 @@ func (api *RPCAPI) Client(destination string) (*rpc.Client, error) {
 	return client, nil
 }
 
-var ErrRPCTimeout = errors.New("RPC timeout")
-
 func (api *RPCAPI) internalRoute(remoteFn string, args Destinationer, reply interface{}) error {
 	destination := args.Destination()
 	log.Debug().Str("destination", destination).Str("host", api.MyHostname).Msg(remoteFn + ": routing")
@@ -140,24 +137,4 @@ func (api *RPCAPI) Ping(args *PingRequest, reply *PingResponse) error {
 	}
 	reply.Message = fmt.Sprintf("Pong from semadb %v, message: %v", api.MyHostname, args.Message)
 	return nil
-}
-
-// ---------------------------
-
-type WriteKVRequest struct {
-	RequestArgs
-	Key       []byte
-	Value     []byte
-	Timestamp int64
-}
-
-type WriteKVResponse struct {
-}
-
-func (api *RPCAPI) WriteKV(args *WriteKVRequest, reply *WriteKVResponse) error {
-	log.Debug().Str("key", string(args.Key)).Str("host", api.MyHostname).Msg("RPCAPI.WriteKV")
-	if args.Dest != api.MyHostname {
-		return api.internalRoute("RPCAPI.WriteKV", args, reply)
-	}
-	return api.kvstore.Insert(args.Key, args.Value, args.Timestamp)
 }
