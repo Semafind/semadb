@@ -81,7 +81,7 @@ func main() {
 		log.Debug().Interface("pingResponse", pingResponse).Msg("Ping response")
 	}
 	// ---------------------------
-	httpServer := runHTTPServer(rpcAPI)
+	httpServer := runHTTPServer(clusterState, rpcAPI)
 	// ---------------------------
 	quit := make(chan os.Signal, 1)
 	// kill (no param) default send syscanll.SIGTERM

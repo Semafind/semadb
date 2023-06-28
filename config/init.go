@@ -11,7 +11,7 @@ type Config struct {
 	Debug bool `envDefault:"false"`
 	// General replication count determines how many times a regular key (non-vector)
 	// is replicated these may include user and collection information
-	GeneralReplication int `envDefault:"1"`
+	GeneralReplication int `envDefault:"3"`
 	// Key value store directory, if not set it will be set to an temporary directory
 	KVDir string `envDefault:""`
 	// List of known servers at the beginning

@@ -106,20 +106,14 @@ type KVInternal struct {
 
 // ---------------------------
 
-type InsertRequest struct {
-	Key       []byte
-	Value     []byte
-	Timestamp int64
-}
-
 var ErrStaleData = errors.New("stale data")
 
 // Old timestamp gives stale error
-func (kv *KVStore) Insert(req *InsertRequest) error {
+func (kv *KVStore) Insert(key, value []byte, timestamp int64) error {
 	err := kv.db.Update(func(txn *badger.Txn) error {
 		// ---------------------------
 		// Get internal timestamp
-		item, err := txn.Get(append(req.Key, INTERNAL_SUFFIX...))
+		item, err := txn.Get(append(key, INTERNAL_SUFFIX...))
 		if err != nil {
 			return fmt.Errorf("failed to get key: %v", err)
 		}
@@ -134,23 +128,23 @@ func (kv *KVStore) Insert(req *InsertRequest) error {
 			return fmt.Errorf("failed to get internal value: %w", err)
 		}
 		// Check for stale data
-		if itemInternal.Timestamp > req.Timestamp {
-			log.Info().Int64("requested", req.Timestamp).Int64("current", itemInternal.Timestamp).Msg("stale data")
-			return fmt.Errorf("stale data current > requested: %v > %v: %w", itemInternal.Timestamp, req.Timestamp, ErrStaleData)
+		if itemInternal.Timestamp > timestamp {
+			log.Info().Int64("requested", timestamp).Int64("current", itemInternal.Timestamp).Msg("stale data")
+			return fmt.Errorf("stale data current > requested: %v > %v: %w", itemInternal.Timestamp, timestamp, ErrStaleData)
 		}
 		// ---------------------------
 		// Set internal value with timestamp
 		internal := KVInternal{
-			Timestamp: req.Timestamp,
+			Timestamp: timestamp,
 		}
 		internalBytes, err := msgpack.Marshal(&internal)
 		if err != nil {
 			return fmt.Errorf("failed to marshal internal: %w", err)
 		}
-		if err := txn.Set(append(req.Key, INTERNAL_SUFFIX...), internalBytes); err != nil {
+		if err := txn.Set(append(key, INTERNAL_SUFFIX...), internalBytes); err != nil {
 			return fmt.Errorf("failed to set internal: %w", err)
 		}
-		if err := txn.Set(req.Key, req.Value); err != nil {
+		if err := txn.Set(key, value); err != nil {
 			return fmt.Errorf("failed to set key: %w", err)
 		}
 		return nil

@@ -145,8 +145,6 @@ type WriteKVRequest struct {
 	RequestArgs
 	Key       []byte
 	Value     []byte
-	Commit    bool
-	Handoff   []string
 	Timestamp int64
 }
 
@@ -154,10 +152,9 @@ type WriteKVResponse struct {
 }
 
 func (api *RPCAPI) WriteKV(args *WriteKVRequest, reply *WriteKVResponse) error {
-	log.Debug().Interface("args", args).Str("host", api.MyHostname).Msg("RPCAPI.WriteKV")
+	log.Debug().Str("key", string(args.Key)).Str("host", api.MyHostname).Msg("RPCAPI.WriteKV")
 	if args.Dest != api.MyHostname {
 		return api.internalRoute("RPCAPI.WriteKV", args, reply)
 	}
-	// api.kvstore.Write(args.Key, args.Value)
-	return nil
+	return api.kvstore.Insert(args.Key, args.Value, args.Timestamp)
 }

@@ -22,11 +22,12 @@ func pongHandler(c *gin.Context) {
 // ---------------------------
 
 type SemaDBHandlers struct {
-	rpcApi *RPCAPI
+	clusterState *ClusterState
+	rpcApi       *RPCAPI
 }
 
-func NewSemaDBHandlers(rpcApi *RPCAPI) *SemaDBHandlers {
-	return &SemaDBHandlers{rpcApi: rpcApi}
+func NewSemaDBHandlers(clusterState *ClusterState, rpcApi *RPCAPI) *SemaDBHandlers {
+	return &SemaDBHandlers{clusterState: clusterState, rpcApi: rpcApi}
 }
 
 // ---------------------------
@@ -45,7 +46,7 @@ type NewCollectionRequest struct {
 	DistMetric string `json:"distMetric" default:"euclidean"`
 }
 
-func (*SemaDBHandlers) NewCollection(c *gin.Context) {
+func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	var req NewCollectionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -56,7 +57,7 @@ func (*SemaDBHandlers) NewCollection(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	log.Info().Interface("req", req).Interface("headers", headers).Msg("newCollectionHandler")
+	log.Debug().Interface("req", req).Interface("headers", headers).Msg("NewCollection")
 	// ---------------------------
 	newUUID, err := uuid.NewRandom()
 	if err != nil {
@@ -78,17 +79,17 @@ func (*SemaDBHandlers) NewCollection(c *gin.Context) {
 		},
 		Parameters: models.DefaultVamanaParameters(),
 	}
-	log.Info().Interface("vamanaCollection", vamanaCollection).Msg("newCollectionHandler")
+	log.Debug().Interface("vamanaCollection", vamanaCollection).Msg("NewCollection")
 	// ---------------------------
 	repCount := config.Cfg.GeneralReplication
-	targetServers := RendezvousHash(vamanaCollection.Id.String(), []string{"localhost"}, repCount)
+	targetServers := RendezvousHash(vamanaCollection.Id.String(), sdbh.clusterState.Servers, repCount)
 	// These servers will be responsible for the collection under the current cluster configuration
 	// for collection operations, we are looking for strong consistency so all of them should be up
 	// and achnowledge the collection creation, otherwise the user might not see the collection
 	// if the request lands on a target server that is stale.
 	// ---------------------------
 	// Let's coordinate the collection creation with the target servers
-	log.Info().Interface("targetServers", targetServers).Msg("newCollectionHandler")
+	log.Debug().Interface("targetServers", targetServers).Msg("NewCollection")
 	c.JSON(http.StatusOK, gin.H{
 		"collectionId": vamanaCollection.Id.String(),
 	})
@@ -96,12 +97,12 @@ func (*SemaDBHandlers) NewCollection(c *gin.Context) {
 
 // ---------------------------
 
-func runHTTPServer(rpcApi *RPCAPI) *http.Server {
+func runHTTPServer(clusterState *ClusterState, rpcApi *RPCAPI) *http.Server {
 	router := gin.Default()
 	v1 := router.Group("/v1")
 	v1.GET("/ping", pongHandler)
 	// ---------------------------
-	semaDBHandlers := NewSemaDBHandlers(rpcApi)
+	semaDBHandlers := NewSemaDBHandlers(clusterState, rpcApi)
 	v1.POST("/collections", semaDBHandlers.NewCollection)
 	// ---------------------------
 	server := &http.Server{
