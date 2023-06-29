@@ -37,7 +37,7 @@ func (l BadgerLogger) Debugf(format string, args ...interface{}) {
 // ---------------------------
 
 type OnWriteEvent struct {
-	Key   []byte
+	Key   string
 	Value []byte
 }
 
@@ -123,6 +123,7 @@ type Versioned struct {
 // ---------------------------
 
 var ErrStaleData = errors.New("stale data")
+var ErrExistingKey = errors.New("existing key")
 
 // Old timestamp gives stale error
 func (kv *KVStore) Insert(key, value []byte) error {
@@ -154,6 +155,10 @@ func (kv *KVStore) Insert(key, value []byte) error {
 			log.Info().Int64("requested", theirVersion.Version).Int64("current", ourVersion.Version).Msg("stale data")
 			return fmt.Errorf("stale data current > requested: %v > %v: %w", ourVersion.Version, theirVersion.Version, ErrStaleData)
 		}
+		if ourVersion.Version == theirVersion.Version {
+			log.Debug().Str("key", string(key)).Msg("already exists")
+			return ErrExistingKey
+		}
 		// ---------------------------
 		// Set value
 		if err := txn.Set(key, value); err != nil {
@@ -161,5 +166,87 @@ func (kv *KVStore) Insert(key, value []byte) error {
 		}
 		return nil
 	})
+	// If we have observers, notify them
+	if err == nil {
+		if kv.onWriteObservers != nil {
+			for _, ch := range kv.onWriteObservers {
+				ch <- OnWriteEvent{
+					Key:   string(key),
+					Value: value,
+				}
+			}
+		}
+	}
 	return err
+}
+
+// ---------------------------
+
+type WALEntry struct {
+	Key           string
+	Value         []byte
+	TargetServers []string
+	IsReplica     bool
+}
+
+func (kv *KVStore) WriteWALEntry(wal WALEntry) error {
+	log.Debug().Str("key", wal.Key).Msg("writing wal entry")
+	err := kv.db.Update(func(txn *badger.Txn) error {
+		key := []byte(WAL_PREFIX + wal.Key)
+		val, err := msgpack.Marshal(wal)
+		if err != nil {
+			return fmt.Errorf("failed to marshal wal: %w", err)
+		}
+		if err := txn.Set(key, val); err != nil {
+			return fmt.Errorf("failed to set key: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to add wal entry: %w", err)
+	}
+	return nil
+}
+
+func (kv *KVStore) ScanWAL() []WALEntry {
+	out := make([]WALEntry, 0, 1)
+	err := kv.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		prefix := []byte(WAL_PREFIX)
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			item := it.Item()
+			k := item.Key()
+			err := item.Value(func(v []byte) error {
+				var walEntry WALEntry
+				if err := msgpack.Unmarshal(v, &walEntry); err != nil {
+					return fmt.Errorf("failed to unmarshal wal: %w", err)
+				}
+				walEntry.Key = string(k[len(WAL_PREFIX):])
+				out = append(out, walEntry)
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		log.Error().Err(err).Msg("failed to scan wal")
+	}
+	return out
+}
+
+func (kv *KVStore) DeleteWALEntry(key string) error {
+	err := kv.db.Update(func(txn *badger.Txn) error {
+		if err := txn.Delete([]byte(WAL_PREFIX + key)); err != nil {
+			return fmt.Errorf("failed to delete key: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to wal key: %w", err)
+	}
+	return nil
 }

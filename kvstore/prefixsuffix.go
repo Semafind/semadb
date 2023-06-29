@@ -9,6 +9,7 @@ const DELIMITER = "/"
 
 // ---------------------------
 
+const WAL_PREFIX = "W" + DELIMITER
 const USER_PREFIX = "U" + DELIMITER
 const COLLECTION_PREFIX = "C" + DELIMITER
 
