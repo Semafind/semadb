@@ -1,18 +1,15 @@
 package main
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/config"
-	"github.com/semafind/semadb/kvstore"
 	"github.com/semafind/semadb/models"
-	"github.com/semafind/semadb/rpcapi"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 // ---------------------------
@@ -26,12 +23,11 @@ func pongHandler(c *gin.Context) {
 // ---------------------------
 
 type SemaDBHandlers struct {
-	clusterState *ClusterState
-	rpcApi       *rpcapi.RPCAPI
+	clusterState *cluster.Cluster
 }
 
-func NewSemaDBHandlers(clusterState *ClusterState, rpcApi *rpcapi.RPCAPI) *SemaDBHandlers {
-	return &SemaDBHandlers{clusterState: clusterState, rpcApi: rpcApi}
+func NewSemaDBHandlers(clusterState *cluster.Cluster) *SemaDBHandlers {
+	return &SemaDBHandlers{clusterState: clusterState}
 }
 
 // ---------------------------
@@ -80,75 +76,32 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	}
 	log.Debug().Interface("vamanaCollection", vamanaCollection).Msg("NewCollection")
 	// ---------------------------
-	// e.g. U/ USERID / C/ COLLECTIONID
-	userKey := kvstore.USER_PREFIX + headers.UserID
-	collectionKey := []byte(userKey + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + vamanaCollection.Id)
-	collectionValue, err := msgpack.Marshal(vamanaCollection)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	// ---------------------------
-	repCount := config.Cfg.GeneralReplication
-	// These servers are responsible for the collection under the current cluster configuration
-	targetServers := RendezvousHash(userKey, sdbh.clusterState.Servers, repCount)
-	// ---------------------------
-	// Let's coordinate the collection creation with the target servers
-	log.Debug().Interface("targetServers", targetServers).Msg("NewCollection")
-	results := make(chan error, len(targetServers))
-	for _, server := range targetServers {
-		go func(dest string) {
-			writeKVReq := &rpcapi.WriteKVRequest{
-				RequestArgs: rpcapi.RequestArgs{
-					Source: "",
-					Dest:   dest,
-				},
-				Key:   collectionKey,
-				Value: collectionValue,
-			}
-			writeKVResp := &rpcapi.WriteKVResponse{}
-			results <- sdbh.rpcApi.WriteKV(writeKVReq, writeKVResp)
-		}(server.Server)
-	}
-	// ---------------------------
-	// Check if at least one server succeeded
-	successCount := 0
-	conflictCount := 0
-	timeoutCount := 0
-	for i := 0; i < len(targetServers); i++ {
-		err := <-results
-		if err == nil {
-			successCount++
-		} else if errors.Is(err, kvstore.ErrStaleData) {
-			conflictCount++
-		} else if errors.Is(err, rpcapi.ErrRPCTimeout) {
-			timeoutCount++
-		} else {
-			log.Error().Err(err).Msg("NewCollection")
-		}
-	}
-	log.Debug().Int("successCount", successCount).Int("conflictCount", conflictCount).Int("timeoutCount", timeoutCount).Msg("NewCollection")
-	// ---------------------------
-	// Conflict case should not happen for new collection but just in case, we'll handle it here.
-	if conflictCount > 0 {
-		c.JSON(http.StatusConflict, gin.H{"error": "conflict"})
-	} else if timeoutCount == len(targetServers) {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "timeout"})
-	} else if successCount == 0 {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-	} else {
+	err := sdbh.clusterState.CreateCollection(cluster.CreateCollectionRequest{
+		UserId:     headers.UserID,
+		Collection: vamanaCollection.Collection,
+	})
+	switch err {
+	case nil:
 		c.JSON(http.StatusCreated, gin.H{"message": "collection created"})
+	case cluster.ErrConflict:
+		c.JSON(http.StatusConflict, gin.H{"error": "conflict"})
+	case cluster.ErrTimeout:
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "timeout"})
+	case cluster.ErrPartialSuccess:
+		c.JSON(http.StatusAccepted, gin.H{"message": "collection accepted"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 	}
 }
 
 // ---------------------------
 
-func runHTTPServer(clusterState *ClusterState, rpcApi *rpcapi.RPCAPI) *http.Server {
+func runHTTPServer(clusterState *cluster.Cluster) *http.Server {
 	router := gin.Default()
 	v1 := router.Group("/v1")
 	v1.GET("/ping", pongHandler)
 	// ---------------------------
-	semaDBHandlers := NewSemaDBHandlers(clusterState, rpcApi)
+	semaDBHandlers := NewSemaDBHandlers(clusterState)
 	v1.POST("/collections", semaDBHandlers.NewCollection)
 	// ---------------------------
 	server := &http.Server{

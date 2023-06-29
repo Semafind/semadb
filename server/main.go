@@ -9,6 +9,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/kvstore"
 	"github.com/semafind/semadb/rpcapi"
@@ -59,16 +60,16 @@ func main() {
 	}
 	log.Info().Msg("KVStore created")
 	// ---------------------------
+	// Setup RPC API
+	rpcAPI := rpcapi.NewRPCAPI(kvstore)
+	rpcServer := rpcAPI.Serve()
+	// ---------------------------
 	// Setup cluster state
-	clusterState, err := newClusterState()
+	clusterState, err := cluster.New(kvstore, rpcAPI)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create cluster state")
 	}
 	log.Info().Interface("clusterState", clusterState).Msg("Cluster state")
-	// ---------------------------
-	// Setup RPC API
-	rpcAPI := rpcapi.NewRPCAPI(kvstore)
-	rpcServer := rpcAPI.Serve()
 	// ---------------------------
 	if rpcAPI.MyHostname == "localhost:11001" {
 		time.Sleep(2 * time.Second)
@@ -82,7 +83,7 @@ func main() {
 		log.Debug().Interface("pingResponse", pingResponse).Msg("Ping response")
 	}
 	// ---------------------------
-	httpServer := runHTTPServer(clusterState, rpcAPI)
+	httpServer := runHTTPServer(clusterState)
 	// ---------------------------
 	quit := make(chan os.Signal, 1)
 	// kill (no param) default send syscanll.SIGTERM
