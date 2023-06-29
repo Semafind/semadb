@@ -1,9 +1,7 @@
 package models
 
-import "github.com/google/uuid"
-
 type Collection struct {
-	Id         uuid.UUID
+	Id         string
 	Name       string
 	EmbedSize  uint
 	DistMetric string

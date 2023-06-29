@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/kvstore"
@@ -45,7 +44,7 @@ type CommonHeaders struct {
 /* Collection handlers */
 
 type NewCollectionRequest struct {
-	Name       string `json:"name" binding:"required"`
+	Id         string `json:"id" binding:"required,alphanum,min=3,max=16"`
 	EmbedSize  uint   `json:"embedSize" binding:"required"`
 	DistMetric string `json:"distMetric" default:"euclidean"`
 }
@@ -53,26 +52,19 @@ type NewCollectionRequest struct {
 func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	var req NewCollectionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	var headers CommonHeaders
 	if err := c.ShouldBindHeader(&headers); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	log.Debug().Interface("req", req).Interface("headers", headers).Msg("NewCollection")
 	// ---------------------------
-	newUUID, err := uuid.NewRandom()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	// ---------------------------
 	vamanaCollection := models.VamanaCollection{
 		Collection: models.Collection{
-			Id:         newUUID,
-			Name:       req.Name,
+			Id:         req.Id,
 			EmbedSize:  req.EmbedSize,
 			DistMetric: req.DistMetric,
 			Owner:      headers.UserID,
@@ -85,12 +77,9 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	}
 	log.Debug().Interface("vamanaCollection", vamanaCollection).Msg("NewCollection")
 	// ---------------------------
-	binaryId, err := vamanaCollection.Id.MarshalBinary()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	collectionKey := append(kvstore.COLLECTION_PREFIX, binaryId...)
+	// e.g. U/ USERID / C/ COLLECTIONID
+	userKey := kvstore.USER_PREFIX + headers.UserID
+	collectionKey := []byte(userKey + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + vamanaCollection.Id)
 	collectionValue, err := msgpack.Marshal(vamanaCollection)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -99,7 +88,7 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	// ---------------------------
 	repCount := config.Cfg.GeneralReplication
 	// These servers are responsible for the collection under the current cluster configuration
-	targetServers := RendezvousHash(collectionKey, sdbh.clusterState.Servers, repCount)
+	targetServers := RendezvousHash(userKey, sdbh.clusterState.Servers, repCount)
 	// ---------------------------
 	// Let's coordinate the collection creation with the target servers
 	log.Debug().Interface("targetServers", targetServers).Msg("NewCollection")
@@ -145,7 +134,7 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	} else if successCount == 0 {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 	} else {
-		c.JSON(http.StatusOK, gin.H{"collectionId": vamanaCollection.Id.String()})
+		c.JSON(http.StatusCreated, gin.H{"message": "collection created"})
 	}
 }
 

@@ -5,7 +5,12 @@ package kvstore
 
 // ---------------------------
 
-var COLLECTION_PREFIX = []byte("C_")
+const DELIMITER = "/"
 
 // ---------------------------
-var INTERNAL_SUFFIX = []byte("_I")
+
+const USER_PREFIX = "U" + DELIMITER
+const COLLECTION_PREFIX = "C" + DELIMITER
+
+// ---------------------------
+var INTERNAL_SUFFIX = []byte(DELIMITER + "I")
