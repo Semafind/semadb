@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/rs/zerolog/log"
@@ -35,8 +36,16 @@ func (l BadgerLogger) Debugf(format string, args ...interface{}) {
 
 // ---------------------------
 
+type OnWriteEvent struct {
+	Key   []byte
+	Value []byte
+}
+
+// ---------------------------
+
 type KVStore struct {
-	db *badger.DB
+	db               *badger.DB
+	onWriteObservers []chan OnWriteEvent
 }
 
 func NewKVStore() (*KVStore, error) {
@@ -58,6 +67,13 @@ func NewKVStore() (*KVStore, error) {
 	return &KVStore{
 		db: db,
 	}, nil
+}
+
+func (kv *KVStore) RegisterOnWriteObserver(ch chan OnWriteEvent) {
+	if kv.onWriteObservers == nil {
+		kv.onWriteObservers = make([]chan OnWriteEvent, 0, 1)
+	}
+	kv.onWriteObservers = append(kv.onWriteObservers, ch)
 }
 
 func (kv *KVStore) Close() error {
@@ -100,8 +116,8 @@ func (kv *KVStore) Close() error {
 
 // ---------------------------
 
-type KVInternal struct {
-	Timestamp int64
+type Versioned struct {
+	Version int64
 }
 
 // ---------------------------
@@ -109,45 +125,37 @@ type KVInternal struct {
 var ErrStaleData = errors.New("stale data")
 
 // Old timestamp gives stale error
-func (kv *KVStore) Insert(key, value []byte, timestamp int64) error {
+func (kv *KVStore) Insert(key, value []byte) error {
 	err := kv.db.Update(func(txn *badger.Txn) error {
 		// ---------------------------
 		// Get internal timestamp
-		internalTimestamp := int64(0)
-		item, err := txn.Get(append(key, INTERNAL_SUFFIX...))
+		ourVersion := Versioned{Version: 0}
+		item, err := txn.Get(key)
 		if err != nil && err != badger.ErrKeyNotFound {
 			return fmt.Errorf("failed to get key: %w", err)
 		}
 		if err == nil {
 			valErr := item.Value(func(val []byte) error {
-				var itemInternal KVInternal
-				if err := msgpack.Unmarshal(val, &itemInternal); err != nil {
+				if err := msgpack.Unmarshal(val, &ourVersion); err != nil {
 					return fmt.Errorf("failed to unmarshal: %w", err)
 				}
-				internalTimestamp = itemInternal.Timestamp
 				return nil
 			})
 			if valErr != nil {
 				return fmt.Errorf("failed to get internal value: %w", err)
 			}
 		}
+		theirVersion := Versioned{Version: time.Now().UnixNano()}
+		if err := msgpack.Unmarshal(value, &theirVersion); err != nil {
+			return fmt.Errorf("failed to unmarshal given value version: %w", err)
+		}
 		// Check for stale data
-		if internalTimestamp > timestamp {
-			log.Info().Int64("requested", timestamp).Int64("current", internalTimestamp).Msg("stale data")
-			return fmt.Errorf("stale data current > requested: %v > %v: %w", internalTimestamp, timestamp, ErrStaleData)
+		if ourVersion.Version > theirVersion.Version {
+			log.Info().Int64("requested", theirVersion.Version).Int64("current", ourVersion.Version).Msg("stale data")
+			return fmt.Errorf("stale data current > requested: %v > %v: %w", ourVersion.Version, theirVersion.Version, ErrStaleData)
 		}
 		// ---------------------------
-		// Set internal value with timestamp
-		internal := KVInternal{
-			Timestamp: timestamp,
-		}
-		internalBytes, err := msgpack.Marshal(&internal)
-		if err != nil {
-			return fmt.Errorf("failed to marshal internal: %w", err)
-		}
-		if err := txn.Set(append(key, INTERNAL_SUFFIX...), internalBytes); err != nil {
-			return fmt.Errorf("failed to set internal: %w", err)
-		}
+		// Set value
 		if err := txn.Set(key, value); err != nil {
 			return fmt.Errorf("failed to set key: %w", err)
 		}

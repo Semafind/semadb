@@ -69,8 +69,8 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 			Shards:     1,
 			Replicas:   1,
 			Algorithm:  "vamana",
-			UpdatedAt:  time.Now().Unix(),
-			CreatedAt:  time.Now().Unix(),
+			Version:    time.Now().UnixNano(),
+			CreatedAt:  time.Now().UnixNano(),
 		},
 		Parameters: models.DefaultVamanaParameters(),
 	}

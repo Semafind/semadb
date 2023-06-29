@@ -10,7 +10,7 @@ type Collection struct {
 	Shards     uint
 	Replicas   uint
 	Algorithm  string
-	UpdatedAt  int64
+	Version    int64
 	CreatedAt  int64
 }
 
