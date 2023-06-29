@@ -31,11 +31,6 @@ type CreateCollectionRequest struct {
 	Collection models.Collection
 }
 
-type RpcResult struct {
-	err         error
-	destination string
-}
-
 func (c *Cluster) CreateCollection(req CreateCollectionRequest) error {
 	// ---------------------------
 	// Construct key and value
@@ -55,7 +50,7 @@ func (c *Cluster) CreateCollection(req CreateCollectionRequest) error {
 	c.mu.Unlock()
 	// ---------------------------
 	log.Debug().Interface("targetServers", targetServers).Msg("NewCollection")
-	resChan := make(chan RpcResult, len(targetServers))
+	results := make(chan error, len(targetServers))
 	for _, server := range targetServers {
 		go func(dest string) {
 			writeKVReq := &rpcapi.WriteKVRequest{
@@ -67,23 +62,21 @@ func (c *Cluster) CreateCollection(req CreateCollectionRequest) error {
 				Value: collectionValue,
 			}
 			writeKVResp := &rpcapi.WriteKVResponse{}
-			err := c.rpcApi.WriteKV(writeKVReq, writeKVResp)
-			resChan <- RpcResult{err: err, destination: dest}
+			results <- c.rpcApi.WriteKV(writeKVReq, writeKVResp)
 		}(server.Server)
 	}
 	// ---------------------------
 	successCount := 0
 	conflictCount := 0
 	timeoutCount := 0
-	results := make([]RpcResult, len(targetServers))
 	for i := 0; i < len(targetServers); i++ {
-		results[i] = <-resChan
+		err := <-results
 		switch {
-		case results[i].err == nil:
+		case err == nil:
 			successCount++
-		case errors.Is(results[i].err, kvstore.ErrStaleData):
+		case errors.Is(err, kvstore.ErrStaleData):
 			conflictCount++
-		case errors.Is(results[i].err, rpcapi.ErrRPCTimeout):
+		case errors.Is(err, rpcapi.ErrRPCTimeout):
 			timeoutCount++
 		default:
 			log.Error().Err(err).Msg("NewCollection")
