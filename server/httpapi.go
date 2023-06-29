@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
@@ -72,6 +73,8 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 			Shards:     1,
 			Replicas:   1,
 			Algorithm:  "vamana",
+			UpdatedAt:  time.Now().Unix(),
+			CreatedAt:  time.Now().Unix(),
 		},
 		Parameters: models.DefaultVamanaParameters(),
 	}

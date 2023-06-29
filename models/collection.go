@@ -10,6 +10,8 @@ type Collection struct {
 	Shards     uint
 	Replicas   uint
 	Algorithm  string
+	UpdatedAt  int64
+	CreatedAt  int64
 }
 
 type VamanaParameters struct {
