@@ -47,10 +47,12 @@ func (c *Cluster) kvOnWrite() {
 			IsReplica:     isReplica,
 			TargetServers: targetServers,
 		}
+		c.repLogMu.Lock()
 		if err := c.kvstore.WriteRepLogEntry(repLog); err != nil {
 			// TODO: Data loss might occur here
 			log.Error().Err(err).Msg("kvOnWrite")
 		}
+		c.repLogMu.Unlock()
 	}
 }
 
@@ -113,6 +115,9 @@ func (c *Cluster) handleRepLogEntry(replog kvstore.RepLogEntry) error {
 func (c *Cluster) startRepLogService() {
 	log.Debug().Msg("startRepLogService")
 	for {
+		// We have to lock to avoid any new entries from interleaving with the
+		// current processing we are about to do
+		c.repLogMu.Lock()
 		repLogs := c.kvstore.ScanRepLog()
 		if len(repLogs) == 0 {
 			time.Sleep(10 * time.Second)
@@ -141,6 +146,7 @@ func (c *Cluster) startRepLogService() {
 		}
 		close(repLogChannel)
 		wg.Wait()
+		c.repLogMu.Unlock()
 		time.Sleep(time.Duration(rand.Intn(4)) * time.Second)
 	}
 }

@@ -13,10 +13,11 @@ import (
 
 type Cluster struct {
 	Servers        []string
-	mu             sync.RWMutex
+	serversMu      sync.RWMutex
 	kvstore        *kvstore.KVStore
 	rpcApi         *rpcapi.RPCAPI
 	onWriteChannel chan kvstore.OnWriteEvent
+	repLogMu       sync.Mutex
 }
 
 func New(kvs *kvstore.KVStore, rpcApi *rpcapi.RPCAPI) (*Cluster, error) {

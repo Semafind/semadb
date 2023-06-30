@@ -24,9 +24,9 @@ func (c *Cluster) KeyPlacement(key string) ([]string, error) {
 	case CollectionKeyRegex.MatchString(key):
 		parts := strings.Split(key, "/")
 		userId := parts[1]
-		c.mu.RLock()
+		c.serversMu.RLock()
 		servers = RendezvousHash(userId, c.Servers, config.Cfg.GeneralReplication)
-		c.mu.RUnlock()
+		c.serversMu.RUnlock()
 	default:
 		log.Error().Str("key", key).Msg("Unknown key type")
 		return nil, fmt.Errorf("unknown key type %v", key)
