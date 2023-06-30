@@ -93,6 +93,13 @@ func (api *RPCAPI) internalRoute(remoteFn string, args Destinationer, reply inte
 	select {
 	case <-rpcCall.Done:
 		if rpcCall.Error != nil {
+			// Check if the connection is shutdown
+			if rpcCall.Error == rpc.ErrShutdown {
+				// Remove dead client from cache
+				api.clientMu.Lock()
+				delete(api.clients, destination)
+				api.clientMu.Unlock()
+			}
 			// The method's return value, if non-nil, is passed back as a string that the client sees as if created by errors.New
 			// This means error wrapping, errors.Is and equality checks do not work as expected from rpcCall.Error
 			// We do this ugly re-wrap to get the original error
