@@ -41,6 +41,12 @@ func (c *Cluster) kvOnWrite() {
 			}
 		}
 		// ---------------------------
+		// Shortcut if we are the only server. We know kv has just written this
+		// value and we are the only server.
+		if len(targetServers) == 1 && isReplica {
+			continue
+		}
+		// ---------------------------
 		repLog := kvstore.RepLogEntry{
 			Key:           event.Key,
 			Value:         event.Value,
