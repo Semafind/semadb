@@ -82,7 +82,7 @@ func (c *ClusterNode) handleRepLogEntry(replog kvstore.RepLogEntry) error {
 				Value: replog.Value,
 			}
 			writeKVResp := &WriteKVResponse{}
-			err := c.WriteKV(writeKVReq, writeKVResp)
+			err := c.RPCWrite(writeKVReq, writeKVResp)
 			switch {
 			case err == nil:
 				successCount.Add(1)

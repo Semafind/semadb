@@ -37,7 +37,7 @@ type WriteKVRequest struct {
 type WriteKVResponse struct {
 }
 
-func (c *ClusterNode) WriteKV(args *WriteKVRequest, reply *WriteKVResponse) error {
+func (c *ClusterNode) RPCWrite(args *WriteKVRequest, reply *WriteKVResponse) error {
 	log.Debug().Str("key", string(args.Key)).Str("host", c.MyHostname).Msg("WriteKV")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.WriteKV", args, reply)

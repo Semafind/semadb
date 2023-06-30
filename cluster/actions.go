@@ -22,5 +22,5 @@ func (c *ClusterNode) CreateCollection(req CreateCollectionRequest) error {
 	if err != nil {
 		return fmt.Errorf("could not marshal collection: %w", err)
 	}
-	return c.Write(fullKey, collectionValue)
+	return c.ClusterWrite(fullKey, collectionValue)
 }

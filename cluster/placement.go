@@ -33,13 +33,13 @@ func (c *ClusterNode) KeyPlacement(key string) ([]string, error) {
 	return servers, nil
 }
 
-func (c *ClusterNode) Write(key string, value []byte) error {
+func (c *ClusterNode) ClusterWrite(key string, value []byte) error {
 	targetServers, err := c.KeyPlacement(key)
 	if err != nil {
 		return fmt.Errorf("could not get target servers: %w", err)
 	}
 	// ---------------------------
-	log.Debug().Interface("targetServers", targetServers).Msg("NewCollection")
+	log.Debug().Str("key", key).Strs("targetServers", targetServers).Msg("ClusterWrite")
 	results := make(chan error, len(targetServers))
 	for _, server := range targetServers {
 		go func(dest string) {
@@ -52,7 +52,7 @@ func (c *ClusterNode) Write(key string, value []byte) error {
 				Value: value,
 			}
 			writeKVResp := &WriteKVResponse{}
-			results <- c.WriteKV(writeKVReq, writeKVResp)
+			results <- c.RPCWrite(writeKVReq, writeKVResp)
 		}(server)
 	}
 	// ---------------------------
