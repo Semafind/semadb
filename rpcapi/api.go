@@ -93,7 +93,18 @@ func (api *RPCAPI) internalRoute(remoteFn string, args Destinationer, reply inte
 	select {
 	case <-rpcCall.Done:
 		if rpcCall.Error != nil {
-			return fmt.Errorf("failed to call %v: %w", remoteFn, rpcCall.Error)
+			// The method's return value, if non-nil, is passed back as a string that the client sees as if created by errors.New
+			// This means error wrapping, errors.Is and equality checks do not work as expected from rpcCall.Error
+			// We do this ugly re-wrap to get the original error
+			// TODO: organise remote errors into a manageable list
+			finalErr := rpcCall.Error
+			switch rpcCall.Error.Error() {
+			case kvstore.ErrExistingKey.Error():
+				finalErr = kvstore.ErrExistingKey
+			case kvstore.ErrStaleData.Error():
+				finalErr = kvstore.ErrStaleData
+			}
+			return fmt.Errorf("failed to call %v: %w", remoteFn, finalErr)
 		}
 	case <-time.After(time.Duration(config.Cfg.RpcTimeout) * time.Millisecond):
 		return fmt.Errorf(remoteFn+" timed out: %w", ErrRPCTimeout)

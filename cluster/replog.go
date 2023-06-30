@@ -120,6 +120,7 @@ func (c *Cluster) startRepLogService() {
 		c.repLogMu.Lock()
 		repLogs := c.kvstore.ScanRepLog()
 		if len(repLogs) == 0 {
+			c.repLogMu.Unlock()
 			time.Sleep(10 * time.Second)
 			continue
 		}
