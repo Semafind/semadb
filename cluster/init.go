@@ -24,7 +24,7 @@ func New(kvs *kvstore.KVStore, rpcApi *rpcapi.RPCAPI) (*Cluster, error) {
 	kvs.RegisterOnWriteObserver(onWriteChannel)
 	cluster := &Cluster{Servers: config.Cfg.Servers, kvstore: kvs, rpcApi: rpcApi, onWriteChannel: onWriteChannel}
 	go cluster.kvOnWrite()
-	go cluster.startWALService()
+	go cluster.startRepLogService()
 	return cluster, nil
 }
 

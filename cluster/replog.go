@@ -41,29 +41,29 @@ func (c *Cluster) kvOnWrite() {
 			}
 		}
 		// ---------------------------
-		wal := kvstore.WALEntry{
+		repLog := kvstore.RepLogEntry{
 			Key:           event.Key,
 			Value:         event.Value,
 			IsReplica:     isReplica,
 			TargetServers: targetServers,
 		}
-		if err := c.kvstore.WriteWALEntry(wal); err != nil {
+		if err := c.kvstore.WriteRepLogEntry(repLog); err != nil {
 			// TODO: Data loss might occur here
 			log.Error().Err(err).Msg("kvOnWrite")
 		}
 	}
 }
 
-func (c *Cluster) handleWALEntry(wal kvstore.WALEntry) error {
+func (c *Cluster) handleRepLogEntry(replog kvstore.RepLogEntry) error {
 	// ---------------------------
-	log.Debug().Str("key", wal.Key).Msg("handleWALEntry")
+	log.Debug().Str("key", replog.Key).Msg("handleRepLogEntry")
 	// ---------------------------
 	newTargets := make([]string, 0)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	var hadConflict atomic.Bool
 	// ---------------------------
-	for _, server := range wal.TargetServers {
+	for _, server := range replog.TargetServers {
 		wg.Add(1)
 		go func(dest string) {
 			writeKVReq := &rpcapi.WriteKVRequest{
@@ -71,17 +71,17 @@ func (c *Cluster) handleWALEntry(wal kvstore.WALEntry) error {
 					Source: c.rpcApi.MyHostname,
 					Dest:   dest,
 				},
-				Key:   []byte(wal.Key),
-				Value: wal.Value,
+				Key:   []byte(replog.Key),
+				Value: replog.Value,
 			}
 			writeKVResp := &rpcapi.WriteKVResponse{}
 			err := c.rpcApi.WriteKV(writeKVReq, writeKVResp)
 			switch {
 			case errors.Is(err, kvstore.ErrStaleData):
-				// This means this WAL entry is stale and we give up on it.
+				// This means this RepLog entry is stale and we give up on it.
 				hadConflict.Store(true)
 			case err != nil && !errors.Is(err, kvstore.ErrExistingKey):
-				log.Debug().Err(err).Str("key", wal.Key).Str("dest", dest).Msg("handleWALEntry")
+				log.Debug().Err(err).Str("key", replog.Key).Str("dest", dest).Msg("handleRepLogEntry")
 				mu.Lock()
 				newTargets = append(newTargets, dest)
 				mu.Unlock()
@@ -93,53 +93,53 @@ func (c *Cluster) handleWALEntry(wal kvstore.WALEntry) error {
 	// ---------------------------
 	if hadConflict.Load() || len(newTargets) == 0 {
 		// We're done here
-		if err := c.kvstore.DeleteWALEntry(wal.Key); err != nil {
-			// log.Error().Err(err).Str("key", wal.Key).Msg("handleWALEntry.Delete")
-			return fmt.Errorf("could not delete wal entry: %w", err)
+		if err := c.kvstore.DeleteRepLogEntry(replog.Key); err != nil {
+			// log.Error().Err(err).Str("key", repLog.Key).Msg("handleRepLogEntry.Delete")
+			return fmt.Errorf("could not delete repLog entry: %w", err)
 		}
-		log.Debug().Str("key", wal.Key).Msg("handleWALEntry.Delete")
+		log.Debug().Str("key", replog.Key).Msg("handleRepLogEntry.Delete")
 		return nil
 	}
 	// ---------------------------
-	wal.TargetServers = newTargets
-	if err := c.kvstore.WriteWALEntry(wal); err != nil {
-		// log.Error().Err(err).Str("key", wal.Key).Msg("handleWALEntry.Update")
-		return fmt.Errorf("could not re-write wal entry: %w", err)
+	replog.TargetServers = newTargets
+	if err := c.kvstore.WriteRepLogEntry(replog); err != nil {
+		// log.Error().Err(err).Str("key", repLog.Key).Msg("handleRepLogEntry.Update")
+		return fmt.Errorf("could not re-write repLog entry: %w", err)
 	}
-	log.Debug().Str("key", wal.Key).Strs("newTargets", newTargets).Msg("handleWALEntry.Update")
+	log.Debug().Str("key", replog.Key).Strs("newTargets", newTargets).Msg("handleRepLogEntry.Update")
 	return nil
 }
 
-func (c *Cluster) startWALService() {
-	log.Debug().Msg("startWALService")
+func (c *Cluster) startRepLogService() {
+	log.Debug().Msg("startRepLogService")
 	for {
-		wals := c.kvstore.ScanWAL()
-		if len(wals) == 0 {
+		repLogs := c.kvstore.ScanRepLog()
+		if len(repLogs) == 0 {
 			time.Sleep(10 * time.Second)
 			continue
 		}
-		log.Debug().Int("len(wals)", len(wals)).Msg("WALService")
-		walChannel := make(chan kvstore.WALEntry, len(wals))
+		log.Debug().Int("len(repLogs)", len(repLogs)).Msg("RepLogService")
+		repLogChannel := make(chan kvstore.RepLogEntry, len(repLogs))
 		// ---------------------------
-		// Spawn workers to process WAL entries
+		// Spawn workers to process RepLog entries
 		var wg sync.WaitGroup
 		for i := 0; i < 2; i++ {
 			go func() {
-				for wal := range walChannel {
-					if err := c.handleWALEntry(wal); err != nil {
+				for repLog := range repLogChannel {
+					if err := c.handleRepLogEntry(repLog); err != nil {
 						// We'll try again in the next cycle
-						log.Error().Err(err).Msg("could not handle WAL entry")
+						log.Error().Err(err).Msg("could not handle RepLog entry")
 					}
 					wg.Done()
 				}
 			}()
 		}
 		// ---------------------------
-		for _, wal := range wals {
+		for _, repLog := range repLogs {
 			wg.Add(1)
-			walChannel <- wal
+			repLogChannel <- repLog
 		}
-		close(walChannel)
+		close(repLogChannel)
 		wg.Wait()
 		time.Sleep(time.Duration(rand.Intn(4)) * time.Second)
 	}

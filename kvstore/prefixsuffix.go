@@ -9,9 +9,8 @@ const DELIMITER = "/"
 
 // ---------------------------
 
-const WAL_PREFIX = "W" + DELIMITER
+const REPLOG_PREFIX = "R" + DELIMITER
 const USER_PREFIX = "U" + DELIMITER
 const COLLECTION_PREFIX = "C" + DELIMITER
 
 // ---------------------------
-var INTERNAL_SUFFIX = []byte(DELIMITER + "I")

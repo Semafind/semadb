@@ -182,20 +182,20 @@ func (kv *KVStore) Insert(key, value []byte) error {
 
 // ---------------------------
 
-type WALEntry struct {
+type RepLogEntry struct {
 	Key           string
 	Value         []byte
 	TargetServers []string
 	IsReplica     bool
 }
 
-func (kv *KVStore) WriteWALEntry(wal WALEntry) error {
-	log.Debug().Str("key", wal.Key).Msg("writing wal entry")
+func (kv *KVStore) WriteRepLogEntry(repLog RepLogEntry) error {
+	log.Debug().Str("key", repLog.Key).Msg("writing repLog entry")
 	err := kv.db.Update(func(txn *badger.Txn) error {
-		key := []byte(WAL_PREFIX + wal.Key)
-		val, err := msgpack.Marshal(wal)
+		key := []byte(REPLOG_PREFIX + repLog.Key)
+		val, err := msgpack.Marshal(repLog)
 		if err != nil {
-			return fmt.Errorf("failed to marshal wal: %w", err)
+			return fmt.Errorf("failed to marshal repLog: %w", err)
 		}
 		if err := txn.Set(key, val); err != nil {
 			return fmt.Errorf("failed to set key: %w", err)
@@ -203,27 +203,27 @@ func (kv *KVStore) WriteWALEntry(wal WALEntry) error {
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("failed to add wal entry: %w", err)
+		return fmt.Errorf("failed to add repLog entry: %w", err)
 	}
 	return nil
 }
 
-func (kv *KVStore) ScanWAL() []WALEntry {
-	out := make([]WALEntry, 0, 1)
+func (kv *KVStore) ScanRepLog() []RepLogEntry {
+	out := make([]RepLogEntry, 0, 1)
 	err := kv.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
-		prefix := []byte(WAL_PREFIX)
+		prefix := []byte(REPLOG_PREFIX)
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
 			k := item.Key()
 			err := item.Value(func(v []byte) error {
-				var walEntry WALEntry
-				if err := msgpack.Unmarshal(v, &walEntry); err != nil {
-					return fmt.Errorf("failed to unmarshal wal: %w", err)
+				var repLogEntry RepLogEntry
+				if err := msgpack.Unmarshal(v, &repLogEntry); err != nil {
+					return fmt.Errorf("failed to unmarshal repLog: %w", err)
 				}
-				walEntry.Key = string(k[len(WAL_PREFIX):])
-				out = append(out, walEntry)
+				repLogEntry.Key = string(k[len(REPLOG_PREFIX):])
+				out = append(out, repLogEntry)
 				return nil
 			})
 			if err != nil {
@@ -233,20 +233,20 @@ func (kv *KVStore) ScanWAL() []WALEntry {
 		return nil
 	})
 	if err != nil {
-		log.Error().Err(err).Msg("failed to scan wal")
+		log.Error().Err(err).Msg("failed to scan repLog")
 	}
 	return out
 }
 
-func (kv *KVStore) DeleteWALEntry(key string) error {
+func (kv *KVStore) DeleteRepLogEntry(key string) error {
 	err := kv.db.Update(func(txn *badger.Txn) error {
-		if err := txn.Delete([]byte(WAL_PREFIX + key)); err != nil {
+		if err := txn.Delete([]byte(REPLOG_PREFIX + key)); err != nil {
 			return fmt.Errorf("failed to delete key: %w", err)
 		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("failed to wal key: %w", err)
+		return fmt.Errorf("failed to delete repLog key: %w", err)
 	}
 	return nil
 }
