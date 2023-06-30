@@ -10,59 +10,57 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/kvstore"
-	"github.com/semafind/semadb/rpcapi"
 )
 
-func (c *Cluster) kvOnWrite() {
-	for event := range c.onWriteChannel {
-		log.Debug().Str("key", event.Key).Msg("kvOnWrite")
-		// ---------------------------
-		// Our job here is to ensure this key is replicated and / or sent to the
-		// correct servers based on the knowledge we have. If we make a mistake,
-		// it's okay because the next server will hopefully correct it. The
-		// analogy is that of post offices with a shared address book.
-		// ---------------------------
-		targetServers, err := c.KeyPlacement(event.Key)
-		if err != nil {
-			log.Error().Err(err).Msg("kvOnWrite")
-			// The address book is down, send to everyone. We can't ignore the
-			// entry because it might lead to data / replica loss.
-			targetServers = c.Servers
-		}
-		// ---------------------------
-		// Are we suppose to replicate or send? The difference is that replicate
-		// should repeat until we have confirmation from all servers. Whereas
-		// send can send to only one server and handoff that responsibility.
-		isReplica := false
-		for _, server := range targetServers {
-			if server == c.rpcApi.MyHostname {
-				isReplica = true
-				break
-			}
-		}
-		// ---------------------------
-		// Shortcut if we are the only server. We know kv has just written this
-		// value and we are the only server.
-		if len(targetServers) == 1 && isReplica {
-			continue
-		}
-		// ---------------------------
-		repLog := kvstore.RepLogEntry{
-			Key:           event.Key,
-			Value:         event.Value,
-			IsReplica:     isReplica,
-			TargetServers: targetServers,
-		}
-		c.repLogMu.Lock()
-		if err := c.kvstore.WriteRepLogEntry(repLog); err != nil {
-			// TODO: Data loss might occur here
-			log.Error().Err(err).Msg("kvOnWrite")
-		}
-		c.repLogMu.Unlock()
+func (c *ClusterNode) addRepLogEntry(key string, value []byte) error {
+	log.Debug().Str("key", key).Msg("addRepLogEntry")
+	// ---------------------------
+	// Our job here is to ensure this key is replicated and / or sent to the
+	// correct servers based on the knowledge we have. If we make a mistake,
+	// it's okay because the next server will hopefully correct it. The
+	// analogy is that of post offices with a shared address book.
+	// ---------------------------
+	targetServers, err := c.KeyPlacement(key)
+	if err != nil {
+		log.Error().Err(err).Str("key", key).Msg("Could not get target servers")
+		// The address book is down, send to everyone. We can't ignore the
+		// entry because it might lead to data / replica loss.
+		targetServers = c.Servers
 	}
+	// ---------------------------
+	// Are we suppose to replicate or send? The difference is that replicate
+	// should repeat until we have confirmation from all servers. Whereas
+	// send can send to only one server and handoff that responsibility.
+	isReplica := false
+	for _, server := range targetServers {
+		if server == c.MyHostname {
+			isReplica = true
+			break
+		}
+	}
+	// ---------------------------
+	// Shortcut if we are the only server. We know kv has just written this
+	// value and we are the only server.
+	if len(targetServers) == 1 && isReplica {
+		return nil
+	}
+	// ---------------------------
+	repLog := kvstore.RepLogEntry{
+		Key:           key,
+		Value:         value,
+		IsReplica:     isReplica,
+		TargetServers: targetServers,
+	}
+	c.repLogMu.Lock()
+	defer c.repLogMu.Unlock()
+	if err := c.kvstore.WriteRepLogEntry(repLog); err != nil {
+		log.Error().Err(err).Msg("Could not write replog entry")
+		return fmt.Errorf("could not write replog entry: %w", err)
+	}
+	return nil
 }
 
-func (c *Cluster) handleRepLogEntry(replog kvstore.RepLogEntry) error {
+func (c *ClusterNode) handleRepLogEntry(replog kvstore.RepLogEntry) error {
 	// ---------------------------
 	log.Debug().Str("key", replog.Key).Msg("handleRepLogEntry")
 	// ---------------------------
@@ -75,16 +73,16 @@ func (c *Cluster) handleRepLogEntry(replog kvstore.RepLogEntry) error {
 	for _, server := range replog.TargetServers {
 		wg.Add(1)
 		go func(dest string) {
-			writeKVReq := &rpcapi.WriteKVRequest{
-				RequestArgs: rpcapi.RequestArgs{
-					Source: c.rpcApi.MyHostname,
+			writeKVReq := &WriteKVRequest{
+				RequestArgs: RequestArgs{
+					Source: c.MyHostname,
 					Dest:   dest,
 				},
-				Key:   []byte(replog.Key),
+				Key:   replog.Key,
 				Value: replog.Value,
 			}
-			writeKVResp := &rpcapi.WriteKVResponse{}
-			err := c.rpcApi.WriteKV(writeKVReq, writeKVResp)
+			writeKVResp := &WriteKVResponse{}
+			err := c.WriteKV(writeKVReq, writeKVResp)
 			switch {
 			case err == nil:
 				successCount.Add(1)
@@ -124,7 +122,7 @@ func (c *Cluster) handleRepLogEntry(replog kvstore.RepLogEntry) error {
 	return nil
 }
 
-func (c *Cluster) startRepLogService() {
+func (c *ClusterNode) startRepLogService() {
 	log.Debug().Msg("startRepLogService")
 	for {
 		// We have to lock to avoid any new entries from interleaving with the

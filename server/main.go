@@ -12,7 +12,6 @@ import (
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/kvstore"
-	"github.com/semafind/semadb/rpcapi"
 )
 
 // ---------------------------
@@ -60,30 +59,14 @@ func main() {
 	}
 	log.Info().Msg("KVStore created")
 	// ---------------------------
-	// Setup RPC API
-	rpcAPI := rpcapi.NewRPCAPI(kvstore)
-	rpcServer := rpcAPI.Serve()
-	// ---------------------------
 	// Setup cluster state
-	clusterState, err := cluster.New(kvstore, rpcAPI)
+	clusterNode, err := cluster.NewNode(kvstore)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create cluster state")
 	}
-	log.Info().Interface("clusterState", clusterState).Msg("Cluster state")
+	clusterNode.Serve()
 	// ---------------------------
-	if rpcAPI.MyHostname == "localhost:11001" {
-		time.Sleep(2 * time.Second)
-		log.Debug().Msg("Testing RPCAPI.Ping")
-		pingRequest := &rpcapi.PingRequest{RequestArgs: rpcapi.RequestArgs{Source: rpcAPI.MyHostname, Dest: "localhost:11002"}, Message: "hi"}
-		pingResponse := &rpcapi.PingResponse{}
-		err = rpcAPI.Ping(pingRequest, pingResponse)
-		if err != nil {
-			log.Error().Err(err).Msg("Failed to ping")
-		}
-		log.Debug().Interface("pingResponse", pingResponse).Msg("Ping response")
-	}
-	// ---------------------------
-	httpServer := runHTTPServer(clusterState)
+	httpServer := runHTTPServer(clusterNode)
 	// ---------------------------
 	quit := make(chan os.Signal, 1)
 	// kill (no param) default send syscanll.SIGTERM
@@ -93,13 +76,12 @@ func main() {
 	sig := <-quit
 	log.Info().Str("signal", sig.String()).Msg("Shutting down server...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	if err := rpcServer.Shutdown(ctx); err != nil {
-		log.Error().Err(err).Msg("RPC server forced to shut")
-	}
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Error().Err(err).Msg("HTTP server forced to shut")
 	}
 	cancel()
+	// TODO: Gracefully shutdown cluster
+	clusterNode.Close()
 	// ---------------------------
 	// We don't timeout here because we don't want to lose data
 	if err := kvstore.Close(); err != nil {

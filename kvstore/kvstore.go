@@ -36,16 +36,8 @@ func (l BadgerLogger) Debugf(format string, args ...interface{}) {
 
 // ---------------------------
 
-type OnWriteEvent struct {
-	Key   string
-	Value []byte
-}
-
-// ---------------------------
-
 type KVStore struct {
-	db               *badger.DB
-	onWriteObservers []chan OnWriteEvent
+	db *badger.DB
 }
 
 func NewKVStore() (*KVStore, error) {
@@ -59,7 +51,8 @@ func NewKVStore() (*KVStore, error) {
 		kvDir = tempDir
 	}
 	log.Info().Str("kvDir", kvDir).Msg("using kvDir")
-	kvOpts := badger.DefaultOptions(kvDir).WithLogger(BadgerLogger{})
+	// kvOpts := badger.DefaultOptions(kvDir).WithLogger(BadgerLogger{})
+	kvOpts := badger.DefaultOptions(kvDir).WithLogger(nil)
 	db, err := badger.Open(kvOpts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open badger db: %w", err)
@@ -67,13 +60,6 @@ func NewKVStore() (*KVStore, error) {
 	return &KVStore{
 		db: db,
 	}, nil
-}
-
-func (kv *KVStore) RegisterOnWriteObserver(ch chan OnWriteEvent) {
-	if kv.onWriteObservers == nil {
-		kv.onWriteObservers = make([]chan OnWriteEvent, 0, 1)
-	}
-	kv.onWriteObservers = append(kv.onWriteObservers, ch)
 }
 
 func (kv *KVStore) Close() error {
@@ -166,17 +152,6 @@ func (kv *KVStore) Insert(key, value []byte) error {
 		}
 		return nil
 	})
-	// If we have observers, notify them
-	if err == nil {
-		if kv.onWriteObservers != nil {
-			for _, ch := range kv.onWriteObservers {
-				ch <- OnWriteEvent{
-					Key:   string(key),
-					Value: value,
-				}
-			}
-		}
-	}
 	return err
 }
 

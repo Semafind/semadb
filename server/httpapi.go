@@ -23,10 +23,10 @@ func pongHandler(c *gin.Context) {
 // ---------------------------
 
 type SemaDBHandlers struct {
-	clusterState *cluster.Cluster
+	clusterState *cluster.ClusterNode
 }
 
-func NewSemaDBHandlers(clusterState *cluster.Cluster) *SemaDBHandlers {
+func NewSemaDBHandlers(clusterState *cluster.ClusterNode) *SemaDBHandlers {
 	return &SemaDBHandlers{clusterState: clusterState}
 }
 
@@ -96,7 +96,7 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 
 // ---------------------------
 
-func runHTTPServer(clusterState *cluster.Cluster) *http.Server {
+func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
 	router := gin.Default()
 	v1 := router.Group("/v1")
 	v1.GET("/ping", pongHandler)

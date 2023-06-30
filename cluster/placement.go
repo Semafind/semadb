@@ -9,7 +9,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/kvstore"
-	"github.com/semafind/semadb/rpcapi"
 )
 
 // Different key types:
@@ -18,7 +17,7 @@ import (
 
 var CollectionKeyRegex = regexp.MustCompile(`^U\/\w+\/C\/\w+$`)
 
-func (c *Cluster) KeyPlacement(key string) ([]string, error) {
+func (c *ClusterNode) KeyPlacement(key string) ([]string, error) {
 	var servers []string
 	switch {
 	case CollectionKeyRegex.MatchString(key):
@@ -34,7 +33,7 @@ func (c *Cluster) KeyPlacement(key string) ([]string, error) {
 	return servers, nil
 }
 
-func (c *Cluster) Write(key string, value []byte) error {
+func (c *ClusterNode) Write(key string, value []byte) error {
 	targetServers, err := c.KeyPlacement(key)
 	if err != nil {
 		return fmt.Errorf("could not get target servers: %w", err)
@@ -44,16 +43,16 @@ func (c *Cluster) Write(key string, value []byte) error {
 	results := make(chan error, len(targetServers))
 	for _, server := range targetServers {
 		go func(dest string) {
-			writeKVReq := &rpcapi.WriteKVRequest{
-				RequestArgs: rpcapi.RequestArgs{
-					Source: c.rpcApi.MyHostname,
+			writeKVReq := &WriteKVRequest{
+				RequestArgs: RequestArgs{
+					Source: c.MyHostname,
 					Dest:   dest,
 				},
-				Key:   []byte(key),
+				Key:   key,
 				Value: value,
 			}
-			writeKVResp := &rpcapi.WriteKVResponse{}
-			results <- c.rpcApi.WriteKV(writeKVReq, writeKVResp)
+			writeKVResp := &WriteKVResponse{}
+			results <- c.WriteKV(writeKVReq, writeKVResp)
 		}(server)
 	}
 	// ---------------------------
@@ -67,7 +66,7 @@ func (c *Cluster) Write(key string, value []byte) error {
 			successCount++
 		case errors.Is(err, kvstore.ErrStaleData):
 			conflictCount++
-		case errors.Is(err, rpcapi.ErrRPCTimeout):
+		case errors.Is(err, ErrTimeout):
 			timeoutCount++
 		default:
 			log.Error().Err(err).Msg("NewCollection")

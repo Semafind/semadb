@@ -1,54 +1,81 @@
 package cluster
 
 import (
-	"fmt"
+	"net/http"
+	"net/rpc"
+	"os"
+	"strconv"
 	"sync"
+	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/kvstore"
-	"github.com/semafind/semadb/models"
-	"github.com/semafind/semadb/rpcapi"
-	"github.com/vmihailenco/msgpack"
 )
 
-type Cluster struct {
-	Servers        []string
-	serversMu      sync.RWMutex
-	kvstore        *kvstore.KVStore
-	rpcApi         *rpcapi.RPCAPI
-	onWriteChannel chan kvstore.OnWriteEvent
-	repLogMu       sync.Mutex
+type ClusterNode struct {
+	Servers    []string
+	MyHostname string
+	serversMu  sync.RWMutex
+	// ---------------------------
+	kvstore *kvstore.KVStore
+	// ---------------------------
+	rpcClients   map[string]*rpc.Client
+	rpcClientsMu sync.Mutex
+	rpcServer    *http.Server
+	// ---------------------------
+	repLogMu sync.Mutex
 }
 
-func New(kvs *kvstore.KVStore, rpcApi *rpcapi.RPCAPI) (*Cluster, error) {
-	onWriteChannel := make(chan kvstore.OnWriteEvent, 100)
-	kvs.RegisterOnWriteObserver(onWriteChannel)
-	cluster := &Cluster{Servers: config.Cfg.Servers, kvstore: kvs, rpcApi: rpcApi, onWriteChannel: onWriteChannel}
-	go cluster.kvOnWrite()
-	go cluster.startRepLogService()
+func NewNode(kvs *kvstore.KVStore) (*ClusterNode, error) {
+	// ---------------------------
+	// Determine hostname
+	envHostname := config.Cfg.RpcHost
+	{
+		if envHostname == "" {
+			hostname, err := os.Hostname()
+			if err != nil {
+				log.Fatal().Err(err).Msg("Failed to get hostname")
+			}
+			log.Warn().Str("hostname", hostname).Msg("host not set, using hostname")
+			envHostname = hostname
+		}
+		rpcPort := config.Cfg.RpcPort
+		envHostname = envHostname + ":" + strconv.Itoa(rpcPort)
+	}
+	// ---------------------------
+	cluster := &ClusterNode{
+		Servers:    config.Cfg.Servers,
+		MyHostname: envHostname,
+		kvstore:    kvs,
+		rpcClients: make(map[string]*rpc.Client),
+	}
 	return cluster, nil
 }
 
-func (c *Cluster) Close() error {
-	close(c.onWriteChannel)
+func (c *ClusterNode) Serve() {
+	// ---------------------------
+	// Setup RPC server
+	rpc.Register(c)
+	rpc.HandleHTTP()
+	c.rpcServer = &http.Server{
+		Addr:         c.MyHostname,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	go func() {
+		// service connections
+		log.Info().Str("rpcHost", c.MyHostname).Msg("rpcServe")
+		if err := c.rpcServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal().Err(err).Msg("Failed to listen and serve RPC")
+		}
+	}()
+	// ---------------------------
+	go c.startRepLogService()
+}
+
+func (c *ClusterNode) Close() error {
 	return nil
 }
 
 // ---------------------------
-
-type CreateCollectionRequest struct {
-	UserId     string
-	Collection models.Collection
-}
-
-func (c *Cluster) CreateCollection(req CreateCollectionRequest) error {
-	// ---------------------------
-	// Construct key and value
-	// e.g. U/ USERID / C/ COLLECTIONID
-	fullKey := kvstore.USER_PREFIX + req.UserId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + req.Collection.Id
-	collectionValue, err := msgpack.Marshal(req.Collection)
-	if err != nil {
-		return fmt.Errorf("could not marshal collection: %w", err)
-	}
-	return c.Write(fullKey, collectionValue)
-}
