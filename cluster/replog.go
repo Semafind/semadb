@@ -64,6 +64,7 @@ func (c *Cluster) handleRepLogEntry(replog kvstore.RepLogEntry) error {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	var hadConflict atomic.Bool
+	var successCount atomic.Int32
 	// ---------------------------
 	for _, server := range replog.TargetServers {
 		wg.Add(1)
@@ -79,6 +80,8 @@ func (c *Cluster) handleRepLogEntry(replog kvstore.RepLogEntry) error {
 			writeKVResp := &rpcapi.WriteKVResponse{}
 			err := c.rpcApi.WriteKV(writeKVReq, writeKVResp)
 			switch {
+			case err == nil:
+				successCount.Add(1)
 			case errors.Is(err, kvstore.ErrStaleData):
 				// This means this RepLog entry is stale and we give up on it.
 				hadConflict.Store(true)
@@ -93,13 +96,16 @@ func (c *Cluster) handleRepLogEntry(replog kvstore.RepLogEntry) error {
 	}
 	wg.Wait()
 	// ---------------------------
-	if hadConflict.Load() || len(newTargets) == 0 {
+	// If had a conflict, we know the data is stale and we can delete it.
+	// If all the targets have succeeded and we have no new targets, jobs done again.
+	// If this is a handover instead of a replica, we can stop after the first success.
+	if hadConflict.Load() || len(newTargets) == 0 || (!replog.IsReplica && successCount.Load() > 0) {
 		// We're done here
 		if err := c.kvstore.DeleteRepLogEntry(replog.Key); err != nil {
 			// log.Error().Err(err).Str("key", repLog.Key).Msg("handleRepLogEntry.Delete")
 			return fmt.Errorf("could not delete repLog entry: %w", err)
 		}
-		log.Debug().Str("key", replog.Key).Msg("handleRepLogEntry.Delete")
+		log.Debug().Str("key", replog.Key).Str("action", "delete").Msg("handleRepLogEntry")
 		return nil
 	}
 	// ---------------------------
@@ -108,7 +114,7 @@ func (c *Cluster) handleRepLogEntry(replog kvstore.RepLogEntry) error {
 		// log.Error().Err(err).Str("key", repLog.Key).Msg("handleRepLogEntry.Update")
 		return fmt.Errorf("could not re-write repLog entry: %w", err)
 	}
-	log.Debug().Str("key", replog.Key).Strs("newTargets", newTargets).Msg("handleRepLogEntry.Update")
+	log.Debug().Str("key", replog.Key).Strs("newTargets", newTargets).Str("action", "update").Msg("handleRepLogEntry")
 	return nil
 }
 
@@ -121,7 +127,8 @@ func (c *Cluster) startRepLogService() {
 		repLogs := c.kvstore.ScanRepLog()
 		if len(repLogs) == 0 {
 			c.repLogMu.Unlock()
-			time.Sleep(10 * time.Second)
+			// Sleep for between 10 and 20 seconds
+			time.Sleep(time.Duration(10+rand.Intn(10)) * time.Second)
 			continue
 		}
 		log.Debug().Int("len(repLogs)", len(repLogs)).Msg("RepLogService")
@@ -148,6 +155,6 @@ func (c *Cluster) startRepLogService() {
 		close(repLogChannel)
 		wg.Wait()
 		c.repLogMu.Unlock()
-		time.Sleep(time.Duration(rand.Intn(4)) * time.Second)
+		time.Sleep(time.Duration(2+rand.Intn(4)) * time.Second)
 	}
 }
