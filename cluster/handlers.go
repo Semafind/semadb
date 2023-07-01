@@ -80,3 +80,29 @@ func (c *ClusterNode) RPCScan(args *ScanKVRequest, reply *ScanKVResponse) error 
 	reply.Entries = entries
 	return nil
 }
+
+// ---------------------------
+
+type ReadKVRequest struct {
+	RequestArgs
+	Key string
+}
+
+type ReadKVResponse struct {
+	Value []byte
+}
+
+func (c *ClusterNode) RPCRead(args *ReadKVRequest, reply *ReadKVResponse) error {
+	// ---------------------------
+	log.Debug().Str("key", args.Key).Str("host", c.MyHostname).Interface("route", args.RequestArgs).Msg("RPCRead")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCRead", args, reply)
+	}
+	// ---------------------------
+	value, err := c.kvstore.Read(args.Key)
+	if err != nil {
+		return err
+	}
+	reply.Value = value
+	return nil
+}

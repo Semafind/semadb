@@ -241,6 +241,29 @@ func (kv *KVStore) DeleteRepLogEntry(key string) error {
 
 // ---------------------------
 
+var ErrKeyNotFound = errors.New("key not found")
+
+func (kv *KVStore) Read(key string) ([]byte, error) {
+	var out []byte
+	err := kv.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(key))
+		if err == badger.ErrKeyNotFound {
+			return ErrKeyNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("failed to get key: %w", err)
+		}
+		out, err = item.ValueCopy(nil)
+		if err != nil {
+			return fmt.Errorf("failed to get value: %w", err)
+		}
+		return nil
+	})
+	return out, err
+}
+
+// ---------------------------
+
 type KVEntry struct {
 	Key   string
 	Value []byte

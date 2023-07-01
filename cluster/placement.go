@@ -3,6 +3,7 @@ package cluster
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"regexp"
 	"strings"
 
@@ -99,10 +100,94 @@ func (c *ClusterNode) ClusterWrite(key string, value []byte) error {
 
 // ---------------------------
 
-type scanKVResult struct {
-	entries []kvstore.KVEntry
-	err     error
+// Consistency level -1 = ALL, 0 = Quorum, 1 = One, 2 = Two etc.
+func (c *ClusterNode) ClusterGet(key string, consistencyLevel int) ([][]byte, error) {
+	// ---------------------------
+	targetServers, err := c.KeyPlacement(key)
+	if err != nil {
+		return nil, fmt.Errorf("could not get target servers: %w", err)
+	}
+	// ---------------------------
+	// Permute target servers
+	rand.Shuffle(len(targetServers), func(i, j int) {
+		targetServers[i], targetServers[j] = targetServers[j], targetServers[i]
+	})
+	// ---------------------------
+	switch consistencyLevel {
+	case -1:
+		// ALL
+	case 0:
+		// Quorum
+		quorum := len(targetServers)/2 + 1
+		targetServers = targetServers[:quorum]
+	default:
+		// One, Two etc.
+		targetServers = targetServers[:consistencyLevel]
+	}
+	// ---------------------------
+	type getKVResult struct {
+		value []byte
+		err   error
+	}
+	// ---------------------------
+	// Contact target servers
+	results := make(chan getKVResult, len(targetServers))
+	for _, server := range targetServers {
+		go func(dest string) {
+			getKVReq := &ReadKVRequest{
+				RequestArgs: RequestArgs{
+					Source: c.MyHostname,
+					Dest:   dest,
+				},
+				Key: key,
+			}
+			getKVResp := new(ReadKVResponse)
+			err := c.RPCRead(getKVReq, getKVResp)
+			results <- getKVResult{
+				value: getKVResp.Value,
+				err:   err,
+			}
+
+		}(server)
+	}
+	// ---------------------------
+	// Collection results
+	values := make([][]byte, 0, len(targetServers))
+	timeoutCount := 0
+	notFoundCount := 0
+	failCount := 0
+	for i := 0; i < len(targetServers); i++ {
+		result := <-results
+		switch {
+		case result.err == nil:
+			values = append(values, result.value)
+		case errors.Is(result.err, kvstore.ErrKeyNotFound):
+			notFoundCount++
+		case errors.Is(result.err, ErrTimeout):
+			timeoutCount++
+		default:
+			log.Error().Err(result.err).Msg("ClusterGet")
+			failCount++
+		}
+	}
+	log.Debug().Int("timeoutCount", timeoutCount).Int("notFoundCount", notFoundCount).Int("failCount", failCount).Msg("ClusterGet")
+	// ---------------------------
+	var finalError error = nil
+	switch {
+	case timeoutCount == len(targetServers):
+		finalError = ErrTimeout
+	case notFoundCount == len(targetServers):
+		finalError = ErrNotFound
+	case failCount == len(targetServers):
+		finalError = ErrNoSuccess
+	case failCount > 0:
+		finalError = ErrPartialSuccess
+	}
+	// ---------------------------
+	return values, finalError
 }
+
+// ---------------------------
 
 func (c *ClusterNode) ClusterScan(prefix string) ([]kvstore.KVEntry, error) {
 	// Where does this prefix belong?
@@ -111,6 +196,11 @@ func (c *ClusterNode) ClusterScan(prefix string) ([]kvstore.KVEntry, error) {
 		return nil, fmt.Errorf("could not get target servers: %w", err)
 	}
 	log.Debug().Str("prefix", prefix).Strs("targetServers", targetServers).Msg("ClusterScan")
+	// ---------------------------
+	type scanKVResult struct {
+		entries []kvstore.KVEntry
+		err     error
+	}
 	// ---------------------------
 	results := make(chan scanKVResult, len(targetServers))
 	for _, server := range targetServers {

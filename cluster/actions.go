@@ -52,3 +52,31 @@ func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error
 	// ---------------------------
 	return collections, nil
 }
+
+func (c *ClusterNode) GetCollection(userId string, collectionId string) (models.Collection, error) {
+	// ---------------------------
+	// Construct key and value
+	// e.g. U/ USERID / C/ COLLECTIONID
+	fullKey := kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + collectionId
+	values, err := c.ClusterGet(fullKey, 0)
+	if err != nil {
+		return models.Collection{}, fmt.Errorf("could not get collection: %w", err)
+	}
+	// ---------------------------
+	// Unmarshal and deduplicate values
+	latestVersion := int64(0)
+	var collection models.Collection
+	for _, value := range values {
+		var tempCollection models.Collection
+		err := msgpack.Unmarshal(value, &tempCollection)
+		if err != nil {
+			return models.Collection{}, fmt.Errorf("could not unmarshal collection: %w", err)
+		}
+		if tempCollection.Version > latestVersion {
+			collection = tempCollection
+			latestVersion = tempCollection.Version
+		}
+	}
+	// ---------------------------
+	return collection, nil
+}

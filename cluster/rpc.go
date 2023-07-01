@@ -70,6 +70,8 @@ func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply i
 				finalErr = kvstore.ErrExistingKey
 			case kvstore.ErrStaleData.Error():
 				finalErr = kvstore.ErrStaleData
+			case kvstore.ErrKeyNotFound.Error():
+				finalErr = kvstore.ErrKeyNotFound
 			}
 			return fmt.Errorf("failed to call %v: %w", remoteFn, finalErr)
 		}

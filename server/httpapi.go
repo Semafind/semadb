@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -112,6 +113,37 @@ func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
 	// ---------------------------
 }
 
+type GetCollectionUri struct {
+	CollectionId string `uri:"collectionId" binding:"required,alphanum,min=3,max=16"`
+}
+
+func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
+	var headers CommonHeaders
+	if err := c.ShouldBindHeader(&headers); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	log.Debug().Interface("headers", headers).Msg("GetCollection")
+	var uri GetCollectionUri
+	if err := c.ShouldBindUri(&uri); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
+	collection, err := sdbh.clusterNode.GetCollection(headers.UserID, uri.CollectionId)
+	switch {
+	case err == nil:
+		c.JSON(http.StatusOK, gin.H{"collection": collection})
+	case errors.Is(err, cluster.ErrNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+	case errors.Is(err, cluster.ErrTimeout):
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "timeout"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+	}
+	// ---------------------------
+}
+
 // ---------------------------
 
 func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
@@ -122,6 +154,7 @@ func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
 	semaDBHandlers := NewSemaDBHandlers(clusterState)
 	v1.POST("/collections", semaDBHandlers.NewCollection)
 	v1.GET("/collections", semaDBHandlers.ListCollections)
+	v1.GET("/collections/:collectionId", semaDBHandlers.GetCollection)
 	// ---------------------------
 	server := &http.Server{
 		Addr:    config.Cfg.HttpHost + ":" + strconv.Itoa(config.Cfg.HttpPort),
