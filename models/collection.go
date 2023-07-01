@@ -2,11 +2,8 @@ package models
 
 type Collection struct {
 	Id         string
-	Name       string
 	EmbedSize  uint
 	DistMetric string
-	Owner      string
-	Package    string
 	Shards     uint
 	Replicas   uint
 	Algorithm  string

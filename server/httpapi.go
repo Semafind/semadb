@@ -23,11 +23,11 @@ func pongHandler(c *gin.Context) {
 // ---------------------------
 
 type SemaDBHandlers struct {
-	clusterState *cluster.ClusterNode
+	clusterNode *cluster.ClusterNode
 }
 
-func NewSemaDBHandlers(clusterState *cluster.ClusterNode) *SemaDBHandlers {
-	return &SemaDBHandlers{clusterState: clusterState}
+func NewSemaDBHandlers(clusterNode *cluster.ClusterNode) *SemaDBHandlers {
+	return &SemaDBHandlers{clusterNode: clusterNode}
 }
 
 // ---------------------------
@@ -64,8 +64,6 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 			Id:         req.Id,
 			EmbedSize:  req.EmbedSize,
 			DistMetric: req.DistMetric,
-			Owner:      headers.UserID,
-			Package:    headers.Package,
 			Shards:     1,
 			Replicas:   1,
 			Algorithm:  "vamana",
@@ -76,7 +74,7 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	}
 	log.Debug().Interface("vamanaCollection", vamanaCollection).Msg("NewCollection")
 	// ---------------------------
-	err := sdbh.clusterState.CreateCollection(cluster.CreateCollectionRequest{
+	err := sdbh.clusterNode.CreateCollection(cluster.CreateCollectionRequest{
 		UserId:     headers.UserID,
 		Collection: vamanaCollection.Collection,
 	})
@@ -94,6 +92,26 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	}
 }
 
+func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
+	var headers CommonHeaders
+	if err := c.ShouldBindHeader(&headers); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	log.Debug().Interface("headers", headers).Msg("ListCollections")
+	// ---------------------------
+	collections, err := sdbh.clusterNode.ListCollections(headers.UserID)
+	switch err {
+	case nil:
+		c.JSON(http.StatusOK, gin.H{"collections": collections})
+	case cluster.ErrTimeout:
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "timeout"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+	}
+	// ---------------------------
+}
+
 // ---------------------------
 
 func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
@@ -103,6 +121,7 @@ func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
 	// ---------------------------
 	semaDBHandlers := NewSemaDBHandlers(clusterState)
 	v1.POST("/collections", semaDBHandlers.NewCollection)
+	v1.GET("/collections", semaDBHandlers.ListCollections)
 	// ---------------------------
 	server := &http.Server{
 		Addr:    config.Cfg.HttpHost + ":" + strconv.Itoa(config.Cfg.HttpPort),

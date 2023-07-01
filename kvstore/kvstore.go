@@ -238,3 +238,36 @@ func (kv *KVStore) DeleteRepLogEntry(key string) error {
 	}
 	return nil
 }
+
+// ---------------------------
+
+type KVEntry struct {
+	Key   string
+	Value []byte
+}
+
+func (kv *KVStore) ScanPrefix(prefix string) ([]KVEntry, error) {
+	kvEntries := make([]KVEntry, 0, 1)
+	err := kv.db.View(func(txn *badger.Txn) error {
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		prefix := []byte(prefix)
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			item := it.Item()
+			k := item.Key()
+			val, err := item.ValueCopy(nil)
+			if err != nil {
+				return fmt.Errorf("failed to get value: %w", err)
+			}
+			kvEntries = append(kvEntries, KVEntry{
+				Key:   string(k),
+				Value: val,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan prefix: %w", err)
+	}
+	return kvEntries, nil
+}

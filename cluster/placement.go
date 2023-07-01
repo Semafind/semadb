@@ -12,14 +12,18 @@ import (
 )
 
 // Different key types:
+// - U/<user>/C (user collections)
 // - U/<user>/C/<collection> (collection key)
 // - U/<user>/C/<collection>/P/<point> (point key)
 
+var UserCollectionsRegex = regexp.MustCompile(`^U\/\w+\/C/$`)
 var CollectionKeyRegex = regexp.MustCompile(`^U\/\w+\/C\/\w+$`)
 
 func (c *ClusterNode) KeyPlacement(key string) ([]string, error) {
 	var servers []string
 	switch {
+	case UserCollectionsRegex.MatchString(key):
+		fallthrough
 	case CollectionKeyRegex.MatchString(key):
 		parts := strings.Split(key, "/")
 		userId := parts[1]
@@ -91,4 +95,64 @@ func (c *ClusterNode) ClusterWrite(key string, value []byte) error {
 	}
 	// ---------------------------
 	return ErrPartialSuccess
+}
+
+// ---------------------------
+
+type scanKVResult struct {
+	entries []kvstore.KVEntry
+	err     error
+}
+
+func (c *ClusterNode) ClusterScan(prefix string) ([]kvstore.KVEntry, error) {
+	// Where does this prefix belong?
+	targetServers, err := c.KeyPlacement(prefix)
+	if err != nil {
+		return nil, fmt.Errorf("could not get target servers: %w", err)
+	}
+	log.Debug().Str("prefix", prefix).Strs("targetServers", targetServers).Msg("ClusterScan")
+	// ---------------------------
+	results := make(chan scanKVResult, len(targetServers))
+	for _, server := range targetServers {
+		go func(dest string) {
+			scanKVReq := &ScanKVRequest{
+				RequestArgs: RequestArgs{
+					Source: c.MyHostname,
+					Dest:   dest,
+				},
+				Prefix: prefix,
+			}
+			scanKVResp := new(ScanKVResponse)
+			err := c.RPCScan(scanKVReq, scanKVResp)
+			results <- scanKVResult{
+				entries: scanKVResp.Entries,
+				err:     err,
+			}
+		}(server)
+	}
+	// ---------------------------
+	// Collect results
+	var entries []kvstore.KVEntry
+	errorCount := 0
+	timeoutCount := 0
+	for i := 0; i < len(targetServers); i++ {
+		result := <-results
+		switch {
+		case errors.Is(result.err, ErrTimeout):
+			timeoutCount++
+		case result.err != nil:
+			log.Error().Err(result.err).Msg("ClusterScan")
+			errorCount++
+		default:
+			entries = append(entries, result.entries...)
+		}
+	}
+	if timeoutCount == len(targetServers) {
+		return nil, ErrTimeout
+	}
+	if errorCount == len(targetServers) {
+		return nil, ErrNoSuccess
+	}
+	// ---------------------------
+	return entries, nil
 }

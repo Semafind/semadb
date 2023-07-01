@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/kvstore"
 )
 
 // ---------------------------
@@ -39,7 +40,7 @@ type WriteKVResponse struct {
 
 func (c *ClusterNode) RPCWrite(args *WriteKVRequest, reply *WriteKVResponse) error {
 	// ---------------------------
-	log.Debug().Str("key", string(args.Key)).Str("host", c.MyHostname).Interface("route", args.RequestArgs).Msg("WriteKV")
+	log.Debug().Str("key", args.Key).Str("host", c.MyHostname).Interface("route", args.RequestArgs).Msg("RPCWrite")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCWrite", args, reply)
 	}
@@ -51,5 +52,31 @@ func (c *ClusterNode) RPCWrite(args *WriteKVRequest, reply *WriteKVResponse) err
 	if err := c.kvstore.WriteAsRepLog(repLog); err != nil {
 		return err
 	}
+	return nil
+}
+
+// ---------------------------
+
+type ScanKVRequest struct {
+	RequestArgs
+	Prefix string
+}
+
+type ScanKVResponse struct {
+	Entries []kvstore.KVEntry
+}
+
+func (c *ClusterNode) RPCScan(args *ScanKVRequest, reply *ScanKVResponse) error {
+	// ---------------------------
+	log.Debug().Str("prefix", args.Prefix).Str("host", c.MyHostname).Interface("route", args.RequestArgs).Msg("RPCScan")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCScan", args, reply)
+	}
+	// ---------------------------
+	entries, err := c.kvstore.ScanPrefix(args.Prefix)
+	if err != nil {
+		return err
+	}
+	reply.Entries = entries
 	return nil
 }

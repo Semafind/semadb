@@ -24,3 +24,31 @@ func (c *ClusterNode) CreateCollection(req CreateCollectionRequest) error {
 	}
 	return c.ClusterWrite(fullKey, collectionValue)
 }
+
+func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error) {
+	// ---------------------------
+	// Construct key and value
+	// e.g. U/ USERID / C
+	fullKey := kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX
+	entries, err := c.ClusterScan(fullKey)
+	if err != nil {
+		return nil, fmt.Errorf("could not scan collections: %w", err)
+	}
+	// ---------------------------
+	// Unmarshal values and deduplicate
+	collections := make([]models.Collection, 0, len(entries))
+	versionMap := make(map[string]int64)
+	for _, entry := range entries {
+		var collection models.Collection
+		err := msgpack.Unmarshal(entry.Value, &collection)
+		if err != nil {
+			return nil, fmt.Errorf("could not unmarshal collection: %w", err)
+		}
+		if collection.Version > versionMap[entry.Key] {
+			collections = append(collections, collection)
+			versionMap[entry.Key] = collection.Version
+		}
+	}
+	// ---------------------------
+	return collections, nil
+}
