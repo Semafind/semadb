@@ -111,13 +111,20 @@ type Versioned struct {
 var ErrStaleData = errors.New("stale data")
 var ErrExistingKey = errors.New("existing key")
 
+type RepLogEntry struct {
+	Key           string
+	Value         []byte
+	TargetServers []string
+	IsReplica     bool
+}
+
 // Old timestamp gives stale error
-func (kv *KVStore) Insert(key, value []byte) error {
+func (kv *KVStore) WriteAsRepLog(repLog RepLogEntry) error {
 	err := kv.db.Update(func(txn *badger.Txn) error {
 		// ---------------------------
 		// Get internal timestamp
 		ourVersion := Versioned{Version: 0}
-		item, err := txn.Get(key)
+		item, err := txn.Get([]byte(repLog.Key))
 		if err != nil && err != badger.ErrKeyNotFound {
 			return fmt.Errorf("failed to get key: %w", err)
 		}
@@ -133,7 +140,7 @@ func (kv *KVStore) Insert(key, value []byte) error {
 			}
 		}
 		theirVersion := Versioned{Version: time.Now().UnixNano()}
-		if err := msgpack.Unmarshal(value, &theirVersion); err != nil {
+		if err := msgpack.Unmarshal(repLog.Value, &theirVersion); err != nil {
 			return fmt.Errorf("failed to unmarshal given value version: %w", err)
 		}
 		// Check for stale data
@@ -142,13 +149,26 @@ func (kv *KVStore) Insert(key, value []byte) error {
 			return fmt.Errorf("stale data current > requested: %v > %v: %w", ourVersion.Version, theirVersion.Version, ErrStaleData)
 		}
 		if ourVersion.Version == theirVersion.Version {
-			log.Debug().Str("key", string(key)).Msg("already exists")
+			log.Debug().Str("key", repLog.Key).Msg("already exists")
 			return ErrExistingKey
 		}
 		// ---------------------------
 		// Set value
-		if err := txn.Set(key, value); err != nil {
+		if err := txn.Set([]byte(repLog.Key), repLog.Value); err != nil {
 			return fmt.Errorf("failed to set key: %w", err)
+		}
+		// ---------------------------
+		// Write replication log entry
+		if len(repLog.TargetServers) == 0 {
+			log.Debug().Str("key", repLog.Key).Msg("no target servers, skipping replog")
+			return nil
+		}
+		val, err := msgpack.Marshal(repLog)
+		if err != nil {
+			return fmt.Errorf("failed to marshal repLog: %w", err)
+		}
+		if err := txn.Set([]byte(REPLOG_PREFIX+repLog.Key), val); err != nil {
+			return fmt.Errorf("failed to set replog key: %w", err)
 		}
 		return nil
 	})
@@ -156,13 +176,6 @@ func (kv *KVStore) Insert(key, value []byte) error {
 }
 
 // ---------------------------
-
-type RepLogEntry struct {
-	Key           string
-	Value         []byte
-	TargetServers []string
-	IsReplica     bool
-}
 
 func (kv *KVStore) WriteRepLogEntry(repLog RepLogEntry) error {
 	log.Debug().Str("key", repLog.Key).Msg("writing repLog entry")

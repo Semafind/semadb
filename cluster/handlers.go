@@ -38,16 +38,17 @@ type WriteKVResponse struct {
 }
 
 func (c *ClusterNode) RPCWrite(args *WriteKVRequest, reply *WriteKVResponse) error {
-	log.Debug().Str("key", string(args.Key)).Str("host", c.MyHostname).Msg("WriteKV")
+	// ---------------------------
+	log.Debug().Str("key", string(args.Key)).Str("host", c.MyHostname).Interface("route", args.RequestArgs).Msg("WriteKV")
 	if args.Dest != c.MyHostname {
-		return c.internalRoute("ClusterNode.WriteKV", args, reply)
+		return c.internalRoute("ClusterNode.RPCWrite", args, reply)
 	}
-	if err := c.kvstore.Insert([]byte(args.Key), args.Value); err != nil {
-		return err
+	// ---------------------------
+	repLog, err := c.createRepLogEntry(args.Key, args.Value)
+	if err != nil {
+		return fmt.Errorf("could not create replog entry: %w", err)
 	}
-	// TODO: Ideally these should be done in a single transaction to make
-	// replication and writing atomic
-	if err := c.addRepLogEntry(args.Key, args.Value); err != nil {
+	if err := c.kvstore.WriteAsRepLog(repLog); err != nil {
 		return err
 	}
 	return nil

@@ -12,8 +12,12 @@ import (
 	"github.com/semafind/semadb/kvstore"
 )
 
-func (c *ClusterNode) addRepLogEntry(key string, value []byte) error {
-	log.Debug().Str("key", key).Msg("addRepLogEntry")
+func (c *ClusterNode) createRepLogEntry(key string, value []byte) (kvstore.RepLogEntry, error) {
+	// ---------------------------
+	repLog := kvstore.RepLogEntry{
+		Key:   key,
+		Value: value,
+	}
 	// ---------------------------
 	// Our job here is to ensure this key is replicated and / or sent to the
 	// correct servers based on the knowledge we have. If we make a mistake,
@@ -25,39 +29,25 @@ func (c *ClusterNode) addRepLogEntry(key string, value []byte) error {
 		log.Error().Err(err).Str("key", key).Msg("Could not get target servers")
 		// The address book is down, send to everyone. We can't ignore the
 		// entry because it might lead to data / replica loss.
-		targetServers = c.Servers
+		return repLog, fmt.Errorf("could not get target servers: %w", err)
 	}
 	// ---------------------------
 	// Are we suppose to replicate or send? The difference is that replicate
 	// should repeat until we have confirmation from all servers. Whereas
 	// send can send to only one server and handoff that responsibility.
-	isReplica := false
-	for _, server := range targetServers {
+	myIndex := -1
+	for i, server := range targetServers {
 		if server == c.MyHostname {
-			isReplica = true
+			myIndex = i
 			break
 		}
 	}
+	targetServers = append(targetServers[:myIndex], targetServers[myIndex+1:]...)
 	// ---------------------------
-	// Shortcut if we are the only server. We know kv has just written this
-	// value and we are the only server.
-	if len(targetServers) == 1 && isReplica {
-		return nil
-	}
+	repLog.TargetServers = targetServers
+	repLog.IsReplica = myIndex != -1
 	// ---------------------------
-	repLog := kvstore.RepLogEntry{
-		Key:           key,
-		Value:         value,
-		IsReplica:     isReplica,
-		TargetServers: targetServers,
-	}
-	c.repLogMu.Lock()
-	defer c.repLogMu.Unlock()
-	if err := c.kvstore.WriteRepLogEntry(repLog); err != nil {
-		log.Error().Err(err).Msg("Could not write replog entry")
-		return fmt.Errorf("could not write replog entry: %w", err)
-	}
-	return nil
+	return repLog, nil
 }
 
 func (c *ClusterNode) handleRepLogEntry(replog kvstore.RepLogEntry) error {
