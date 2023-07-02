@@ -2,13 +2,14 @@ package models
 
 type Collection struct {
 	Id         string
-	EmbedSize  uint
+	VectorSize uint
 	DistMetric string
 	Shards     uint
 	Replicas   uint
 	Algorithm  string
 	Version    int64
 	CreatedAt  int64
+	Parameters VamanaParameters
 }
 
 type VamanaParameters struct {
@@ -23,9 +24,4 @@ func DefaultVamanaParameters() VamanaParameters {
 		DegreeBound: 64,
 		Alpha:       1.2,
 	}
-}
-
-type VamanaCollection struct {
-	Collection
-	Parameters VamanaParameters
 }

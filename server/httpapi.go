@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/models"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // ---------------------------
@@ -43,8 +45,8 @@ type CommonHeaders struct {
 
 type NewCollectionRequest struct {
 	Id         string `json:"id" binding:"required,alphanum,min=3,max=16"`
-	EmbedSize  uint   `json:"embedSize" binding:"required"`
-	DistMetric string `json:"distMetric" default:"euclidean"`
+	VectorSize uint   `json:"vectorSize" binding:"required"`
+	DistMetric string `json:"distMetric" binding:"required,oneof=euclidean cosine"`
 }
 
 func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
@@ -60,24 +62,22 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	}
 	log.Debug().Interface("req", req).Interface("headers", headers).Msg("NewCollection")
 	// ---------------------------
-	vamanaCollection := models.VamanaCollection{
-		Collection: models.Collection{
-			Id:         req.Id,
-			EmbedSize:  req.EmbedSize,
-			DistMetric: req.DistMetric,
-			Shards:     1,
-			Replicas:   1,
-			Algorithm:  "vamana",
-			Version:    time.Now().UnixNano(),
-			CreatedAt:  time.Now().UnixNano(),
-		},
+	vamanaCollection := models.Collection{
+		Id:         req.Id,
+		VectorSize: req.VectorSize,
+		DistMetric: req.DistMetric,
+		Shards:     1,
+		Replicas:   1,
+		Algorithm:  "vamana",
+		Version:    time.Now().UnixNano(),
+		CreatedAt:  time.Now().UnixNano(),
 		Parameters: models.DefaultVamanaParameters(),
 	}
 	log.Debug().Interface("vamanaCollection", vamanaCollection).Msg("NewCollection")
 	// ---------------------------
 	err := sdbh.clusterNode.CreateCollection(cluster.CreateCollectionRequest{
 		UserId:     headers.UserID,
-		Collection: vamanaCollection.Collection,
+		Collection: vamanaCollection,
 	})
 	switch err {
 	case nil:
@@ -144,6 +144,102 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 	// ---------------------------
 }
 
+type PointRequest struct {
+	Id       string    `json:"id" binding:"required,alphanum,max=16"`
+	Vector   []float32 `json:"vector" binding:"required"`
+	Metadata any       `json:"metadata"`
+}
+
+type CreatePointsRequest struct {
+	Points []PointRequest `json:"points" binding:"required"`
+}
+
+func (sdbh *SemaDBHandlers) CreatePoints(c *gin.Context) {
+	var headers CommonHeaders
+	if err := c.ShouldBindHeader(&headers); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	log.Debug().Interface("headers", headers).Msg("CreatePoints")
+	var uri GetCollectionUri
+	if err := c.ShouldBindUri(&uri); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
+	var req CreatePointsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
+	// Get corresponding collection
+	collection, err := sdbh.clusterNode.GetCollection(headers.UserID, uri.CollectionId)
+	switch {
+	case err == nil || errors.Is(err, cluster.ErrPartialSuccess):
+		// TODO: refactor this processing
+	case errors.Is(err, cluster.ErrNotFound):
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "collection not found"})
+		return
+	case errors.Is(err, cluster.ErrTimeout):
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "collection timeout"})
+		return
+	default:
+		log.Err(err).Msg("GetCollection failed")
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	// ---------------------------
+	// Convert request points into internal points, doing checks along the way
+	points := make([]models.Point, len(req.Points))
+	maxMetadataSize := 1024 // TODO: make this configurable
+	for i, point := range req.Points {
+		if len(point.Vector) != int(collection.VectorSize) {
+			errMsg := fmt.Sprintf("invalid vector dimension expected %d got %d for point %s", collection.VectorSize, len(point.Vector), point.Id)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
+		}
+		binaryMetadata, err := msgpack.Marshal(point.Metadata)
+		if err != nil {
+			errMsg := fmt.Sprintf("invalid metadata for point %s", point.Id)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
+		}
+		if len(binaryMetadata) > maxMetadataSize {
+			errMsg := fmt.Sprintf("point %s exceeds maximum metadata size %d > %d", point.Id, len(binaryMetadata), maxMetadataSize)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
+		}
+		points[i] = models.Point{
+			Id:       point.Id,
+			Vector:   point.Vector,
+			Metadata: binaryMetadata,
+		}
+	}
+	// ---------------------------
+	// err := sdbh.clusterNode.CreatePoints(cluster.CreatePointsRequest{
+	// 	UserId:      headers.UserID,
+	// 	Collection:  uri.CollectionId,
+	// 	Points:      req.Points,
+	// 	Shard:       req.Shard,
+	// 	Replica:     req.Replica,
+	// 	WaitForSync: req.WaitForSync,
+	// })
+	switch err {
+	case nil:
+		c.JSON(http.StatusCreated, gin.H{"message": "points created"})
+	case cluster.ErrConflict:
+		c.JSON(http.StatusConflict, gin.H{"error": "conflict"})
+	case cluster.ErrTimeout:
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "timeout"})
+	case cluster.ErrPartialSuccess:
+		c.JSON(http.StatusAccepted, gin.H{"message": "points accepted"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+	}
+	// ---------------------------
+}
+
 // ---------------------------
 
 func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
@@ -155,6 +251,7 @@ func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
 	v1.POST("/collections", semaDBHandlers.NewCollection)
 	v1.GET("/collections", semaDBHandlers.ListCollections)
 	v1.GET("/collections/:collectionId", semaDBHandlers.GetCollection)
+	v1.POST("/collections/:collectionId/points", semaDBHandlers.CreatePoints)
 	// ---------------------------
 	server := &http.Server{
 		Addr:    config.Cfg.HttpHost + ":" + strconv.Itoa(config.Cfg.HttpPort),
