@@ -37,7 +37,7 @@ func (kv *KVStore) WriteAsRepLog(repLog RepLogEntry) error {
 				return fmt.Errorf("failed to get internal value: %w", err)
 			}
 		}
-		theirVersion := Versioned{Version: time.Now().UnixNano()}
+		theirVersion := Versioned{Version: time.Now().UnixMicro()}
 		if err := msgpack.Unmarshal(repLog.Value, &theirVersion); err != nil {
 			return fmt.Errorf("failed to unmarshal given value version: %w", err)
 		}

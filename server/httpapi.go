@@ -77,8 +77,8 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 		Shards:     1,
 		Replicas:   1,
 		Algorithm:  "vamana",
-		Version:    time.Now().UnixNano(),
-		CreatedAt:  time.Now().UnixNano(),
+		Version:    time.Now().UnixMicro(),
+		CreatedAt:  time.Now().UnixMicro(),
 		Parameters: models.DefaultVamanaParameters(),
 	}
 	log.Debug().Interface("collection", vamanaCollection).Msg("NewCollection")
@@ -205,6 +205,7 @@ func (sdbh *SemaDBHandlers) CreatePoints(c *gin.Context) {
 		points[i] = models.Point{
 			Id:       point.Id,
 			Vector:   point.Vector,
+			Version:  time.Now().UnixMicro(),
 			Metadata: binaryMetadata,
 		}
 	}
