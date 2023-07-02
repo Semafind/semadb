@@ -35,9 +35,22 @@ func NewSemaDBHandlers(clusterNode *cluster.ClusterNode) *SemaDBHandlers {
 
 // ---------------------------
 /* Common headers */
-type CommonHeaders struct {
+type AppHeaders struct {
 	UserID  string `header:"X-User-Id" binding:"required"`
 	Package string `header:"X-Package" binding:"required"`
+}
+
+func AppHeaderMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var appHeaders AppHeaders
+		if err := c.ShouldBindHeader(&appHeaders); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.Set("appHeaders", appHeaders)
+		log.Debug().Interface("appHeaders", appHeaders).Msg("AppHeaderMiddleware")
+		c.Next()
+	}
 }
 
 // ---------------------------
@@ -55,12 +68,7 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	var headers CommonHeaders
-	if err := c.ShouldBindHeader(&headers); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Debug().Interface("req", req).Interface("headers", headers).Msg("NewCollection")
+	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
 	vamanaCollection := models.Collection{
 		Id:         req.Id,
@@ -73,10 +81,10 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 		CreatedAt:  time.Now().UnixNano(),
 		Parameters: models.DefaultVamanaParameters(),
 	}
-	log.Debug().Interface("vamanaCollection", vamanaCollection).Msg("NewCollection")
+	log.Debug().Interface("collection", vamanaCollection).Msg("NewCollection")
 	// ---------------------------
 	err := sdbh.clusterNode.CreateCollection(cluster.CreateCollectionRequest{
-		UserId:     headers.UserID,
+		UserId:     appHeaders.UserID,
 		Collection: vamanaCollection,
 	})
 	switch err {
@@ -94,14 +102,9 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 }
 
 func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
-	var headers CommonHeaders
-	if err := c.ShouldBindHeader(&headers); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Debug().Interface("headers", headers).Msg("ListCollections")
+	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
-	collections, err := sdbh.clusterNode.ListCollections(headers.UserID)
+	collections, err := sdbh.clusterNode.ListCollections(appHeaders.UserID)
 	switch err {
 	case nil:
 		c.JSON(http.StatusOK, gin.H{"collections": collections})
@@ -118,19 +121,15 @@ type GetCollectionUri struct {
 }
 
 func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
-	var headers CommonHeaders
-	if err := c.ShouldBindHeader(&headers); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Debug().Interface("headers", headers).Msg("GetCollection")
 	var uri GetCollectionUri
 	if err := c.ShouldBindUri(&uri); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	// ---------------------------
-	collection, err := sdbh.clusterNode.GetCollection(headers.UserID, uri.CollectionId)
+	appHeaders := c.MustGet("appHeaders").(AppHeaders)
+	// ---------------------------
+	collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
 	switch {
 	case err == nil || errors.Is(err, cluster.ErrPartialSuccess):
 		c.JSON(http.StatusOK, gin.H{"collection": collection})
@@ -155,12 +154,8 @@ type CreatePointsRequest struct {
 }
 
 func (sdbh *SemaDBHandlers) CreatePoints(c *gin.Context) {
-	var headers CommonHeaders
-	if err := c.ShouldBindHeader(&headers); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	log.Debug().Interface("headers", headers).Msg("CreatePoints")
+	appHeaders := c.MustGet("appHeaders").(AppHeaders)
+	// ---------------------------
 	var uri GetCollectionUri
 	if err := c.ShouldBindUri(&uri); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -174,7 +169,7 @@ func (sdbh *SemaDBHandlers) CreatePoints(c *gin.Context) {
 	}
 	// ---------------------------
 	// Get corresponding collection
-	collection, err := sdbh.clusterNode.GetCollection(headers.UserID, uri.CollectionId)
+	collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
 	switch {
 	case err == nil || errors.Is(err, cluster.ErrPartialSuccess):
 		// TODO: refactor this processing
@@ -244,7 +239,7 @@ func (sdbh *SemaDBHandlers) CreatePoints(c *gin.Context) {
 
 func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
 	router := gin.Default()
-	v1 := router.Group("/v1")
+	v1 := router.Group("/v1", AppHeaderMiddleware())
 	v1.GET("/ping", pongHandler)
 	// ---------------------------
 	semaDBHandlers := NewSemaDBHandlers(clusterState)
