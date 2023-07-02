@@ -132,7 +132,7 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 	// ---------------------------
 	collection, err := sdbh.clusterNode.GetCollection(headers.UserID, uri.CollectionId)
 	switch {
-	case err == nil:
+	case err == nil || errors.Is(err, cluster.ErrPartialSuccess):
 		c.JSON(http.StatusOK, gin.H{"collection": collection})
 	case errors.Is(err, cluster.ErrNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
