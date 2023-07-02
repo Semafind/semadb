@@ -8,17 +8,12 @@ import (
 	"github.com/vmihailenco/msgpack"
 )
 
-type CreateCollectionRequest struct {
-	UserId     string
-	Collection models.Collection
-}
-
-func (c *ClusterNode) CreateCollection(req CreateCollectionRequest) error {
+func (c *ClusterNode) CreateCollection(userId string, collection models.Collection) error {
 	// ---------------------------
 	// Construct key and value
 	// e.g. U/ USERID / C/ COLLECTIONID
-	fullKey := kvstore.USER_PREFIX + req.UserId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + req.Collection.Id
-	collectionValue, err := msgpack.Marshal(req.Collection)
+	fullKey := kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + collection.Id
+	collectionValue, err := msgpack.Marshal(collection)
 	if err != nil {
 		return fmt.Errorf("could not marshal collection: %w", err)
 	}

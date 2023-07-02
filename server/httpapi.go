@@ -83,10 +83,7 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	}
 	log.Debug().Interface("collection", vamanaCollection).Msg("NewCollection")
 	// ---------------------------
-	err := sdbh.clusterNode.CreateCollection(cluster.CreateCollectionRequest{
-		UserId:     appHeaders.UserID,
-		Collection: vamanaCollection,
-	})
+	err := sdbh.clusterNode.CreateCollection(appHeaders.UserID, vamanaCollection)
 	switch err {
 	case nil:
 		c.JSON(http.StatusCreated, gin.H{"message": "collection created"})
