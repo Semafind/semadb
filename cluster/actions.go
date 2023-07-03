@@ -13,11 +13,15 @@ func (c *ClusterNode) CreateCollection(userId string, collection models.Collecti
 	// Construct key and value
 	// e.g. U/ USERID / C/ COLLECTIONID
 	fullKey := kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + collection.Id
+	targetServers, err := c.KeyPlacement(fullKey, nil)
+	if err != nil {
+		return fmt.Errorf("could not place collection: %w", err)
+	}
 	collectionValue, err := msgpack.Marshal(collection)
 	if err != nil {
 		return fmt.Errorf("could not marshal collection: %w", err)
 	}
-	return c.ClusterWrite(fullKey, collectionValue)
+	return c.ClusterWrite(fullKey, collectionValue, targetServers)
 }
 
 func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error) {
@@ -25,7 +29,11 @@ func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error
 	// Construct key and value
 	// e.g. U/ USERID / C
 	fullKey := kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX
-	entries, err := c.ClusterScan(fullKey)
+	targetServers, err := c.KeyPlacement(fullKey, nil)
+	if err != nil {
+		return nil, fmt.Errorf("could not place collection: %w", err)
+	}
+	entries, err := c.ClusterScan(fullKey, targetServers)
 	if err != nil {
 		return nil, fmt.Errorf("could not scan collections: %w", err)
 	}
@@ -53,7 +61,11 @@ func (c *ClusterNode) GetCollection(userId string, collectionId string) (models.
 	// Construct key and value
 	// e.g. U/ USERID / C/ COLLECTIONID
 	fullKey := kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + collectionId
-	values, err := c.ClusterGet(fullKey, 0)
+	targetServers, err := c.KeyPlacement(fullKey, nil)
+	if err != nil {
+		return models.Collection{}, fmt.Errorf("could not place collection: %w", err)
+	}
+	values, err := c.ClusterGet(fullKey, targetServers, 0)
 	if err != nil {
 		return models.Collection{}, fmt.Errorf("could not get collection: %w", err)
 	}
@@ -74,4 +86,35 @@ func (c *ClusterNode) GetCollection(userId string, collectionId string) (models.
 	}
 	// ---------------------------
 	return collection, nil
+}
+
+func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point) []error {
+	// ---------------------------
+	// Construct key and value
+	// e.g. U/ USERID / C/ COLLECTIONID / P/ POINTID
+	pointPrefix := kvstore.USER_PREFIX + col.UserId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + col.Id + kvstore.DELIMITER + kvstore.POINT_PREFIX
+	// ---------------------------
+	results := make([]error, len(points))
+	// ---------------------------
+	// Insert points
+	for i, point := range points {
+		fullKey := pointPrefix + point.Id
+		targetServers, err := c.KeyPlacement(fullKey, &col)
+		if err != nil {
+			results[i] = fmt.Errorf("could not place point: %w", err)
+			continue
+		}
+		// ---------------------------
+		pointValue, err := msgpack.Marshal(point)
+		if err != nil {
+			results[i] = fmt.Errorf("could not marshal point: %w", err)
+			continue
+		}
+		err = c.ClusterWrite(fullKey, pointValue, targetServers)
+		if err != nil {
+			results[i] = fmt.Errorf("could not write point: %w", err)
+		}
+	}
+	// ---------------------------
+	return results
 }

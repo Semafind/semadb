@@ -12,5 +12,6 @@ const DELIMITER = "/"
 const REPLOG_PREFIX = "R" + DELIMITER
 const USER_PREFIX = "U" + DELIMITER
 const COLLECTION_PREFIX = "C" + DELIMITER
+const POINT_PREFIX = "P" + DELIMITER
 
 // ---------------------------

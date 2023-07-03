@@ -5,22 +5,25 @@ import (
 	"fmt"
 	"math/rand"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/kvstore"
+	"github.com/semafind/semadb/models"
 )
 
 // Different key types:
 // - U/<user>/C (user collections)
 // - U/<user>/C/<collection> (collection key)
-// - U/<user>/C/<collection>/P/<point> (point key)
+// - U/<user>/C/<collection>/S/<shardId>/P/<point> (point key)
 
 var UserCollectionsRegex = regexp.MustCompile(`^U\/\w+\/C/$`)
 var CollectionKeyRegex = regexp.MustCompile(`^U\/\w+\/C\/\w+$`)
+var PointKeyRegex = regexp.MustCompile(`^U\/\w+\/C\/\w+\/S\/\w+\/P\/\w+$`)
 
-func (c *ClusterNode) KeyPlacement(key string) ([]string, error) {
+func (c *ClusterNode) KeyPlacement(key string, col *models.Collection) ([]string, error) {
 	var servers []string
 	switch {
 	case UserCollectionsRegex.MatchString(key):
@@ -31,6 +34,23 @@ func (c *ClusterNode) KeyPlacement(key string) ([]string, error) {
 		c.serversMu.RLock()
 		servers = RendezvousHash(userId, c.Servers, config.Cfg.GeneralReplication)
 		c.serversMu.RUnlock()
+	case PointKeyRegex.MatchString(key):
+		parts := strings.Split(key, "/")
+		if col == nil {
+			return nil, fmt.Errorf("collection is required for point key %s", key)
+		}
+		pointId := parts[5]
+		// Which shard does this point belong to?
+		shardList := make([]string, col.Shards)
+		for i := 0; i < int(col.Shards); i++ {
+			shardList[i] = strconv.Itoa(i)
+		}
+		shard := RendezvousHash(pointId, shardList, 1)[0]
+		shardKey := col.UserId + col.Id + shard
+		// Where does this shard live?
+		c.serversMu.RLock()
+		servers = RendezvousHash(shardKey, c.Servers, int(col.Replicas))
+		c.serversMu.RUnlock()
 	default:
 		log.Error().Str("key", key).Msg("Unknown key type")
 		return nil, fmt.Errorf("unknown key type %v", key)
@@ -38,11 +58,7 @@ func (c *ClusterNode) KeyPlacement(key string) ([]string, error) {
 	return servers, nil
 }
 
-func (c *ClusterNode) ClusterWrite(key string, value []byte) error {
-	targetServers, err := c.KeyPlacement(key)
-	if err != nil {
-		return fmt.Errorf("could not get target servers: %w", err)
-	}
+func (c *ClusterNode) ClusterWrite(key string, value []byte, targetServers []string) error {
 	// ---------------------------
 	log.Debug().Str("key", key).Strs("targetServers", targetServers).Msg("ClusterWrite")
 	results := make(chan error, len(targetServers))
@@ -101,12 +117,7 @@ func (c *ClusterNode) ClusterWrite(key string, value []byte) error {
 // ---------------------------
 
 // Consistency level -1 = ALL, 0 = Quorum, 1 = One, 2 = Two etc.
-func (c *ClusterNode) ClusterGet(key string, consistencyLevel int) ([][]byte, error) {
-	// ---------------------------
-	targetServers, err := c.KeyPlacement(key)
-	if err != nil {
-		return nil, fmt.Errorf("could not get target servers: %w", err)
-	}
+func (c *ClusterNode) ClusterGet(key string, targetServers []string, consistencyLevel int) ([][]byte, error) {
 	// ---------------------------
 	// Permute target servers
 	rand.Shuffle(len(targetServers), func(i, j int) {
@@ -189,13 +200,7 @@ func (c *ClusterNode) ClusterGet(key string, consistencyLevel int) ([][]byte, er
 
 // ---------------------------
 
-func (c *ClusterNode) ClusterScan(prefix string) ([]kvstore.KVEntry, error) {
-	// Where does this prefix belong?
-	targetServers, err := c.KeyPlacement(prefix)
-	if err != nil {
-		return nil, fmt.Errorf("could not get target servers: %w", err)
-	}
-	log.Debug().Str("prefix", prefix).Strs("targetServers", targetServers).Msg("ClusterScan")
+func (c *ClusterNode) ClusterScan(prefix string, targetServers []string) ([]kvstore.KVEntry, error) {
 	// ---------------------------
 	type scanKVResult struct {
 		entries []kvstore.KVEntry

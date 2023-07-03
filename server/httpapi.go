@@ -74,6 +74,7 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 		Id:         req.Id,
 		VectorSize: req.VectorSize,
 		DistMetric: req.DistMetric,
+		UserId:     appHeaders.UserID,
 		Shards:     1,
 		Replicas:   1,
 		Algorithm:  "vamana",
@@ -150,7 +151,7 @@ type CreatePointsRequest struct {
 	Points []PointRequest `json:"points" binding:"required"`
 }
 
-func (sdbh *SemaDBHandlers) CreatePoints(c *gin.Context) {
+func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
 	var uri GetCollectionUri
@@ -210,26 +211,9 @@ func (sdbh *SemaDBHandlers) CreatePoints(c *gin.Context) {
 		}
 	}
 	// ---------------------------
-	// err := sdbh.clusterNode.CreatePoints(cluster.CreatePointsRequest{
-	// 	UserId:      headers.UserID,
-	// 	Collection:  uri.CollectionId,
-	// 	Points:      req.Points,
-	// 	Shard:       req.Shard,
-	// 	Replica:     req.Replica,
-	// 	WaitForSync: req.WaitForSync,
-	// })
-	switch err {
-	case nil:
-		c.JSON(http.StatusCreated, gin.H{"message": "points created"})
-	case cluster.ErrConflict:
-		c.JSON(http.StatusConflict, gin.H{"error": "conflict"})
-	case cluster.ErrTimeout:
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "timeout"})
-	case cluster.ErrPartialSuccess:
-		c.JSON(http.StatusAccepted, gin.H{"message": "points accepted"})
-	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-	}
+	results := sdbh.clusterNode.InsertPoints(collection, points)
+	log.Debug().Msgf("InsertPoints results: %+v", results)
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 	// ---------------------------
 }
 
@@ -244,7 +228,7 @@ func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
 	v1.POST("/collections", semaDBHandlers.NewCollection)
 	v1.GET("/collections", semaDBHandlers.ListCollections)
 	v1.GET("/collections/:collectionId", semaDBHandlers.GetCollection)
-	v1.POST("/collections/:collectionId/points", semaDBHandlers.CreatePoints)
+	v1.POST("/collections/:collectionId/points", semaDBHandlers.InsertPoints)
 	// ---------------------------
 	server := &http.Server{
 		Addr:    config.Cfg.HttpHost + ":" + strconv.Itoa(config.Cfg.HttpPort),
