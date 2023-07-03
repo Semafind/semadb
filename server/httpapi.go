@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/config"
+	"github.com/semafind/semadb/kvstore"
 	"github.com/semafind/semadb/models"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -106,8 +107,6 @@ func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
 	switch err {
 	case nil:
 		c.JSON(http.StatusOK, gin.H{"collections": collections})
-	case cluster.ErrTimeout:
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "timeout"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 	}
@@ -129,12 +128,10 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 	// ---------------------------
 	collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
 	switch {
-	case err == nil || errors.Is(err, cluster.ErrPartialSuccess):
+	case err == nil:
 		c.JSON(http.StatusOK, gin.H{"collection": collection})
-	case errors.Is(err, cluster.ErrNotFound):
+	case errors.Is(err, kvstore.ErrKeyNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-	case errors.Is(err, cluster.ErrTimeout):
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "timeout"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 	}

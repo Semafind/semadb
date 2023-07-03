@@ -11,9 +11,8 @@ import (
 func (c *ClusterNode) CreateCollection(userId string, collection models.Collection) error {
 	// ---------------------------
 	// Construct key and value
-	// e.g. U/ USERID / C/ COLLECTIONID
-	fullKey := kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + collection.Id
-	targetServers, err := c.KeyPlacement(fullKey, nil)
+	cKey := collectionKey(userId, collection.Id)
+	targetServers, err := c.KeyPlacement(cKey, nil)
 	if err != nil {
 		return fmt.Errorf("could not place collection: %w", err)
 	}
@@ -21,35 +20,25 @@ func (c *ClusterNode) CreateCollection(userId string, collection models.Collecti
 	if err != nil {
 		return fmt.Errorf("could not marshal collection: %w", err)
 	}
-	return c.ClusterWrite(fullKey, collectionValue, targetServers)
+	return c.ClusterWrite(cKey, collectionValue, targetServers)
 }
 
 func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error) {
 	// ---------------------------
 	// Construct key and value
-	// e.g. U/ USERID / C
-	fullKey := kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX
-	targetServers, err := c.KeyPlacement(fullKey, nil)
-	if err != nil {
-		return nil, fmt.Errorf("could not place collection: %w", err)
-	}
-	entries, err := c.ClusterScan(fullKey, targetServers)
+	prefix := userCollectionKeyPrefix(userId)
+	entries, err := c.kvstore.ScanPrefix(prefix)
 	if err != nil {
 		return nil, fmt.Errorf("could not scan collections: %w", err)
 	}
 	// ---------------------------
 	// Unmarshal values and deduplicate
 	collections := make([]models.Collection, 0, len(entries))
-	versionMap := make(map[string]int64)
 	for _, entry := range entries {
 		var collection models.Collection
 		err := msgpack.Unmarshal(entry.Value, &collection)
 		if err != nil {
 			return nil, fmt.Errorf("could not unmarshal collection: %w", err)
-		}
-		if collection.Version > versionMap[entry.Key] {
-			collections = append(collections, collection)
-			versionMap[entry.Key] = collection.Version
 		}
 	}
 	// ---------------------------
@@ -59,30 +48,16 @@ func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error
 func (c *ClusterNode) GetCollection(userId string, collectionId string) (models.Collection, error) {
 	// ---------------------------
 	// Construct key and value
-	// e.g. U/ USERID / C/ COLLECTIONID
-	fullKey := kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + collectionId
-	targetServers, err := c.KeyPlacement(fullKey, nil)
+	cKey := collectionKey(userId, collectionId)
+	value, err := c.kvstore.Read(cKey)
 	if err != nil {
-		return models.Collection{}, fmt.Errorf("could not place collection: %w", err)
-	}
-	values, err := c.ClusterGet(fullKey, targetServers, 0)
-	if err != nil {
-		return models.Collection{}, fmt.Errorf("could not get collection: %w", err)
+		return models.Collection{}, fmt.Errorf("could not read collection: %w", err)
 	}
 	// ---------------------------
-	// Unmarshal and deduplicate values
-	latestVersion := int64(0)
+	// Unmarshal
 	var collection models.Collection
-	for _, value := range values {
-		var tempCollection models.Collection
-		err := msgpack.Unmarshal(value, &tempCollection)
-		if err != nil {
-			return models.Collection{}, fmt.Errorf("could not unmarshal collection: %w", err)
-		}
-		if tempCollection.Version > latestVersion {
-			collection = tempCollection
-			latestVersion = tempCollection.Version
-		}
+	if err := msgpack.Unmarshal(value, &collection); err != nil {
+		return models.Collection{}, fmt.Errorf("could not unmarshal collection: %w", err)
 	}
 	// ---------------------------
 	return collection, nil

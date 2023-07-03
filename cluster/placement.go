@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/rs/zerolog/log"
-	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/kvstore"
 	"github.com/semafind/semadb/models"
 )
@@ -19,21 +18,23 @@ import (
 // - U/<user>/C/<collection> (collection key)
 // - U/<user>/C/<collection>/S/<shardId>/P/<point> (point key)
 
-var UserCollectionsRegex = regexp.MustCompile(`^U\/\w+\/C/$`)
 var CollectionKeyRegex = regexp.MustCompile(`^U\/\w+\/C\/\w+$`)
 var PointKeyRegex = regexp.MustCompile(`^U\/\w+\/C\/\w+\/S\/\w+\/P\/\w+$`)
+
+func collectionKey(userId, collectionId string) string {
+	return kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + collectionId
+}
+
+func userCollectionKeyPrefix(userId string) string {
+	return kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX
+}
 
 func (c *ClusterNode) KeyPlacement(key string, col *models.Collection) ([]string, error) {
 	var servers []string
 	switch {
-	case UserCollectionsRegex.MatchString(key):
-		fallthrough
 	case CollectionKeyRegex.MatchString(key):
-		parts := strings.Split(key, "/")
-		userId := parts[1]
-		c.serversMu.RLock()
-		servers = RendezvousHash(userId, c.Servers, config.Cfg.GeneralReplication)
-		c.serversMu.RUnlock()
+		// Collection gets placed on all servers
+		return c.Servers, nil
 	case PointKeyRegex.MatchString(key):
 		parts := strings.Split(key, "/")
 		if col == nil {
