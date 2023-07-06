@@ -2,31 +2,50 @@ package cluster
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
+	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/kvstore"
 	"github.com/semafind/semadb/models"
 	"github.com/vmihailenco/msgpack"
 )
 
-func (c *ClusterNode) CreateCollection(userId string, collection models.Collection) error {
+func (c *ClusterNode) CreateCollection(collection models.Collection) error {
 	// ---------------------------
-	// Construct key and value
-	cKey := collectionKey(userId, collection.Id)
-	targetServers, err := c.KeyPlacement(cKey, nil)
-	if err != nil {
-		return fmt.Errorf("could not place collection: %w", err)
+	// Construct file path
+	fpath := filepath.Join(config.Cfg.RootDir, collection.UserId, collection.Id, "collection.msgpack")
+	// ---------------------------
+	// Check if the file exists?
+	if _, err := os.Stat(fpath); err == nil {
+		return ErrExists
 	}
-	collectionValue, err := msgpack.Marshal(collection)
+	// ---------------------------
+	// Create parent directories
+	if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
+		return fmt.Errorf("could not create collection directory: %w", err)
+	}
+	// ---------------------------
+	// Marshal collection
+	colBytes, err := msgpack.Marshal(collection)
 	if err != nil {
 		return fmt.Errorf("could not marshal collection: %w", err)
 	}
-	return c.ClusterWrite(cKey, collectionValue, targetServers)
+	// ---------------------------
+	// Write to file
+	log.Debug().Str("fpath", fpath).Msg("CreateCollection")
+	if err := os.WriteFile(fpath, colBytes, os.ModePerm); err != nil {
+		return fmt.Errorf("could not write collection file: %w", err)
+	}
+	// ---------------------------
+	return nil
 }
 
 func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error) {
 	// ---------------------------
 	// Construct key and value
-	prefix := userCollectionKeyPrefix(userId)
+	prefix := newUserCollectionKeyPrefix(userId)
 	entries, err := c.kvstore.ScanPrefix(prefix)
 	if err != nil {
 		return nil, fmt.Errorf("could not scan collections: %w", err)
@@ -48,7 +67,7 @@ func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error
 func (c *ClusterNode) GetCollection(userId string, collectionId string) (models.Collection, error) {
 	// ---------------------------
 	// Construct key and value
-	cKey := collectionKey(userId, collectionId)
+	cKey := newCollectionKey(userId, collectionId)
 	value, err := c.kvstore.Read(cKey)
 	if err != nil {
 		return models.Collection{}, fmt.Errorf("could not read collection: %w", err)

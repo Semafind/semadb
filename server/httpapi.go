@@ -72,23 +72,24 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
 	vamanaCollection := models.Collection{
+		UserId:     appHeaders.UserID,
 		Id:         req.Id,
 		VectorSize: req.VectorSize,
 		DistMetric: req.DistMetric,
-		UserId:     appHeaders.UserID,
-		Shards:     1,
 		Replicas:   1,
 		Algorithm:  "vamana",
-		Version:    time.Now().UnixMicro(),
+		Timestamp:  time.Now().UnixMicro(),
 		CreatedAt:  time.Now().UnixMicro(),
 		Parameters: models.DefaultVamanaParameters(),
 	}
 	log.Debug().Interface("collection", vamanaCollection).Msg("NewCollection")
 	// ---------------------------
-	err := sdbh.clusterNode.CreateCollection(appHeaders.UserID, vamanaCollection)
+	err := sdbh.clusterNode.CreateCollection(vamanaCollection)
 	switch err {
 	case nil:
 		c.JSON(http.StatusCreated, gin.H{"message": "collection created"})
+	case cluster.ErrExists:
+		c.JSON(http.StatusConflict, gin.H{"error": "collection exists"})
 	case cluster.ErrConflict:
 		c.JSON(http.StatusConflict, gin.H{"error": "conflict"})
 	case cluster.ErrTimeout:

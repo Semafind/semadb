@@ -12,6 +12,8 @@ type Config struct {
 	// General replication count determines how many times a regular key (non-vector)
 	// is replicated these may include user and collection information
 	GeneralReplication int `envDefault:"3"`
+	// Root directory refers to the start of the filesystem where all data is stored
+	RootDir string `envDefault:"/tmp/semadb"`
 	// Key value store directory, if not set it will be set to an temporary directory
 	KVDir string `envDefault:""`
 	// List of known servers at the beginning

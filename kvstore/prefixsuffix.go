@@ -7,11 +7,16 @@ package kvstore
 
 const DELIMITER = "/"
 
+const GRAVEYARD_PREFIX = "G" + DELIMITER
+
+var TOMBSTONE = []byte{0x7f} // Del key in ascii
+
 // ---------------------------
 
 const REPLOG_PREFIX = "R" + DELIMITER
 const USER_PREFIX = "U" + DELIMITER
 const COLLECTION_PREFIX = "C" + DELIMITER
+const SHARD_PREFIX = "S" + DELIMITER
 const POINT_PREFIX = "P" + DELIMITER
 
 // ---------------------------

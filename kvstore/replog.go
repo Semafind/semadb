@@ -1,6 +1,7 @@
 package kvstore
 
 import (
+	"bytes"
 	"fmt"
 	"time"
 
@@ -12,8 +13,15 @@ import (
 type RepLogEntry struct {
 	Key           string
 	Value         []byte
+	PrevValue     []byte
 	TargetServers []string
 	IsReplica     bool
+	IsIndexed     bool
+	Version       int64
+}
+
+type GraveyardEntry struct {
+	Version int64
 }
 
 // Old timestamp gives stale error
@@ -21,46 +29,75 @@ func (kv *KVStore) WriteAsRepLog(repLog RepLogEntry) error {
 	err := kv.db.Update(func(txn *badger.Txn) error {
 		// ---------------------------
 		// Get internal timestamp
-		ourVersion := Versioned{Version: 0}
+		existingVersion := Versioned{Version: 0}
+		var existingValue []byte
 		item, err := txn.Get([]byte(repLog.Key))
-		if err != nil && err != badger.ErrKeyNotFound {
-			return fmt.Errorf("failed to get key: %w", err)
-		}
-		if err == nil {
+		if err == badger.ErrKeyNotFound {
+			// We don't have this key, it might have been deleted, check graveyard
+			tomb, err := txn.Get([]byte(GRAVEYARD_PREFIX + repLog.Key))
+			if err == nil {
+				// Check time of death
+				valErr := tomb.Value(func(val []byte) error {
+					if err := msgpack.Unmarshal(val, &existingVersion); err != nil {
+						return fmt.Errorf("failed to unmarshal: %w", err)
+					}
+					return nil
+				})
+				if valErr != nil {
+					log.Error().Err(valErr).Msg("failed to get tombstone value")
+				}
+			}
+		} else if err == nil {
+			// We have this key, check version
 			valErr := item.Value(func(val []byte) error {
-				if err := msgpack.Unmarshal(val, &ourVersion); err != nil {
+				if err := msgpack.Unmarshal(val, &existingVersion); err != nil {
 					return fmt.Errorf("failed to unmarshal: %w", err)
 				}
+				existingValue = val
 				return nil
 			})
 			if valErr != nil {
-				return fmt.Errorf("failed to get internal value: %w", err)
+				log.Error().Err(valErr).Msg("failed to get existing value")
 			}
+		} else {
+			return fmt.Errorf("failed to get key: %w", err)
 		}
-		theirVersion := Versioned{Version: time.Now().UnixMicro()}
-		if err := msgpack.Unmarshal(repLog.Value, &theirVersion); err != nil {
-			return fmt.Errorf("failed to unmarshal given value version: %w", err)
-		}
+		// ---------------------------
 		// Check for stale data
-		if ourVersion.Version > theirVersion.Version {
-			log.Info().Int64("requested", theirVersion.Version).Int64("current", ourVersion.Version).Msg("stale data")
-			return fmt.Errorf("stale data current > requested: %v > %v: %w", ourVersion.Version, theirVersion.Version, ErrStaleData)
+		if existingVersion.Version > repLog.Version {
+			log.Debug().Int64("requested", repLog.Version).Int64("current", existingVersion.Version).Msg("stale data")
+			return ErrStaleData
 		}
-		if ourVersion.Version == theirVersion.Version {
+		if existingVersion.Version == repLog.Version {
 			log.Debug().Str("key", repLog.Key).Msg("already exists")
 			return ErrExistingKey
 		}
 		// ---------------------------
-		// Set value
+		// Handle delete case
+		if bytes.Equal(repLog.Value, TOMBSTONE) {
+			if err := txn.Delete([]byte(repLog.Key)); err != nil {
+				return fmt.Errorf("failed to delete key: %w", err)
+			}
+			entry := GraveyardEntry{Version: repLog.Version}
+			entryBytes, err := msgpack.Marshal(entry)
+			if err != nil {
+				return fmt.Errorf("failed to marshal graveyard entry: %w", err)
+			}
+			// TODO: Set TTL through config
+			badgerEntry := badger.NewEntry([]byte(GRAVEYARD_PREFIX+repLog.Key), entryBytes).WithTTL(3 * time.Hour)
+			if err := txn.SetEntry(badgerEntry); err != nil {
+				return fmt.Errorf("failed to set key: %w", err)
+			}
+			return nil
+		}
+		// ---------------------------
+		// Handle set case
 		if err := txn.Set([]byte(repLog.Key), repLog.Value); err != nil {
 			return fmt.Errorf("failed to set key: %w", err)
 		}
 		// ---------------------------
 		// Write replication log entry
-		if len(repLog.TargetServers) == 0 {
-			log.Debug().Str("key", repLog.Key).Msg("no target servers, skipping replog")
-			return nil
-		}
+		repLog.PrevValue = existingValue
 		val, err := msgpack.Marshal(repLog)
 		if err != nil {
 			return fmt.Errorf("failed to marshal repLog: %w", err)

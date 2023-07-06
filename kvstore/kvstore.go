@@ -123,3 +123,49 @@ func (kv *KVStore) ScanPrefix(prefix string) ([]KVEntry, error) {
 	}
 	return kvEntries, nil
 }
+
+func (kv *KVStore) KeyOnlyScanPrefix(prefix string) ([]string, error) {
+	keys := make([]string, 0, 1)
+	err := kv.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.PrefetchValues = false
+		it := txn.NewIterator(opts)
+		defer it.Close()
+		prefix := []byte(prefix)
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			item := it.Item()
+			k := item.Key()
+			keys = append(keys, string(k))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan prefix: %w", err)
+	}
+	return keys, nil
+}
+
+func (kv *KVStore) PurgePrefixes(prefixes ...string) error {
+	err := kv.db.Update(func(txn *badger.Txn) error {
+		for _, prefix := range prefixes {
+			opts := badger.DefaultIteratorOptions
+			opts.PrefetchValues = false
+			it := txn.NewIterator(opts)
+			defer it.Close()
+			prefix := []byte(prefix)
+			for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+				item := it.Item()
+				k := item.Key()
+				err := txn.Delete(k)
+				if err != nil {
+					return fmt.Errorf("failed to delete key: %w", err)
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to purge prefixes: %w", err)
+	}
+	return nil
+}

@@ -5,10 +5,9 @@ type Collection struct {
 	Id         string
 	VectorSize uint
 	DistMetric string
-	Shards     uint
 	Replicas   uint
 	Algorithm  string
-	Version    int64
+	Timestamp  int64
 	CreatedAt  int64
 	Parameters VamanaParameters
 }

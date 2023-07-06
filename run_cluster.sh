@@ -2,6 +2,7 @@
 
 export SEMADB_DEBUG=true
 export SEMADB_SERVERS=localhost:11001,localhost:11002,localhost:11003
+export SEMADB_ROOT_DIR=./dump
 echo $SEMADB_SERVERS
 echo "Starting servers..."
 echo "Starting server 1"

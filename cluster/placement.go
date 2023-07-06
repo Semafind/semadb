@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/rand"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/rs/zerolog/log"
@@ -21,11 +20,11 @@ import (
 var CollectionKeyRegex = regexp.MustCompile(`^U\/\w+\/C\/\w+$`)
 var PointKeyRegex = regexp.MustCompile(`^U\/\w+\/C\/\w+\/S\/\w+\/P\/\w+$`)
 
-func collectionKey(userId, collectionId string) string {
+func newCollectionKey(userId, collectionId string) string {
 	return kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + collectionId
 }
 
-func userCollectionKeyPrefix(userId string) string {
+func newUserCollectionKeyPrefix(userId string) string {
 	return kvstore.USER_PREFIX + userId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX
 }
 
@@ -37,17 +36,10 @@ func (c *ClusterNode) KeyPlacement(key string, col *models.Collection) ([]string
 		return c.Servers, nil
 	case PointKeyRegex.MatchString(key):
 		parts := strings.Split(key, "/")
-		if col == nil {
-			return nil, fmt.Errorf("collection is required for point key %s", key)
-		}
-		pointId := parts[5]
-		// Which shard does this point belong to?
-		shardList := make([]string, col.Shards)
-		for i := 0; i < int(col.Shards); i++ {
-			shardList[i] = strconv.Itoa(i)
-		}
-		shard := RendezvousHash(pointId, shardList, 1)[0]
-		shardKey := col.UserId + col.Id + shard
+		userId := parts[1]
+		collectionId := parts[3]
+		shardId := parts[5]
+		shardKey := userId + collectionId + shardId
 		// Where does this shard live?
 		c.serversMu.RLock()
 		servers = RendezvousHash(shardKey, c.Servers, int(col.Replicas))

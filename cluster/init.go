@@ -23,8 +23,6 @@ type ClusterNode struct {
 	rpcClients   map[string]*rpc.Client
 	rpcClientsMu sync.Mutex
 	rpcServer    *http.Server
-	// ---------------------------
-	repLogMu sync.Mutex
 }
 
 func NewNode(kvs *kvstore.KVStore) (*ClusterNode, error) {
@@ -71,7 +69,7 @@ func (c *ClusterNode) Serve() {
 		}
 	}()
 	// ---------------------------
-	go c.startRepLogService()
+	// go c.startRepLogService()
 }
 
 func (c *ClusterNode) Close() error {
