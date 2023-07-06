@@ -11,7 +11,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/config"
-	"github.com/semafind/semadb/kvstore"
 	"github.com/semafind/semadb/models"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -128,10 +127,10 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
 	collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		c.JSON(http.StatusOK, gin.H{"collection": collection})
-	case errors.Is(err, kvstore.ErrKeyNotFound):
+	case cluster.ErrNotFound:
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})

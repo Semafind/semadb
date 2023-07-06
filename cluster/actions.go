@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,21 +45,40 @@ func (c *ClusterNode) CreateCollection(collection models.Collection) error {
 
 func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error) {
 	// ---------------------------
-	// Construct key and value
-	prefix := newUserCollectionKeyPrefix(userId)
-	entries, err := c.kvstore.ScanPrefix(prefix)
+	dirPath := filepath.Join(config.Cfg.RootDir, userId)
+	colDirs, err := os.ReadDir(dirPath)
 	if err != nil {
-		return nil, fmt.Errorf("could not scan collections: %w", err)
+		return nil, fmt.Errorf("could not read user directory: %w", err)
 	}
 	// ---------------------------
-	// Unmarshal values and deduplicate
-	collections := make([]models.Collection, 0, len(entries))
-	for _, entry := range entries {
-		var collection models.Collection
-		err := msgpack.Unmarshal(entry.Value, &collection)
-		if err != nil {
-			return nil, fmt.Errorf("could not unmarshal collection: %w", err)
+	// Iterate through collection directories
+	collections := make([]models.Collection, 0, 1)
+	errCount := 0
+	for _, colDir := range colDirs {
+		if !colDir.IsDir() {
+			continue
 		}
+		metaFile := filepath.Join(dirPath, colDir.Name(), "collection.msgpack")
+		// ---------------------------
+		// Read collection file
+		colBytes, err := os.ReadFile(metaFile)
+		if err != nil {
+			log.Error().Err(err).Str("metaFile", metaFile).Msg("could not read collection file")
+			errCount++
+			continue
+		}
+		var col models.Collection
+		if err := msgpack.Unmarshal(colBytes, &col); err != nil {
+			log.Error().Err(err).Str("metaFile", metaFile).Msg("could not unmarshal collection file")
+			errCount++
+			continue
+		}
+		collections = append(collections, col)
+	}
+	// ---------------------------
+	// Construct key and value
+	if errCount > 0 && len(collections) == 0 {
+		return nil, fmt.Errorf("could not read any collections")
 	}
 	// ---------------------------
 	return collections, nil
@@ -66,17 +86,18 @@ func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error
 
 func (c *ClusterNode) GetCollection(userId string, collectionId string) (models.Collection, error) {
 	// ---------------------------
-	// Construct key and value
-	cKey := newCollectionKey(userId, collectionId)
-	value, err := c.kvstore.Read(cKey)
-	if err != nil {
-		return models.Collection{}, fmt.Errorf("could not read collection: %w", err)
+	fpath := filepath.Join(config.Cfg.RootDir, userId, collectionId, "collection.msgpack")
+	// ---------------------------
+	colBytes, err := os.ReadFile(fpath)
+	if errors.Is(err, os.ErrNotExist) {
+		return models.Collection{}, ErrNotFound
+	} else if err != nil {
+		return models.Collection{}, fmt.Errorf("could not read collection file: %w", err)
 	}
 	// ---------------------------
-	// Unmarshal
 	var collection models.Collection
-	if err := msgpack.Unmarshal(value, &collection); err != nil {
-		return models.Collection{}, fmt.Errorf("could not unmarshal collection: %w", err)
+	if err := msgpack.Unmarshal(colBytes, &collection); err != nil {
+		return models.Collection{}, fmt.Errorf("could not unmarshal collection file: %w", err)
 	}
 	// ---------------------------
 	return collection, nil
