@@ -1,13 +1,13 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/config"
@@ -139,7 +139,7 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 }
 
 type PointRequest struct {
-	Id       string    `json:"id" binding:"required,alphanum,max=16"`
+	Id       string    `json:"id" binding:"required,uuid"`
 	Vector   []float32 `json:"vector" binding:"required"`
 	Metadata any       `json:"metadata"`
 }
@@ -148,7 +148,7 @@ type CreatePointsRequest struct {
 	Points []PointRequest `json:"points" binding:"required"`
 }
 
-func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
+func (sdbh *SemaDBHandlers) UpsertPoints(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
 	var uri GetCollectionUri
@@ -165,14 +165,11 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	// ---------------------------
 	// Get corresponding collection
 	collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
-	switch {
-	case err == nil || errors.Is(err, cluster.ErrPartialSuccess):
+	switch err {
+	case nil:
 		// TODO: refactor this processing
-	case errors.Is(err, cluster.ErrNotFound):
+	case cluster.ErrNotFound:
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "collection not found"})
-		return
-	case errors.Is(err, cluster.ErrTimeout):
-		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "collection timeout"})
 		return
 	default:
 		log.Err(err).Msg("GetCollection failed")
@@ -201,14 +198,19 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 			return
 		}
 		points[i] = models.Point{
-			Id:       point.Id,
-			Vector:   point.Vector,
-			Version:  time.Now().UnixMicro(),
-			Metadata: binaryMetadata,
+			Id:        uuid.MustParse(point.Id),
+			Vector:    point.Vector,
+			Timestamp: time.Now().UnixMicro(),
+			Metadata:  binaryMetadata,
 		}
 	}
 	// ---------------------------
-	results := sdbh.clusterNode.InsertPoints(collection, points)
+	results, err := sdbh.clusterNode.UpsertPoints(collection, points)
+	if err != nil {
+		log.Err(err).Msg("UpsertPoints failed")
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
 	log.Debug().Msgf("InsertPoints results: %+v", results)
 	c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 	// ---------------------------
@@ -225,7 +227,7 @@ func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
 	v1.POST("/collections", semaDBHandlers.NewCollection)
 	v1.GET("/collections", semaDBHandlers.ListCollections)
 	v1.GET("/collections/:collectionId", semaDBHandlers.GetCollection)
-	v1.POST("/collections/:collectionId/points", semaDBHandlers.InsertPoints)
+	v1.POST("/collections/:collectionId/points", semaDBHandlers.UpsertPoints)
 	// ---------------------------
 	server := &http.Server{
 		Addr:    config.Cfg.HttpHost + ":" + strconv.Itoa(config.Cfg.HttpPort),

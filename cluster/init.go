@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/kvstore"
+	"github.com/semafind/semadb/shard"
 )
 
 type ClusterNode struct {
@@ -23,6 +24,9 @@ type ClusterNode struct {
 	rpcClients   map[string]*rpc.Client
 	rpcClientsMu sync.Mutex
 	rpcServer    *http.Server
+	// ---------------------------
+	shardStore map[string]*shard.Shard
+	shardLock  sync.Mutex
 }
 
 func NewNode(kvs *kvstore.KVStore) (*ClusterNode, error) {
@@ -47,6 +51,7 @@ func NewNode(kvs *kvstore.KVStore) (*ClusterNode, error) {
 		MyHostname: envHostname,
 		kvstore:    kvs,
 		rpcClients: make(map[string]*rpc.Client),
+		shardStore: make(map[string]*shard.Shard),
 	}
 	return cluster, nil
 }

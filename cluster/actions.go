@@ -3,12 +3,13 @@ package cluster
 import (
 	"errors"
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
-	"github.com/semafind/semadb/kvstore"
 	"github.com/semafind/semadb/models"
 	"github.com/vmihailenco/msgpack"
 )
@@ -103,33 +104,86 @@ func (c *ClusterNode) GetCollection(userId string, collectionId string) (models.
 	return collection, nil
 }
 
-func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point) []error {
+func (c *ClusterNode) CreateShard(col models.Collection) (string, error) {
 	// ---------------------------
-	// Construct key and value
-	// e.g. U/ USERID / C/ COLLECTIONID / P/ POINTID
-	pointPrefix := kvstore.USER_PREFIX + col.UserId + kvstore.DELIMITER + kvstore.COLLECTION_PREFIX + col.Id + kvstore.DELIMITER + kvstore.POINT_PREFIX
+	colDir := filepath.Join(config.Cfg.RootDir, col.UserId, col.Id)
 	// ---------------------------
-	results := make([]error, len(points))
+	// Check if the directory exists?
+	if _, err := os.Stat(colDir); err != nil {
+		return "", ErrNotFound
+	}
+	// ---------------------------
+	// Create shard directory
+	shardId := uuid.New().String()
+	shardDir := filepath.Join(colDir, shardId)
+	if err := os.MkdirAll(shardDir, os.ModePerm); err != nil {
+		return "", fmt.Errorf("could not create shard directory: %w", err)
+	}
+	log.Debug().Str("shardDir", shardDir).Msg("CreateShard")
+	// ---------------------------
+	return shardDir, nil
+}
+
+func (c *ClusterNode) GetShards(col models.Collection) ([]string, error) {
+	// ---------------------------
+	colDir := filepath.Join(config.Cfg.RootDir, col.UserId, col.Id)
+	shardDirs, err := os.ReadDir(colDir)
+	if err != nil {
+		return nil, fmt.Errorf("could not read collection directory: %w", err)
+	}
+	// ---------------------------
+	shards := make([]string, 0, len(shardDirs))
+	for _, shardDir := range shardDirs {
+		if !shardDir.IsDir() {
+			continue
+		}
+		shards = append(shards, filepath.Join(colDir, shardDir.Name()))
+	}
+	// ---------------------------
+	return shards, nil
+}
+
+func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point) ([]error, error) {
+	// ---------------------------
+	// This is where shard distribution happens
+	shards, err := c.GetShards(col)
+	if err != nil {
+		return nil, fmt.Errorf("could not get shards: %w", err)
+	}
+	// ---------------------------
+	if len(shards) == 0 {
+		newShard, err := c.CreateShard(col)
+		if err != nil {
+			return nil, fmt.Errorf("could not create shard: %w", err)
+		}
+		shards = append(shards, newShard)
+	}
+	// ---------------------------
+	// Distribute points to shards
+	shardPoints := make(map[string][]models.Point)
+	for _, point := range points {
+		shardId := shards[rand.Intn(len(shards))]
+		shardPoints[shardId] = append(shardPoints[shardId], point)
+	}
 	// ---------------------------
 	// Insert points
-	for i, point := range points {
-		fullKey := pointPrefix + point.Id
-		targetServers, err := c.KeyPlacement(fullKey, &col)
-		if err != nil {
-			results[i] = fmt.Errorf("could not place point: %w", err)
-			continue
+	results := make(map[string]error)
+	// ---------------------------
+	for shardId, shardPoints := range shardPoints {
+		targetServer := RendezvousHash(shardId, c.Servers, 1)[0]
+		upsertReq := RPCUpsertPointsRequest{
+			RequestArgs: RequestArgs{
+				Source: c.MyHostname,
+				Dest:   targetServer,
+			},
+			ShardDir: shardId,
+			Points:   shardPoints,
 		}
-		// ---------------------------
-		pointValue, err := msgpack.Marshal(point)
-		if err != nil {
-			results[i] = fmt.Errorf("could not marshal point: %w", err)
-			continue
-		}
-		err = c.ClusterWrite(fullKey, pointValue, targetServers)
-		if err != nil {
-			results[i] = fmt.Errorf("could not write point: %w", err)
+		upsertResp := RPCUpsertPointsResponse{}
+		if err := c.RPCUpsertPoints(&upsertReq, &upsertResp); err != nil {
+			results[shardId] = err
 		}
 	}
 	// ---------------------------
-	return results
+	return nil, nil
 }

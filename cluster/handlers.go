@@ -3,8 +3,10 @@ package cluster
 import (
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/kvstore"
+	"github.com/semafind/semadb/models"
 )
 
 // ---------------------------
@@ -25,6 +27,33 @@ func (c *ClusterNode) Ping(args *PingRequest, reply *PingResponse) error {
 	}
 	reply.Message = fmt.Sprintf("Pong from semadb %v, message: %v", c.MyHostname, args.Message)
 	return nil
+}
+
+// ---------------------------
+
+type RPCUpsertPointsRequest struct {
+	RequestArgs
+	ShardDir string
+	Points   []models.Point
+}
+
+type RPCUpsertPointsResponse struct {
+	ErrMap map[uuid.UUID]error
+}
+
+func (c *ClusterNode) RPCUpsertPoints(args *RPCUpsertPointsRequest, reply *RPCUpsertPointsResponse) error {
+	log.Debug().Str("shardDir", args.ShardDir).Str("host", c.MyHostname).Interface("route", args.RequestArgs).Msg("RPCUpsertPoints")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCUpsertPoints", args, reply)
+	}
+	// ---------------------------
+	shard, err := c.LoadShard(args.ShardDir)
+	if err != nil {
+		return fmt.Errorf("could not load shard: %w", err)
+	}
+	results, err := shard.UpsertPoints(args.Points)
+	reply.ErrMap = results
+	return err
 }
 
 // ---------------------------

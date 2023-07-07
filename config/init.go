@@ -14,6 +14,8 @@ type Config struct {
 	GeneralReplication int `envDefault:"3"`
 	// Root directory refers to the start of the filesystem where all data is stored
 	RootDir string `envDefault:"/tmp/semadb"`
+	// Maximum size of shards in bytes
+	MaxShardSize int64 `envDefault:"268435456"` // 2GiB
 	// Key value store directory, if not set it will be set to an temporary directory
 	KVDir string `envDefault:""`
 	// List of known servers at the beginning
