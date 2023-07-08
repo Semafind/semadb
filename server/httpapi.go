@@ -256,6 +256,13 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 		return
 	}
 	// ---------------------------
+	// Check vector dimension
+	if len(req.Vector) != int(collection.VectorSize) {
+		errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d", collection.VectorSize, len(req.Vector))
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+		return
+	}
+	// ---------------------------
 	points, err := sdbh.clusterNode.SearchPoints(collection, req.Vector, req.Limit)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
