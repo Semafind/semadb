@@ -222,6 +222,62 @@ func (sdbh *SemaDBHandlers) UpsertPoints(c *gin.Context) {
 	// ---------------------------
 }
 
+type SearchPointsRequest struct {
+	Vector []float32 `json:"vector" binding:"required"`
+	Limit  int       `json:"limit" binding:"required,min=1,max=100"`
+}
+
+func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
+	appHeaders := c.MustGet("appHeaders").(AppHeaders)
+	// ---------------------------
+	var uri GetCollectionUri
+	if err := c.ShouldBindUri(&uri); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
+	var req SearchPointsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
+	// Get corresponding collection
+	collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
+	switch err {
+	case nil:
+		// TODO: refactor this processing
+	case cluster.ErrNotFound:
+		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "collection not found"})
+		return
+	default:
+		log.Err(err).Msg("GetCollection failed")
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	// ---------------------------
+	points, err := sdbh.clusterNode.SearchPoints(collection, req.Vector, req.Limit)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	results := make([]UpdatePointRequest, len(points))
+	for i, point := range points {
+		var mdata any
+		if err := msgpack.Unmarshal(point.Metadata, &mdata); err != nil {
+			log.Err(err).Msg("msgpack.Unmarshal failed")
+			mdata = nil
+		}
+		results[i] = UpdatePointRequest{
+			Id:       point.Id.String(),
+			Vector:   point.Vector,
+			Metadata: mdata,
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"points": results})
+	// ---------------------------
+}
+
 // ---------------------------
 
 func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
@@ -234,6 +290,7 @@ func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
 	v1.GET("/collections", semaDBHandlers.ListCollections)
 	v1.GET("/collections/:collectionId", semaDBHandlers.GetCollection)
 	v1.POST("/collections/:collectionId/points", semaDBHandlers.UpsertPoints)
+	v1.POST("/collections/:collectionId/points/search", semaDBHandlers.SearchPoints)
 	// ---------------------------
 	server := &http.Server{
 		Addr:    config.Cfg.HttpHost + ":" + strconv.Itoa(config.Cfg.HttpPort),

@@ -193,3 +193,32 @@ func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point)
 	// ---------------------------
 	return nil, nil
 }
+
+func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit int) ([]models.Point, error) {
+	// ---------------------------
+	shards, err := c.GetShards(col)
+	if err != nil {
+		return nil, fmt.Errorf("could not get shards: %w", err)
+	}
+	// ---------------------------
+	// We have to search every shard
+	if len(shards) > 1 {
+		return nil, fmt.Errorf("searching multiple shards is not supported yet")
+	}
+	// ---------------------------
+	targetServer := RendezvousHash(shards[0], c.Servers, 1)[0]
+	searchReq := RPCSearchPointsRequest{
+		RequestArgs: RequestArgs{
+			Source: c.MyHostname,
+			Dest:   targetServer,
+		},
+		ShardDir: shards[0],
+		Vector:   query,
+		Limit:    limit,
+	}
+	searchResp := RPCSearchPointsResponse{}
+	if err := c.RPCSearchPoints(&searchReq, &searchResp); err != nil {
+		return nil, fmt.Errorf("could not search points: %w", err)
+	}
+	return searchResp.Points, nil
+}

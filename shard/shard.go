@@ -150,3 +150,50 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 	// ---------------------------
 	return results, nil
 }
+
+// ---------------------------
+
+func (s *Shard) SearchPoints(query []float32, k int) ([]models.Point, error) {
+	// ---------------------------
+	// Get start point
+	var startPoint ShardPoint
+	err := s.db.Update(func(txn *badger.Txn) error {
+		var err error
+		startPoint, err = s.getStartPoint(txn)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not get start point: %w", err)
+	}
+	// ---------------------------
+	// Perform search
+	var searchSet DistSet
+	err = s.db.View(func(txn *badger.Txn) error {
+		var err error
+		searchSet, _, err = s.greedySearch(txn, startPoint, query, k, s.collection.Parameters.SearchSize)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not perform search: %w", err)
+	}
+	// ---------------------------
+	// Clean up results and backfill metadata
+	searchSet.KeepFirstK(k)
+	results := make([]models.Point, len(searchSet.items))
+	err = s.db.View(func(txn *badger.Txn) error {
+		for i, distElem := range searchSet.items {
+			results[i] = distElem.Point
+			timestamp, mdata, err := s.getPointTimestampMetadata(txn, distElem.Point.Id)
+			if err != nil {
+				return fmt.Errorf("could not get point timestamp, metadata: %w", err)
+			}
+			results[i].Timestamp = timestamp
+			results[i].Metadata = mdata
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not get point metadata: %w", err)
+	}
+	return results, nil
+}

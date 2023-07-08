@@ -58,6 +58,34 @@ func (c *ClusterNode) RPCUpsertPoints(args *RPCUpsertPointsRequest, reply *RPCUp
 
 // ---------------------------
 
+type RPCSearchPointsRequest struct {
+	RequestArgs
+	ShardDir string
+	Vector   []float32
+	Limit    int
+}
+
+type RPCSearchPointsResponse struct {
+	Points []models.Point
+}
+
+func (c *ClusterNode) RPCSearchPoints(args *RPCSearchPointsRequest, reply *RPCSearchPointsResponse) error {
+	log.Debug().Str("shardDir", args.ShardDir).Str("host", c.MyHostname).Interface("route", args.RequestArgs).Msg("RPCSearchPoints")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCSearchPoints", args, reply)
+	}
+	// ---------------------------
+	shard, err := c.LoadShard(args.ShardDir)
+	if err != nil {
+		return fmt.Errorf("could not load shard: %w", err)
+	}
+	points, err := shard.SearchPoints(args.Vector, args.Limit)
+	reply.Points = points
+	return err
+}
+
+// ---------------------------
+
 type WriteKVRequest struct {
 	RequestArgs
 	Key   string

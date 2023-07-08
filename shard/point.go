@@ -1,6 +1,7 @@
 package shard
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/dgraph-io/badger/v4"
@@ -112,11 +113,33 @@ func (s *Shard) setPoint(txn *badger.Txn, point ShardPoint) error {
 	return nil
 }
 
-func (s *Shard) getOrSetStartPoint(txn *badger.Txn, candidate ShardPoint) (ShardPoint, error) {
+func (s *Shard) getStartPoint(txn *badger.Txn) (ShardPoint, error) {
+	// ---------------------------
+	var startPoint ShardPoint
 	// ---------------------------
 	// Get start id
 	startItem, err := txn.Get([]byte("_sid"))
-	if err == badger.ErrKeyNotFound {
+	if err != nil {
+		return startPoint, fmt.Errorf("could not get start id: %w", err)
+	}
+	var startId uuid.UUID
+	err = startItem.Value(func(val []byte) error {
+		startId, err = uuid.FromBytes(val)
+		return err
+	})
+	if err != nil {
+		return startPoint, fmt.Errorf("could not get start id value: %w", err)
+	}
+	// ---------------------------
+	startPoint, err = s.getPoint(txn, startId)
+	return startPoint, err
+}
+
+func (s *Shard) getOrSetStartPoint(txn *badger.Txn, candidate ShardPoint) (ShardPoint, error) {
+	// ---------------------------
+	// Get start point, set if not found
+	startPoint, err := s.getStartPoint(txn)
+	if errors.Is(err, badger.ErrKeyNotFound) {
 		// ---------------------------
 		if err := s.setPoint(txn, candidate); err != nil {
 			return candidate, fmt.Errorf("could not set start point: %w", err)
@@ -126,18 +149,39 @@ func (s *Shard) getOrSetStartPoint(txn *badger.Txn, candidate ShardPoint) (Shard
 		}
 		return candidate, nil
 	}
-	if err != nil {
-		return candidate, fmt.Errorf("could not get start id: %w", err)
+	// ---------------------------
+	return startPoint, err
+}
+
+func (s *Shard) getPointTimestampMetadata(txn *badger.Txn, id uuid.UUID) (int64, []byte, error) {
+	// ---------------------------
+	// Get timestamp
+	timestampItem, err := txn.Get(suffixedKey(id, 't'))
+	if err != nil && err != badger.ErrKeyNotFound {
+		return 0, nil, fmt.Errorf("could not get timestamp key: %w", err)
 	}
-	var startId uuid.UUID
-	err = startItem.Value(func(val []byte) error {
-		startId, err = uuid.FromBytes(val)
-		return err
+	var timestamp int64
+	err = timestampItem.Value(func(val []byte) error {
+		timestamp = bytesToInt64(val)
+		return nil
 	})
 	if err != nil {
-		return candidate, fmt.Errorf("could not get start id value: %w", err)
+		return 0, nil, fmt.Errorf("could not get timestamp value: %w", err)
 	}
 	// ---------------------------
-	startPoint, err := s.getPoint(txn, startId)
-	return startPoint, err
+	// Get metadata
+	metadataItem, err := txn.Get(suffixedKey(id, 'm'))
+	if err == badger.ErrKeyNotFound {
+		return timestamp, nil, nil
+	}
+	if err != nil {
+		return 0, nil, fmt.Errorf("could not get metadata: %w", err)
+	}
+	// ---------------------------
+	mdata, err := metadataItem.ValueCopy(nil)
+	if err != nil {
+		return 0, nil, fmt.Errorf("could not get metadata value: %w", err)
+	}
+	// ---------------------------
+	return timestamp, mdata, nil
 }
