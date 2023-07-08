@@ -68,7 +68,7 @@ func (s *Shard) greedySearch(txn *badger.Txn, startPoint ShardPoint, query []flo
 	return searchSet, visitedSet, nil
 }
 
-func (s *Shard) robustPrune(txn *badger.Txn, point ShardPoint, candidateSet DistSet, alpha float32, degreeBound int) {
+func (s *Shard) robustPrune(txn *badger.Txn, point *ShardPoint, candidateSet DistSet, alpha float32, degreeBound int) {
 	// ---------------------------
 	// Exclude the point itself
 	candidateSet.Remove(point.Id)

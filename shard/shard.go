@@ -59,7 +59,7 @@ func (s *Shard) insertPoint(txn *badger.Txn, startPoint ShardPoint, point ShardP
 		return fmt.Errorf("could not greedy search: %w", err)
 	}
 	// ---------------------------
-	s.robustPrune(txn, point, visitedSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
+	s.robustPrune(txn, &point, visitedSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
 	// ---------------------------
 	// Add the bi-directional edges
 	for _, nId := range point.Edges {
@@ -78,7 +78,7 @@ func (s *Shard) insertPoint(txn *badger.Txn, startPoint ShardPoint, point ShardP
 			candidateSet.AddPoint(nn...)
 			candidateSet.AddPoint(point)
 			candidateSet.Sort()
-			s.robustPrune(txn, n, candidateSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
+			s.robustPrune(txn, &n, candidateSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
 		} else {
 			// ---------------------------
 			// Add the edge

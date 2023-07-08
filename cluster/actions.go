@@ -201,6 +201,11 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 		return nil, fmt.Errorf("could not get shards: %w", err)
 	}
 	// ---------------------------
+	if len(shards) == 0 {
+		// Nothing to search
+		return nil, nil
+	}
+	// ---------------------------
 	// We have to search every shard
 	if len(shards) > 1 {
 		return nil, fmt.Errorf("searching multiple shards is not supported yet")
