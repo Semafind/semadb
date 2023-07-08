@@ -75,7 +75,7 @@ func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply i
 			}
 			return fmt.Errorf("failed to call %v: %w", remoteFn, finalErr)
 		}
-	case <-time.After(time.Duration(config.Cfg.RpcTimeout) * time.Millisecond):
+	case <-time.After(time.Duration(config.Cfg.RpcTimeout) * time.Second):
 		return fmt.Errorf(remoteFn+" timed out: %w", ErrTimeout)
 	}
 	return nil

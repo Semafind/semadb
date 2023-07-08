@@ -23,7 +23,7 @@ type Config struct {
 	// RPC Parameters
 	RpcHost    string `envDefault:"localhost"`
 	RpcPort    int    `envDefault:"9898"`
-	RpcTimeout int    `envDefault:"1000"` // milliseconds
+	RpcTimeout int    `envDefault:"300"` // seconds
 	// HTTP Parameters
 	HttpHost string `envDefault:"localhost"`
 	HttpPort int    `envDefault:"8080"`

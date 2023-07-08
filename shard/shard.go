@@ -7,6 +7,8 @@ import (
 
 	"github.com/dgraph-io/badger/v4"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
+	"github.com/schollz/progressbar/v3"
 	"github.com/semafind/semadb/models"
 )
 
@@ -98,6 +100,8 @@ func (s *Shard) insertPoint(txn *badger.Txn, startPoint ShardPoint, point ShardP
 
 func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error) {
 	// ---------------------------
+	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("UpsertPoints")
+	// ---------------------------
 	// This is to stop the shard from being closed while we're writing to it
 	s.changeLockCount(1)
 	// ---------------------------
@@ -125,21 +129,24 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 	if err != nil {
 		return nil, fmt.Errorf("could not get start point: %w", err)
 	}
-	fmt.Printf("startPoint: %v\n", startPoint)
 	// ---------------------------
 	// Upsert points
 	results := make(map[uuid.UUID]error)
+	bar := progressbar.Default(int64(len(points)))
 	for _, point := range points {
 		// ---------------------------
 		// Write point to shard
 		err := s.db.Update(func(txn *badger.Txn) error {
+			bar.Add(1)
 			return s.insertPoint(txn, startPoint, ShardPoint{Point: point})
 		})
 		if err != nil {
+			log.Debug().Err(err).Msg("could not insert point")
 			results[point.Id] = err
 		}
 		// ---------------------------
 	}
+	bar.Close()
 	// ---------------------------
 	return results, nil
 }

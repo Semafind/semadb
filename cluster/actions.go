@@ -185,5 +185,11 @@ func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point)
 		}
 	}
 	// ---------------------------
+	for shardId, err := range results {
+		if err != nil {
+			log.Error().Err(err).Str("shardId", shardId).Msg("could not upsert points")
+		}
+	}
+	// ---------------------------
 	return nil, nil
 }

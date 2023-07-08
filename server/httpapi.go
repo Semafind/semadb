@@ -57,9 +57,9 @@ func AppHeaderMiddleware() gin.HandlerFunc {
 /* Collection handlers */
 
 type NewCollectionRequest struct {
-	Id         string `json:"id" binding:"required,alphanum,min=3,max=16"`
-	VectorSize uint   `json:"vectorSize" binding:"required"`
-	DistMetric string `json:"distMetric" binding:"required,oneof=euclidean cosine"`
+	Id             string `json:"id" binding:"required,alphanum,min=3,max=16"`
+	VectorSize     uint   `json:"vectorSize" binding:"required"`
+	DistanceMetric string `json:"distanceMetric" binding:"required,oneof=euclidean cosine"`
 }
 
 func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
@@ -74,7 +74,7 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 		UserId:     appHeaders.UserID,
 		Id:         req.Id,
 		VectorSize: req.VectorSize,
-		DistMetric: req.DistMetric,
+		DistMetric: req.DistanceMetric,
 		Replicas:   1,
 		Algorithm:  "vamana",
 		Timestamp:  time.Now().UnixMicro(),
@@ -138,14 +138,19 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 	// ---------------------------
 }
 
-type PointRequest struct {
+type NewPointRequest struct {
+	Vector   []float32 `json:"vector" binding:"required"`
+	Metadata any       `json:"metadata"`
+}
+
+type UpdatePointRequest struct {
 	Id       string    `json:"id" binding:"required,uuid"`
 	Vector   []float32 `json:"vector" binding:"required"`
 	Metadata any       `json:"metadata"`
 }
 
-type CreatePointsRequest struct {
-	Points []PointRequest `json:"points" binding:"required"`
+type NewPointsRequest struct {
+	Points []NewPointRequest `json:"points" binding:"required"`
 }
 
 func (sdbh *SemaDBHandlers) UpsertPoints(c *gin.Context) {
@@ -157,7 +162,7 @@ func (sdbh *SemaDBHandlers) UpsertPoints(c *gin.Context) {
 		return
 	}
 	// ---------------------------
-	var req CreatePointsRequest
+	var req NewPointsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -182,37 +187,38 @@ func (sdbh *SemaDBHandlers) UpsertPoints(c *gin.Context) {
 	maxMetadataSize := 1024 // TODO: make this configurable
 	for i, point := range req.Points {
 		if len(point.Vector) != int(collection.VectorSize) {
-			errMsg := fmt.Sprintf("invalid vector dimension expected %d got %d for point %s", collection.VectorSize, len(point.Vector), point.Id)
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
-			return
-		}
-		binaryMetadata, err := msgpack.Marshal(point.Metadata)
-		if err != nil {
-			errMsg := fmt.Sprintf("invalid metadata for point %s", point.Id)
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
-			return
-		}
-		if len(binaryMetadata) > maxMetadataSize {
-			errMsg := fmt.Sprintf("point %s exceeds maximum metadata size %d > %d", point.Id, len(binaryMetadata), maxMetadataSize)
+			errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d for point at index %d", collection.VectorSize, len(point.Vector), i)
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}
 		points[i] = models.Point{
-			Id:        uuid.MustParse(point.Id),
+			Id:        uuid.New(),
 			Vector:    point.Vector,
 			Timestamp: time.Now().UnixMicro(),
-			Metadata:  binaryMetadata,
+		}
+		if point.Metadata != nil {
+			binaryMetadata, err := msgpack.Marshal(point.Metadata)
+			if err != nil {
+				errMsg := fmt.Sprintf("invalid metadata for point %d", i)
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+				return
+			}
+			if len(binaryMetadata) > maxMetadataSize {
+				errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryMetadata), maxMetadataSize)
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+				return
+			}
+			points[i].Metadata = binaryMetadata
 		}
 	}
 	// ---------------------------
 	results, err := sdbh.clusterNode.UpsertPoints(collection, points)
 	if err != nil {
-		log.Err(err).Msg("UpsertPoints failed")
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	log.Debug().Msgf("InsertPoints results: %+v", results)
-	c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+	c.JSON(http.StatusOK, gin.H{"count": len(results)})
 	// ---------------------------
 }
 
