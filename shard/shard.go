@@ -133,42 +133,20 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 	// Upsert points
 	results := make(map[uuid.UUID]error)
 	bar := progressbar.Default(int64(len(points)))
-	pointC := make(chan models.Point)
-	// Start workers
-	for i := 0; i < 8; i++ {
-		go func() {
-			for point := range pointC {
-				// ---------------------------
-				// Write point to shard
-				err := s.db.Batch(func(tx *bbolt.Tx) error {
-					b := tx.Bucket([]byte("points"))
-					return s.insertPoint(b, startPoint.Id, ShardPoint{Point: point})
-				})
-				if err != nil {
-					log.Debug().Err(err).Msg("could not insert point")
-					results[point.Id] = err
-				}
-				bar.Add(1)
-				// ---------------------------
-			}
-		}()
-	}
 	for _, point := range points {
 		// ---------------------------
 		// Write point to shard
-		pointC <- point
-		// err := s.db.Update(func(tx *bbolt.Tx) error {
-		// 	bar.Add(1)
-		// 	b := tx.Bucket([]byte("points"))
-		// 	return s.insertPoint(b, startPoint, ShardPoint{Point: point})
-		// })
-		// if err != nil {
-		// 	log.Debug().Err(err).Msg("could not insert point")
-		// 	results[point.Id] = err
-		// }
+		err := s.db.Update(func(tx *bbolt.Tx) error {
+			bar.Add(1)
+			b := tx.Bucket([]byte("points"))
+			return s.insertPoint(b, startPoint.Id, ShardPoint{Point: point})
+		})
+		if err != nil {
+			log.Debug().Err(err).Msg("could not insert point")
+			results[point.Id] = err
+		}
 		// ---------------------------
 	}
-	close(pointC)
 	bar.Close()
 	// ---------------------------
 	return results, nil
