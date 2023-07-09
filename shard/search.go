@@ -3,7 +3,7 @@ package shard
 import (
 	"fmt"
 
-	"github.com/dgraph-io/badger/v4"
+	"go.etcd.io/bbolt"
 )
 
 func eucDist(x, y []float32) float32 {
@@ -30,7 +30,7 @@ func (s *Shard) dist(x, y []float32) float32 {
 	return eucDist(x, y)
 }
 
-func (s *Shard) greedySearch(txn *badger.Txn, startPoint ShardPoint, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
+func (s *Shard) greedySearch(b *bbolt.Bucket, startPoint ShardPoint, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
 	// ---------------------------
 	// Initialise distance set
 	searchSet := NewDistSet(query, searchSize*2, s.dist)
@@ -52,7 +52,7 @@ func (s *Shard) greedySearch(txn *badger.Txn, startPoint ShardPoint, query []flo
 			continue
 		}
 		visitedSet.Add(point)
-		neighbours, err := s.getPointNeighbours(txn, point.ShardPoint)
+		neighbours, err := s.getPointNeighbours(b, point.ShardPoint)
 		if err != nil {
 			return searchSet, visitedSet, fmt.Errorf("failed to get neighbours: %w", err)
 		}

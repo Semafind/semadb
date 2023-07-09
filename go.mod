@@ -16,6 +16,7 @@ require (
 	github.com/tikv/client-go/v2 v2.0.7
 	github.com/vmihailenco/msgpack v4.0.4+incompatible
 	github.com/vmihailenco/msgpack/v5 v5.3.5
+	go.etcd.io/bbolt v1.3.7
 	gonum.org/v1/gonum v0.13.0
 	gonum.org/v1/hdf5 v0.0.0-20210714002203-8c5d23bc6946
 )
