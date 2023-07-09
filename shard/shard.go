@@ -52,14 +52,19 @@ func (s *Shard) Close() error {
 
 // ---------------------------
 
-func (s *Shard) insertPoint(txn *badger.Txn, startPoint ShardPoint, point ShardPoint) error {
+func (s *Shard) insertPoint(txn *badger.Txn, startPointId uuid.UUID, point ShardPoint) error {
 	// ---------------------------
-	_, visitedSet, err := s.greedySearch(txn, startPoint, point.Vector, 1, s.collection.Parameters.SearchSize)
+	sp, err := s.getPoint(txn, startPointId)
+	if err != nil {
+		return fmt.Errorf("could not get start point: %w", err)
+	}
+	// ---------------------------
+	_, visitedSet, err := s.greedySearch(txn, sp, point.Vector, 1, s.collection.Parameters.SearchSize)
 	if err != nil {
 		return fmt.Errorf("could not greedy search: %w", err)
 	}
 	// ---------------------------
-	s.robustPrune(txn, &point, visitedSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
+	s.robustPrune(&point, visitedSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
 	// ---------------------------
 	// Add the bi-directional edges
 	for _, nId := range point.Edges {
@@ -78,7 +83,7 @@ func (s *Shard) insertPoint(txn *badger.Txn, startPoint ShardPoint, point ShardP
 			candidateSet.AddPoint(nn...)
 			candidateSet.AddPoint(point)
 			candidateSet.Sort()
-			s.robustPrune(txn, &n, candidateSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
+			s.robustPrune(&n, candidateSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
 		} else {
 			// ---------------------------
 			// Add the edge
@@ -137,13 +142,13 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 		// ---------------------------
 		// Write point to shard
 		err := s.db.Update(func(txn *badger.Txn) error {
-			bar.Add(1)
-			return s.insertPoint(txn, startPoint, ShardPoint{Point: point})
+			return s.insertPoint(txn, startPoint.Id, ShardPoint{Point: point})
 		})
 		if err != nil {
 			log.Debug().Err(err).Msg("could not insert point")
 			results[point.Id] = err
 		}
+		bar.Add(1)
 		// ---------------------------
 	}
 	bar.Close()

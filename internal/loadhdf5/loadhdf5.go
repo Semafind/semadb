@@ -80,7 +80,7 @@ func loadHDF5(dataset string) {
 	collectionName := strings.ReplaceAll(dataset, "-", "")
 	createCollection(collectionName, dims[1], distMetric)
 	// ---------------------------
-	batchSize := 100000
+	batchSize := 10000
 	for i := 0; i < len(points); i += batchSize {
 		end := i + batchSize
 		if end > len(points) {
@@ -91,6 +91,9 @@ func loadHDF5(dataset string) {
 		log.Debug().Int("i", i).Int("end", end).Msg("loadHDF5 - createPoints")
 		if err := createPoints(collectionName, points[i:end]); err != nil {
 			log.Fatal().Err(err).Msg("loadHDF5")
+		}
+		if i > 2 {
+			break
 		}
 	}
 }
