@@ -59,9 +59,14 @@ func (s *Shard) Close() error {
 
 // ---------------------------
 
-func (s *Shard) insertPoint(b *bbolt.Bucket, startPoint ShardPoint, point ShardPoint) error {
+func (s *Shard) insertPoint(b *bbolt.Bucket, startPointId uuid.UUID, point ShardPoint) error {
 	// ---------------------------
-	_, visitedSet, err := s.greedySearch(b, startPoint, point.Vector, 1, s.collection.Parameters.SearchSize)
+	sp, err := s.getPoint(b, startPointId)
+	if err != nil {
+		return fmt.Errorf("could not get start point: %w", err)
+	}
+	// ---------------------------
+	_, visitedSet, err := s.greedySearch(b, sp, point.Vector, 1, s.collection.Parameters.SearchSize)
 	if err != nil {
 		return fmt.Errorf("could not greedy search: %w", err)
 	}
@@ -137,7 +142,7 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 				// Write point to shard
 				err := s.db.Batch(func(tx *bbolt.Tx) error {
 					b := tx.Bucket([]byte("points"))
-					return s.insertPoint(b, startPoint, ShardPoint{Point: point})
+					return s.insertPoint(b, startPoint.Id, ShardPoint{Point: point})
 				})
 				if err != nil {
 					log.Debug().Err(err).Msg("could not insert point")
