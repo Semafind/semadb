@@ -178,22 +178,14 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 
 func (s *Shard) SearchPoints(query []float32, k int) ([]models.Point, error) {
 	// ---------------------------
-	// Get start point
-	var startPoint ShardPoint
-	err := s.db.Update(func(tx *bbolt.Tx) error {
-		var err error
-		startPoint, err = s.getStartPoint(tx.Bucket([]byte("points")))
-		return err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not get start point: %w", err)
-	}
-	// ---------------------------
 	// Perform search
 	var searchSet DistSet
-	err = s.db.View(func(tx *bbolt.Tx) error {
-		var err error
+	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("points"))
+		startPoint, err := s.getStartPoint(b)
+		if err != nil {
+			return fmt.Errorf("could not get start point: %w", err)
+		}
 		searchSet, _, err = s.greedySearch(b, startPoint, query, k, s.collection.Parameters.SearchSize)
 		return err
 	})
