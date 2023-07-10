@@ -227,6 +227,11 @@ type SearchPointsRequest struct {
 	Limit  int       `json:"limit" binding:"required,min=1,max=100"`
 }
 
+type SearchPointResult struct {
+	Id       string `json:"id"`
+	Metadata any    `json:"metadata"`
+}
+
 func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
@@ -268,16 +273,15 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	results := make([]UpdatePointRequest, len(points))
+	results := make([]SearchPointResult, len(points))
 	for i, point := range points {
 		var mdata any
 		if err := msgpack.Unmarshal(point.Metadata, &mdata); err != nil {
 			log.Err(err).Msg("msgpack.Unmarshal failed")
 			mdata = nil
 		}
-		results[i] = UpdatePointRequest{
+		results[i] = SearchPointResult{
 			Id:       point.Id.String(),
-			Vector:   point.Vector,
 			Metadata: mdata,
 		}
 	}
