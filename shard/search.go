@@ -2,8 +2,6 @@ package shard
 
 import (
 	"fmt"
-
-	"go.etcd.io/bbolt"
 )
 
 func eucDist(x, y []float32) float32 {
@@ -24,13 +22,13 @@ func cosineDist(x, y []float32) float32 {
 }
 
 func (s *Shard) dist(x, y []float32) float32 {
-	if s.collection.DistMetric == "angular" {
+	if s.collection.DistMetric == "cosine" {
 		return cosineDist(x, y)
 	}
 	return eucDist(x, y)
 }
 
-func (s *Shard) greedySearch(b *bbolt.Bucket, startPoint ShardPoint, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
+func (s *Shard) greedySearch(pc *PointCache, startPoint *CachePoint, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
 	// ---------------------------
 	// Initialise distance set
 	searchSet := NewDistSet(query, searchSize*2, s.dist)
@@ -46,13 +44,13 @@ func (s *Shard) greedySearch(b *bbolt.Bucket, startPoint ShardPoint, query []flo
 	/* This loop looks to curate the closest nodes to the query vector along the
 	 * way. The loop terminates when we visited all the nodes in our search list. */
 	for i := 0; i < searchSet.Len(); {
-		point := searchSet.items[i]
-		if visitedSet.Contains(point.Id) {
+		distElem := searchSet.items[i]
+		if visitedSet.Contains(distElem.point.Id) {
 			i++
 			continue
 		}
-		visitedSet.Add(point)
-		neighbours, err := s.getPointNeighbours(b, point.ShardPoint)
+		visitedSet.Add(distElem)
+		neighbours, err := pc.GetPointNeighbours(distElem.point)
 		if err != nil {
 			return searchSet, visitedSet, fmt.Errorf("failed to get neighbours: %w", err)
 		}
@@ -68,7 +66,7 @@ func (s *Shard) greedySearch(b *bbolt.Bucket, startPoint ShardPoint, query []flo
 	return searchSet, visitedSet, nil
 }
 
-func (s *Shard) robustPrune(point *ShardPoint, candidateSet DistSet, alpha float32, degreeBound int) {
+func (s *Shard) robustPrune(point *CachePoint, candidateSet DistSet, alpha float32, degreeBound int) {
 	// ---------------------------
 	// Exclude the point itself
 	candidateSet.Remove(point.Id)
@@ -79,7 +77,7 @@ func (s *Shard) robustPrune(point *ShardPoint, candidateSet DistSet, alpha float
 		// ---------------------------
 		// Get the closest point
 		closestElem := candidateSet.Pop()
-		point.Edges = append(point.Edges, closestElem.Id)
+		point.Edges = append(point.Edges, closestElem.point.Id)
 		if len(point.Edges) >= degreeBound {
 			break
 		}
@@ -88,14 +86,15 @@ func (s *Shard) robustPrune(point *ShardPoint, candidateSet DistSet, alpha float
 		for _, cand := range candidateSet.items {
 			// We currently do this check because remove doesn't handle
 			// re-ordering for performance purposes
-			if !candidateSet.Contains(cand.Id) {
+			if !candidateSet.Contains(cand.point.Id) {
 				continue
 			}
 			// ---------------------------
-			if alpha*s.dist(closestElem.Vector, cand.Vector) < cand.distance {
-				candidateSet.Remove(cand.Id)
+			if alpha*s.dist(closestElem.point.Vector, cand.point.Vector) < cand.distance {
+				candidateSet.Remove(cand.point.Id)
 			}
 		}
 	}
+	point.isEdgeDirty = true
 	// ---------------------------
 }

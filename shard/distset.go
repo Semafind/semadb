@@ -8,7 +8,7 @@ import (
 )
 
 type DistSetElem struct {
-	ShardPoint
+	point    *CachePoint
 	distance float32
 }
 
@@ -62,24 +62,24 @@ func (ds *DistSet) String() string {
 // ---------------------------
 
 // Adding entries only computes distance if needed
-func (ds *DistSet) AddPoint(points ...ShardPoint) {
+func (ds *DistSet) AddPoint(points ...*CachePoint) {
 	for _, p := range points {
 		if _, ok := ds.set[p.Id]; ok {
 			continue
 		}
 		ds.set[p.Id] = struct{}{}
 		distance := ds.distFn(p.Vector, ds.queryVector)
-		ds.items = append(ds.items, DistSetElem{distance: distance, ShardPoint: p})
+		ds.items = append(ds.items, DistSetElem{distance: distance, point: p})
 	}
 }
 
 // Add item to distance set if it is not already present
 func (ds *DistSet) Add(items ...DistSetElem) {
 	for _, item := range items {
-		if _, ok := ds.set[item.Id]; ok {
+		if _, ok := ds.set[item.point.Id]; ok {
 			continue
 		}
-		ds.set[item.Id] = struct{}{}
+		ds.set[item.point.Id] = struct{}{}
 		ds.items = append(ds.items, item)
 	}
 }
@@ -100,9 +100,9 @@ func (ds *DistSet) Pop() DistSetElem {
 	for ; i < len(ds.items); i++ {
 		item := ds.items[i]
 		// ds.items[i] = nil // avoid memory leak
-		if _, ok := ds.set[item.Id]; ok {
+		if _, ok := ds.set[item.point.Id]; ok {
 			toReturn = item
-			delete(ds.set, item.Id)
+			delete(ds.set, item.point.Id)
 			break
 		}
 	}
@@ -112,7 +112,7 @@ func (ds *DistSet) Pop() DistSetElem {
 
 func (ds *DistSet) KeepFirstK(k int) {
 	for i := k; i < len(ds.items); i++ {
-		delete(ds.set, ds.items[i].Id)
+		delete(ds.set, ds.items[i].point.Id)
 		// ds.items[i] = nil // avoid memory leak
 	}
 	if k < len(ds.items) {

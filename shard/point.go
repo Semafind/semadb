@@ -28,7 +28,7 @@ func suffixedKey(id uuid.UUID, suffix byte) []byte {
 
 // ---------------------------
 
-func (s *Shard) getPoint(b *bbolt.Bucket, id uuid.UUID) (ShardPoint, error) {
+func getPoint(b *bbolt.Bucket, id uuid.UUID) (ShardPoint, error) {
 	// ---------------------------
 	shardPoint := ShardPoint{Point: models.Point{Id: id}}
 	// ---------------------------
@@ -49,10 +49,10 @@ func (s *Shard) getPoint(b *bbolt.Bucket, id uuid.UUID) (ShardPoint, error) {
 	return shardPoint, nil
 }
 
-func (s *Shard) getPointNeighbours(b *bbolt.Bucket, p ShardPoint) ([]ShardPoint, error) {
+func getPointNeighbours(b *bbolt.Bucket, p ShardPoint) ([]ShardPoint, error) {
 	neighbours := make([]ShardPoint, len(p.Edges))
 	for i, edge := range p.Edges {
-		neigh, err := s.getPoint(b, edge)
+		neigh, err := getPoint(b, edge)
 		if err != nil {
 			return nil, fmt.Errorf("could not get neighbour: %w", err)
 		}
@@ -61,7 +61,7 @@ func (s *Shard) getPointNeighbours(b *bbolt.Bucket, p ShardPoint) ([]ShardPoint,
 	return neighbours, nil
 }
 
-func (s *Shard) setPointEdges(b *bbolt.Bucket, point ShardPoint) error {
+func setPointEdges(b *bbolt.Bucket, point ShardPoint) error {
 	// ---------------------------
 	// Set edges
 	if err := b.Put(suffixedKey(point.Id, 'e'), edgeListToBytes(point.Edges)); err != nil {
@@ -71,7 +71,7 @@ func (s *Shard) setPointEdges(b *bbolt.Bucket, point ShardPoint) error {
 	return nil
 }
 
-func (s *Shard) setPoint(b *bbolt.Bucket, point ShardPoint) error {
+func setPoint(b *bbolt.Bucket, point ShardPoint) error {
 	// ---------------------------
 	/* Sharing suffix keys with the same point id does not work because the
 	 * underlying array the slice points to gets modified and badger does not
@@ -103,7 +103,7 @@ func (s *Shard) setPoint(b *bbolt.Bucket, point ShardPoint) error {
 	return nil
 }
 
-func (s *Shard) getStartPoint(b *bbolt.Bucket) (ShardPoint, error) {
+func getStartPoint(b *bbolt.Bucket) (ShardPoint, error) {
 	// ---------------------------
 	var startPoint ShardPoint
 	// ---------------------------
@@ -117,17 +117,17 @@ func (s *Shard) getStartPoint(b *bbolt.Bucket) (ShardPoint, error) {
 		return startPoint, fmt.Errorf("could not get start id value: %w", err)
 	}
 	// ---------------------------
-	startPoint, err = s.getPoint(b, startId)
+	startPoint, err = getPoint(b, startId)
 	return startPoint, err
 }
 
-func (s *Shard) getOrSetStartPoint(b *bbolt.Bucket, candidate ShardPoint) (ShardPoint, error) {
+func getOrSetStartPoint(b *bbolt.Bucket, candidate ShardPoint) (ShardPoint, error) {
 	// ---------------------------
 	// Get start point, set if not found
-	startPoint, err := s.getStartPoint(b)
+	startPoint, err := getStartPoint(b)
 	if err == ErrNotFound {
 		// ---------------------------
-		if err := s.setPoint(b, candidate); err != nil {
+		if err := setPoint(b, candidate); err != nil {
 			return candidate, fmt.Errorf("could not set start point: %w", err)
 		}
 		if err := b.Put([]byte("_sid"), candidate.Id[:]); err != nil {
@@ -139,7 +139,7 @@ func (s *Shard) getOrSetStartPoint(b *bbolt.Bucket, candidate ShardPoint) (Shard
 	return startPoint, err
 }
 
-func (s *Shard) getPointTimestampMetadata(b *bbolt.Bucket, id uuid.UUID) (int64, []byte, error) {
+func getPointTimestampMetadata(b *bbolt.Bucket, id uuid.UUID) (int64, []byte, error) {
 	// ---------------------------
 	// Get timestamp
 	timestampVal := b.Get(suffixedKey(id, 't'))
