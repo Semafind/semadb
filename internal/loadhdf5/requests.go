@@ -13,7 +13,7 @@ import (
 
 const baseURL = "http://localhost:8081/v1"
 
-func createCollection(name string, vectorSize uint, distanceMetric string) {
+func createCollection(name string, vectorSize int, distanceMetric string) {
 	endpoint := "/collections"
 	colReqBody := map[string]interface{}{
 		"id":             name,
