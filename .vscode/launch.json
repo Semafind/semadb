@@ -24,6 +24,14 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}"
+        },
+        {
+            "name": "Load HDF5",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/internal/loadhdf5",
+            "cwd": "${workspaceFolder}",
         }
     ]
 }
