@@ -273,7 +273,8 @@ func (c *Collection) Put(entries []Entry) error {
 	bar := progressbar.Default(int64(len(entries)) - 1)
 	putQueue := make(chan Entry, len(entries))
 	// Start the workers
-	numWorkers := runtime.NumCPU() * 2
+	// numWorkers := runtime.NumCPU() * 2
+	numWorkers := 1
 	for i := 0; i < numWorkers; i++ {
 		go func() {
 			for entry := range putQueue {
@@ -295,9 +296,9 @@ func (c *Collection) Put(entries []Entry) error {
 	}
 	close(putQueue)
 	wg.Wait()
-	if err := c.cache.flush(); err != nil {
-		return fmt.Errorf("could not flush node cache: %v", err)
-	}
+	// if err := c.cache.flush(); err != nil {
+	// 	return fmt.Errorf("could not flush node cache: %v", err)
+	// }
 	// ---------------------------
 	// c.DumpCacheToCSVGraph("dump/graph.csv", nodeCache)
 	// ---------------------------

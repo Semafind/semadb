@@ -199,7 +199,7 @@ func loadHDF5(dataset string) {
 	pprof.StartCPUProfile(profileFile)
 	defer pprof.StopCPUProfile()
 	// ---------------------------
-	if err := benchmarkCol.Put(entries); err != nil {
+	if err := benchmarkCol.Put(entries[:20000]); err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("Cache size after insert", benchmarkCol.CacheSize())
@@ -322,8 +322,8 @@ func runServer(router *gin.Engine) {
 }
 
 func main() {
-	// loadHDF5("glove-100-angular")
+	loadHDF5("sift-128-euclidean")
 	// ---------------------------
-	router := createRouter()
-	runServer(router)
+	// router := createRouter()
+	// runServer(router)
 }
