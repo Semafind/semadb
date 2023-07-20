@@ -4,35 +4,11 @@ import (
 	"fmt"
 )
 
-func eucDist(x, y []float32) float32 {
-	var sum float32
-	for i := range x {
-		diff := x[i] - y[i]
-		sum += diff * diff
-	}
-	return sum
-}
-
-func cosineDist(x, y []float32) float32 {
-	var sum float32
-	for i := range x {
-		sum += x[i] * y[i]
-	}
-	return 1 - sum
-}
-
-func (s *Shard) dist(x, y []float32) float32 {
-	if s.collection.DistMetric == "cosine" {
-		return cosineDist(x, y)
-	}
-	return eucDist(x, y)
-}
-
 func (s *Shard) greedySearch(pc *PointCache, startPoint *CachePoint, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
 	// ---------------------------
 	// Initialise distance set
-	searchSet := NewDistSet(query, searchSize*2, s.dist)
-	visitedSet := NewDistSet(query, searchSize*2, s.dist)
+	searchSet := NewDistSet(query, searchSize*2, s.distFn)
+	visitedSet := NewDistSet(query, searchSize*2, s.distFn)
 	// Check that the search size is greater than k
 	if searchSize < k {
 		return searchSet, visitedSet, fmt.Errorf("searchSize (%d) must be greater than k (%d)", searchSize, k)
@@ -92,7 +68,7 @@ func (s *Shard) robustPrune(point *CachePoint, candidateSet DistSet, alpha float
 				continue
 			}
 			// ---------------------------
-			if alpha*s.dist(closestElem.point.Vector, cand.point.Vector) < cand.distance {
+			if alpha*s.distFn(closestElem.point.Vector, cand.point.Vector) < cand.distance {
 				candidateSet.Remove(cand.point.Id)
 			}
 		}

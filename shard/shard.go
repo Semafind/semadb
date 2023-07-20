@@ -2,13 +2,17 @@ package shard
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/schollz/progressbar/v3"
+	"github.com/semafind/semadb/config"
+	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
 	"go.etcd.io/bbolt"
 )
@@ -16,6 +20,7 @@ import (
 type Shard struct {
 	db         *bbolt.DB
 	collection models.Collection
+	distFn     distance.DistFunc
 	closeCount int
 	closeLock  sync.Mutex
 }
@@ -34,9 +39,16 @@ func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
 		}
 		return nil
 	})
+	// ---------------------------
+	distFn := distance.EuclideanDistance
+	if collection.DistMetric == "cosine" {
+		distFn = distance.CosineDistance
+	}
+	// ---------------------------
 	return &Shard{
 		db:         db,
 		collection: collection,
+		distFn:     distFn,
 	}, nil
 }
 
@@ -89,7 +101,7 @@ func (s *Shard) insertPoint(pc *PointCache, startPointId uuid.UUID, shardPoint S
 			if err != nil {
 				return fmt.Errorf("could not get neighbour neighbours: %w", err)
 			}
-			candidateSet := NewDistSet(n.Vector, len(n.Edges)+1, s.dist)
+			candidateSet := NewDistSet(n.Vector, len(n.Edges)+1, s.distFn)
 			candidateSet.AddPoint(nn...)
 			candidateSet.AddPoint(point)
 			candidateSet.Sort()
@@ -111,10 +123,12 @@ func (s *Shard) insertPoint(pc *PointCache, startPointId uuid.UUID, shardPoint S
 
 func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error) {
 	// ---------------------------
-	// profileFile, _ := os.Create("dump/cpu.prof")
-	// defer profileFile.Close()
-	// pprof.StartCPUProfile(profileFile)
-	// defer pprof.StopCPUProfile()
+	if config.Cfg.Debug {
+		profileFile, _ := os.Create("dump/cpu.prof")
+		defer profileFile.Close()
+		pprof.StartCPUProfile(profileFile)
+		defer pprof.StopCPUProfile()
+	}
 	// ---------------------------
 	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("UpsertPoints")
 	// ---------------------------
@@ -142,6 +156,7 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 	err = s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("points"))
 		pc := NewPointCache(b)
+		// ---------------------------
 		for _, point := range points {
 			if err := s.insertPoint(pc, startPoint.Id, ShardPoint{Point: point}); err != nil {
 				log.Debug().Err(err).Msg("could not insert point")
@@ -149,6 +164,7 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 			}
 			bar.Add(1)
 		}
+		// ---------------------------
 		currentTime := time.Now()
 		err := pc.Flush()
 		log.Debug().Str("component", "shard").Str("duration", time.Since(currentTime).String()).Msg("UpsertPoints - Flush")
