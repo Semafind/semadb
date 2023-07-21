@@ -10,6 +10,7 @@ require (
 	github.com/go-sql-driver/mysql v1.7.1
 	github.com/gocql/gocql v1.5.2
 	github.com/google/uuid v1.3.0
+	github.com/mmcloughlin/avo v0.5.0
 	github.com/rs/zerolog v1.29.1
 	github.com/schollz/progressbar/v3 v3.13.1
 	github.com/stretchr/testify v1.8.3
@@ -17,6 +18,7 @@ require (
 	github.com/vmihailenco/msgpack v4.0.4+incompatible
 	github.com/vmihailenco/msgpack/v5 v5.3.5
 	go.etcd.io/bbolt v1.3.7
+	golang.org/x/sys v0.8.0
 	gonum.org/v1/gonum v0.13.0
 	gonum.org/v1/hdf5 v0.0.0-20210714002203-8c5d23bc6946
 )
@@ -90,11 +92,12 @@ require (
 	go.uber.org/zap v1.24.0 // indirect
 	golang.org/x/arch v0.3.0 // indirect
 	golang.org/x/crypto v0.9.0 // indirect
+	golang.org/x/mod v0.9.0 // indirect
 	golang.org/x/net v0.10.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/sys v0.8.0 // indirect
 	golang.org/x/term v0.8.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
+	golang.org/x/tools v0.7.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/genproto v0.0.0-20230331144136-dcfb400f0633 // indirect
 	google.golang.org/grpc v1.54.0 // indirect
