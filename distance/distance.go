@@ -8,31 +8,19 @@ import (
 
 type DistFunc func(x, y []float32) float32
 
-var EuclideanDistance DistFunc = eucDistPureGo
+var EuclideanDistance DistFunc = squaredEuclideanDistancePureGo
 var dotProductImpl DistFunc = dotProductPureGo
 
+func hasASMSupport() bool {
+	return cpu.X86.HasAVX2 && cpu.X86.HasFMA && cpu.X86.HasSSE3
+}
+
 func init() {
-	if cpu.X86.HasAVX2 && cpu.X86.HasFMA && cpu.X86.HasSSE3 {
-		log.Info().Msg("Using AVX2 dot product implementation")
+	if hasASMSupport() {
+		log.Info().Msg("Using ASM support for dot and euclidean distance")
 		dotProductImpl = asm.Dot
+		EuclideanDistance = asm.SquaredEuclideanDistance
 	}
-}
-
-func eucDistPureGo(x, y []float32) float32 {
-	var sum float32
-	for i := range x {
-		diff := x[i] - y[i]
-		sum += diff * diff
-	}
-	return sum
-}
-
-func dotProductPureGo(x, y []float32) float32 {
-	var sum float32
-	for i := range x {
-		sum += x[i] * y[i]
-	}
-	return sum
 }
 
 func DotProductDistance(x, y []float32) float32 {
