@@ -25,7 +25,7 @@ func setupLogging() {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if config.Cfg.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-		log.Debug().Interface("config", config.Cfg).Msg("Environment config")
+		log.Debug().Interface("config", config.Cfg).Msg("Configuration")
 	}
 	// ---------------------------
 	log.Debug().Msg("Debug mode enabled")
