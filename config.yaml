@@ -1,14 +1,9 @@
 # Configuration for SemaDB, this reflects the default configuration
 debug: false
-# General replication count determines how many times a regular key (non-vector)
-# is replicated these may include user and collection information
-generalReplication: 3
 # Root directory refers to the start of the filesystem where all data is stored
 rootDir: /tmp/semadb
 # Maximum size of shards in bytes
 maxShardSize: 268435456 # 2GiB
-# Key value store directory, if not set it will be set to an temporary directory
-kvDir: ""
 # List of known servers at the beginning
 servers:
   - localhost:9898 

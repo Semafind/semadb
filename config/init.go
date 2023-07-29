@@ -12,15 +12,10 @@ import (
 
 type configMap struct {
 	Debug bool `yaml:"debug"`
-	// General replication count determines how many times a regular key (non-vector)
-	// is replicated these may include user and collection information
-	GeneralReplication int `yaml:"generalReplication"`
 	// Root directory refers to the start of the filesystem where all data is stored
 	RootDir string `yaml:"rootDir"`
 	// Maximum size of shards in bytes
 	MaxShardSize int64 `yaml:"maxShardSize"`
-	// Key value store directory, if not set it will be set to an temporary directory
-	KVDir string `yaml:"kvDir"`
 	// List of known servers at the beginning
 	Servers []string `yaml:"servers"`
 	// RPC Parameters
