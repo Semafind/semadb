@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"path/filepath"
 
 	"github.com/caarlos0/env/v8"
 	"github.com/rs/zerolog/log"
@@ -34,10 +35,14 @@ var Cfg configMap
 func init() {
 	Cfg = configMap{}
 	// First parse yaml file
-	cFilePath := "config.yaml"
+	cwd, err := os.Getwd()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to get working directory")
+	}
+	cFilePath := filepath.Join(cwd, "config.yaml")
 	cFile, err := os.Open(cFilePath)
 	if err != nil {
-		log.Fatal().Err(err).Str("path", cFilePath).Msg("Failed to open config file")
+		log.Error().Err(err).Str("path", cFilePath).Msg("Failed to open config file")
 	} else {
 		decoder := yaml.NewDecoder(cFile)
 		err = decoder.Decode(&Cfg)

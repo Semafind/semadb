@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
 	"github.com/stretchr/testify/assert"
 )
@@ -26,7 +27,7 @@ func randDistElems(dists ...float32) []DistSetElem {
 }
 
 func TestDistSet_Add(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 2, eucDist)
+	ds := NewDistSet([]float32{1.0, 2.0}, 2, distance.EuclideanDistance)
 	elems := randDistElems(0.5, 1.0, 0.2)
 	ds.Add(elems...)
 	assert.Equal(t, 3, ds.Len())
@@ -43,7 +44,7 @@ func TestDistSet_Add(t *testing.T) {
 }
 
 func TestDistSet_Add_Duplicate(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 3, eucDist)
+	ds := NewDistSet([]float32{1.0, 2.0}, 3, distance.EuclideanDistance)
 	elems := randDistElems(0.5, 1.0, 0.1)
 	ds.Add(elems...)
 	ds.Add(elems[0])
@@ -56,7 +57,7 @@ func TestDistSet_Add_Duplicate(t *testing.T) {
 }
 
 func TestDistSet_KeepFirstK(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 3, eucDist)
+	ds := NewDistSet([]float32{1.0, 2.0}, 3, distance.EuclideanDistance)
 	elems := randDistElems(0.5, 1.0, 0.2)
 	ds.Add(elems...)
 	ds.Sort()
@@ -69,7 +70,7 @@ func TestDistSet_KeepFirstK(t *testing.T) {
 }
 
 func TestDistSet_Pop_Remove(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 3, eucDist)
+	ds := NewDistSet([]float32{1.0, 2.0}, 3, distance.EuclideanDistance)
 	elems := randDistElems(0.5, 1.0, 0.2)
 	ds.Add(elems...)
 	ds.Sort()
