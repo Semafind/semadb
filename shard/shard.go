@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,8 +20,6 @@ type Shard struct {
 	db         *bbolt.DB
 	collection models.Collection
 	distFn     distance.DistFunc
-	closeCount int
-	closeLock  sync.Mutex
 }
 
 func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
@@ -52,21 +49,7 @@ func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
 	}, nil
 }
 
-func (s *Shard) changeLockCount(delta int) {
-	s.closeLock.Lock()
-	defer s.closeLock.Unlock()
-	s.closeCount += delta
-	if s.closeCount <= 0 {
-		s.closeCount = 0
-		s.closeLock.Unlock()
-		s.Close()
-		s.closeLock.Lock()
-	}
-}
-
 func (s *Shard) Close() error {
-	s.closeLock.Lock()
-	defer s.closeLock.Unlock()
 	return s.db.Close()
 }
 
@@ -131,9 +114,6 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 	}
 	// ---------------------------
 	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("UpsertPoints")
-	// ---------------------------
-	// This is to stop the shard from being closed while we're writing to it
-	s.changeLockCount(1)
 	// ---------------------------
 	// Get start point
 	var startPoint ShardPoint
