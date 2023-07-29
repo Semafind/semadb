@@ -192,9 +192,8 @@ func (sdbh *SemaDBHandlers) UpsertPoints(c *gin.Context) {
 			return
 		}
 		points[i] = models.Point{
-			Id:        uuid.New(),
-			Vector:    point.Vector,
-			Timestamp: time.Now().UnixMicro(),
+			Id:     uuid.New(),
+			Vector: point.Vector,
 		}
 		if point.Metadata != nil {
 			binaryMetadata, err := msgpack.Marshal(point.Metadata)

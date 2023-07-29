@@ -75,13 +75,6 @@ func setPoint(b *bbolt.Bucket, point ShardPoint) error {
 		return fmt.Errorf("could not set edge: %w", err)
 	}
 	// ---------------------------
-	// Set timestamp
-	if point.Timestamp != 0 {
-		if err := b.Put(suffixedKey(point.Id, 't'), int64ToBytes(point.Timestamp)); err != nil {
-			return fmt.Errorf("could not set timestamp: %w", err)
-		}
-	}
-	// ---------------------------
 	// Set metadata if any
 	if point.Metadata != nil {
 		if err := b.Put(suffixedKey(point.Id, 'm'), point.Metadata); err != nil {
@@ -101,11 +94,6 @@ func deletePoint(b *bbolt.Bucket, id uuid.UUID) error {
 	// Delete edges
 	if err := b.Delete(suffixedKey(id, 'e')); err != nil {
 		return fmt.Errorf("could not delete edges: %w", err)
-	}
-	// ---------------------------
-	// Delete timestamp
-	if err := b.Delete(suffixedKey(id, 't')); err != nil {
-		return fmt.Errorf("could not delete timestamp: %w", err)
 	}
 	// ---------------------------
 	// Delete metadata
@@ -152,20 +140,10 @@ func getOrSetStartPoint(b *bbolt.Bucket, candidate ShardPoint) (ShardPoint, erro
 	return startPoint, err
 }
 
-func getPointTimestampMetadata(b *bbolt.Bucket, id uuid.UUID) (int64, []byte, error) {
-	// ---------------------------
-	// Get timestamp
-	timestampVal := b.Get(suffixedKey(id, 't'))
-	if timestampVal == nil {
-		return 0, nil, fmt.Errorf("could not get timestamp key %s", id)
-	}
-	timestamp := bytesToInt64(timestampVal)
+func getPointMetadata(b *bbolt.Bucket, id uuid.UUID) ([]byte, error) {
 	// ---------------------------
 	// Get metadata
 	metadataVal := b.Get(suffixedKey(id, 'm'))
-	if metadataVal == nil {
-		return timestamp, nil, nil
-	}
 	// ---------------------------
-	return timestamp, metadataVal, nil
+	return metadataVal, nil
 }

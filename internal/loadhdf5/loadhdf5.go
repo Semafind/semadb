@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -127,10 +126,9 @@ func loadIntoShard(vcol VectorCollection) {
 		mdata, _ := msgpack.Marshal(map[string]interface{}{
 			"xid": i})
 		points[i] = models.Point{
-			Id:        uuid.New(),
-			Vector:    vcol.Vectors[i],
-			Metadata:  mdata,
-			Timestamp: time.Now().UnixMicro(),
+			Id:       uuid.New(),
+			Vector:   vcol.Vectors[i],
+			Metadata: mdata,
 		}
 	}
 	// ---------------------------

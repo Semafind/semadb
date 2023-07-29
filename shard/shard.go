@@ -191,11 +191,10 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]models.Point, error) {
 		b := tx.Bucket([]byte("points"))
 		for i, distElem := range searchSet.items {
 			results[i] = distElem.point.Point
-			timestamp, mdata, err := getPointTimestampMetadata(b, distElem.point.Id)
+			mdata, err := getPointMetadata(b, distElem.point.Id)
 			if err != nil {
-				return fmt.Errorf("could not get point timestamp, metadata: %w", err)
+				return fmt.Errorf("could not get point metadata: %w", err)
 			}
-			results[i].Timestamp = timestamp
 			results[i].Metadata = mdata
 		}
 		return nil
