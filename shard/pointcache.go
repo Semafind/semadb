@@ -11,6 +11,7 @@ type CachePoint struct {
 	ShardPoint
 	isDirty     bool
 	isEdgeDirty bool
+	isDeleted   bool
 	neighbours  []*CachePoint
 	mu          sync.Mutex
 }
@@ -85,6 +86,12 @@ func (pc *PointCache) Flush() error {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 	for _, point := range pc.points {
+		if point.isDeleted {
+			if err := deletePoint(pc.bucket, point.Id); err != nil {
+				return err
+			}
+			continue
+		}
 		if point.isDirty {
 			if err := setPoint(pc.bucket, point.ShardPoint); err != nil {
 				return err

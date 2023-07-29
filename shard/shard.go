@@ -205,3 +205,85 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]models.Point, error) {
 	}
 	return results, nil
 }
+
+// ---------------------------
+
+func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uuid.UUID, deleteSet map[uuid.UUID]struct{}) error {
+	// ---------------------------
+	point, err := pc.GetPoint(id)
+	if err != nil {
+		return fmt.Errorf("could not get point: %w", err)
+	}
+	// ---------------------------
+	pointNeighbours, err := pc.GetPointNeighbours(point)
+	if err != nil {
+		return fmt.Errorf("could not get point neighbours: %w", err)
+	}
+	// ---------------------------
+	// We are going to build a new candidate list of neighbours and then robust
+	// prune it
+	candidateSet := NewDistSet(point.Vector, len(point.Edges)*2, s.distFn)
+	for _, neighbour := range pointNeighbours {
+		if _, ok := deleteSet[neighbour.Id]; ok {
+			// Pull the neighbours of the deleted neighbour, and add them to the candidate set
+			deletedPoint, err := pc.GetPoint(neighbour.Id)
+			if err != nil {
+				return fmt.Errorf("could not get deleted point: %w", err)
+			}
+			deletedPointNeighbours, err := pc.GetPointNeighbours(deletedPoint)
+			if err != nil {
+				return fmt.Errorf("could not get deleted point neighbours: %w", err)
+			}
+			candidateSet.AddPoint(deletedPointNeighbours...)
+		} else {
+			candidateSet.AddPoint(neighbour)
+		}
+	}
+	candidateSet.Sort()
+	// ---------------------------
+	s.robustPrune(point, candidateSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
+	// ---------------------------
+	return nil
+}
+
+// ---------------------------
+
+func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) error {
+	// ---------------------------
+	err := s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("points"))
+		pc := NewPointCache(b)
+		// ---------------------------
+		// Collect all the neighbours of the points to be deleted
+		toPrune := make(map[uuid.UUID]struct{}, len(deleteSet))
+		for pointId := range deleteSet {
+			point, err := pc.GetPoint(pointId)
+			if err != nil {
+				// If the point doesn't exist, we can skip it
+				log.Debug().Err(err).Msg("could not get point for deletion")
+				continue
+			}
+			point.isDeleted = true
+			for _, edgeId := range point.Edges {
+				if _, ok := deleteSet[edgeId]; !ok {
+					toPrune[edgeId] = struct{}{}
+				}
+			}
+		}
+		// ---------------------------
+		for pointId := range toPrune {
+			if err := s.pruneDeleteNeighbour(pc, pointId, deleteSet); err != nil {
+				log.Debug().Err(err).Msg("could not prune delete neighbour")
+				return fmt.Errorf("could not prune delete neighbour: %w", err)
+			}
+		}
+		// ---------------------------
+		return pc.Flush()
+	})
+	if err != nil {
+		return fmt.Errorf("could not delete points: %w", err)
+	}
+	return nil
+}
+
+// ---------------------------

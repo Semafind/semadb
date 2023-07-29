@@ -49,18 +49,6 @@ func getPoint(b *bbolt.Bucket, id uuid.UUID) (ShardPoint, error) {
 	return shardPoint, nil
 }
 
-func getPointNeighbours(b *bbolt.Bucket, p ShardPoint) ([]ShardPoint, error) {
-	neighbours := make([]ShardPoint, len(p.Edges))
-	for i, edge := range p.Edges {
-		neigh, err := getPoint(b, edge)
-		if err != nil {
-			return nil, fmt.Errorf("could not get neighbour: %w", err)
-		}
-		neighbours[i] = neigh
-	}
-	return neighbours, nil
-}
-
 func setPointEdges(b *bbolt.Bucket, point ShardPoint) error {
 	// ---------------------------
 	// Set edges
@@ -100,6 +88,31 @@ func setPoint(b *bbolt.Bucket, point ShardPoint) error {
 			return fmt.Errorf("could not set metadata: %w", err)
 		}
 	}
+	return nil
+}
+
+func deletePoint(b *bbolt.Bucket, id uuid.UUID) error {
+	// ---------------------------
+	// Delete vector
+	if err := b.Delete(suffixedKey(id, 'v')); err != nil {
+		return fmt.Errorf("could not delete vector: %w", err)
+	}
+	// ---------------------------
+	// Delete edges
+	if err := b.Delete(suffixedKey(id, 'e')); err != nil {
+		return fmt.Errorf("could not delete edges: %w", err)
+	}
+	// ---------------------------
+	// Delete timestamp
+	if err := b.Delete(suffixedKey(id, 't')); err != nil {
+		return fmt.Errorf("could not delete timestamp: %w", err)
+	}
+	// ---------------------------
+	// Delete metadata
+	if err := b.Delete(suffixedKey(id, 'm')); err != nil {
+		return fmt.Errorf("could not delete metadata: %w", err)
+	}
+	// ---------------------------
 	return nil
 }
 
