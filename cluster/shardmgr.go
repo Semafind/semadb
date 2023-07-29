@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/shard"
 )
 
 func (c *ClusterNode) LoadShard(shardDir string) (*shard.Shard, error) {
-	log.Debug().Str("shardDir", shardDir).Str("host", c.MyHostname).Msg("LoadShard")
+	c.logger.Debug().Str("shardDir", shardDir).Msg("LoadShard")
 	c.shardLock.Lock()
 	defer c.shardLock.Unlock()
 	if shard, ok := c.shardStore[shardDir]; ok {

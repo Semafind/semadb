@@ -5,7 +5,6 @@ import (
 	"net/rpc"
 	"time"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
 )
 
@@ -15,7 +14,7 @@ func (c *ClusterNode) rpcClient(destination string) (*rpc.Client, error) {
 	if client, ok := c.rpcClients[destination]; ok {
 		return client, nil
 	}
-	log.Debug().Str("destination", destination).Msg("Creating new rpc client")
+	c.logger.Debug().Str("destination", destination).Msg("Creating new rpc client")
 	client, err := rpc.DialHTTP("tcp", destination)
 	if err != nil {
 		return nil, err
@@ -42,7 +41,7 @@ func (args RequestArgs) Destination() string {
 
 func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply interface{}) error {
 	destination := args.Destination()
-	log.Debug().Str("destination", destination).Str("host", c.MyHostname).Msg(remoteFn + ": routing")
+	c.logger.Debug().Str("destination", destination).Msg(remoteFn + ": routing")
 	client, err := c.rpcClient(destination)
 	if err != nil {
 		return fmt.Errorf("failed to get client: %v", err)

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/models"
 	"github.com/vmihailenco/msgpack"
@@ -36,7 +35,7 @@ func (c *ClusterNode) CreateCollection(collection models.Collection) error {
 	}
 	// ---------------------------
 	// Write to file
-	log.Debug().Str("fpath", fpath).Msg("CreateCollection")
+	c.logger.Debug().Str("fpath", fpath).Msg("CreateCollection")
 	if err := os.WriteFile(fpath, colBytes, os.ModePerm); err != nil {
 		return fmt.Errorf("could not write collection file: %w", err)
 	}
@@ -64,13 +63,13 @@ func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error
 		// Read collection file
 		colBytes, err := os.ReadFile(metaFile)
 		if err != nil {
-			log.Error().Err(err).Str("metaFile", metaFile).Msg("could not read collection file")
+			c.logger.Error().Err(err).Str("metaFile", metaFile).Msg("could not read collection file")
 			errCount++
 			continue
 		}
 		var col models.Collection
 		if err := msgpack.Unmarshal(colBytes, &col); err != nil {
-			log.Error().Err(err).Str("metaFile", metaFile).Msg("could not unmarshal collection file")
+			c.logger.Error().Err(err).Str("metaFile", metaFile).Msg("could not unmarshal collection file")
 			errCount++
 			continue
 		}
@@ -119,7 +118,7 @@ func (c *ClusterNode) CreateShard(col models.Collection) (string, error) {
 	if err := os.MkdirAll(shardDir, os.ModePerm); err != nil {
 		return "", fmt.Errorf("could not create shard directory: %w", err)
 	}
-	log.Debug().Str("shardDir", shardDir).Msg("CreateShard")
+	c.logger.Debug().Str("shardDir", shardDir).Msg("CreateShard")
 	// ---------------------------
 	return shardDir, nil
 }
@@ -187,7 +186,7 @@ func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point)
 	// ---------------------------
 	for shardId, err := range results {
 		if err != nil {
-			log.Error().Err(err).Str("shardId", shardId).Msg("could not upsert points")
+			c.logger.Error().Err(err).Str("shardId", shardId).Msg("could not upsert points")
 		}
 	}
 	// ---------------------------

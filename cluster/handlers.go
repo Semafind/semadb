@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/models"
 )
 
@@ -20,7 +19,7 @@ type PingResponse struct {
 }
 
 func (c *ClusterNode) Ping(args *PingRequest, reply *PingResponse) error {
-	log.Debug().Interface("args", args).Str("host", c.MyHostname).Msg("Ping")
+	c.logger.Debug().Interface("args", args).Msg("Ping")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.Ping", args, reply)
 	}
@@ -41,7 +40,7 @@ type RPCUpsertPointsResponse struct {
 }
 
 func (c *ClusterNode) RPCUpsertPoints(args *RPCUpsertPointsRequest, reply *RPCUpsertPointsResponse) error {
-	log.Debug().Str("shardDir", args.ShardDir).Str("host", c.MyHostname).Interface("route", args.RequestArgs).Msg("RPCUpsertPoints")
+	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RequestArgs).Msg("RPCUpsertPoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCUpsertPoints", args, reply)
 	}
@@ -69,7 +68,7 @@ type RPCSearchPointsResponse struct {
 }
 
 func (c *ClusterNode) RPCSearchPoints(args *RPCSearchPointsRequest, reply *RPCSearchPointsResponse) error {
-	log.Debug().Str("shardDir", args.ShardDir).Str("host", c.MyHostname).Interface("route", args.RequestArgs).Msg("RPCSearchPoints")
+	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RequestArgs).Msg("RPCSearchPoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCSearchPoints", args, reply)
 	}

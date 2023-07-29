@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/models"
 )
 
@@ -34,7 +33,7 @@ func (c *ClusterNode) KeyPlacement(key string, col *models.Collection) ([]string
 		servers = RendezvousHash(shardKey, c.Servers, int(col.Replicas))
 		c.serversMu.RUnlock()
 	default:
-		log.Error().Str("key", key).Msg("Unknown key type")
+		c.logger.Error().Str("key", key).Msg("Unknown key type")
 		return nil, fmt.Errorf("unknown key type %v", key)
 	}
 	return servers, nil

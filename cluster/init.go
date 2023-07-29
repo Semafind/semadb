@@ -8,12 +8,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/shard"
 )
 
 type ClusterNode struct {
+	logger zerolog.Logger
+	// ---------------------------
 	Servers    []string
 	MyHostname string
 	serversMu  sync.RWMutex
@@ -43,7 +46,10 @@ func NewNode() (*ClusterNode, error) {
 		envHostname = envHostname + ":" + strconv.Itoa(rpcPort)
 	}
 	// ---------------------------
+	logger := log.With().Str("hostname", envHostname).Str("component", "clusterNode").Logger()
+	// ---------------------------
 	cluster := &ClusterNode{
+		logger:     logger,
 		Servers:    config.Cfg.Servers,
 		MyHostname: envHostname,
 		rpcClients: make(map[string]*rpc.Client),
@@ -64,9 +70,9 @@ func (c *ClusterNode) Serve() {
 	}
 	go func() {
 		// service connections
-		log.Info().Str("rpcHost", c.MyHostname).Msg("rpcServe")
+		c.logger.Info().Str("rpcHost", c.MyHostname).Msg("rpcServe")
 		if err := c.rpcServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Err(err).Msg("Failed to listen and serve RPC")
+			c.logger.Fatal().Err(err).Msg("Failed to listen and serve RPC")
 		}
 	}()
 	// ---------------------------
