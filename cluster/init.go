@@ -10,7 +10,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
-	"github.com/semafind/semadb/kvstore"
 	"github.com/semafind/semadb/shard"
 )
 
@@ -18,8 +17,6 @@ type ClusterNode struct {
 	Servers    []string
 	MyHostname string
 	serversMu  sync.RWMutex
-	// ---------------------------
-	kvstore *kvstore.KVStore
 	// ---------------------------
 	rpcClients   map[string]*rpc.Client
 	rpcClientsMu sync.Mutex
@@ -29,7 +26,7 @@ type ClusterNode struct {
 	shardLock  sync.Mutex
 }
 
-func NewNode(kvs *kvstore.KVStore) (*ClusterNode, error) {
+func NewNode() (*ClusterNode, error) {
 	// ---------------------------
 	// Determine hostname
 	envHostname := config.Cfg.RpcHost
@@ -49,7 +46,6 @@ func NewNode(kvs *kvstore.KVStore) (*ClusterNode, error) {
 	cluster := &ClusterNode{
 		Servers:    config.Cfg.Servers,
 		MyHostname: envHostname,
-		kvstore:    kvs,
 		rpcClients: make(map[string]*rpc.Client),
 		shardStore: make(map[string]*shard.Shard),
 	}

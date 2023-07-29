@@ -7,7 +7,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
-	"github.com/semafind/semadb/kvstore"
 )
 
 func (c *ClusterNode) rpcClient(destination string) (*rpc.Client, error) {
@@ -65,14 +64,14 @@ func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply i
 			// We do this ugly re-wrap to get the original error
 			// TODO: organise remote errors into a manageable list
 			finalErr := rpcCall.Error
-			switch rpcCall.Error.Error() {
-			case kvstore.ErrExistingKey.Error():
-				finalErr = kvstore.ErrExistingKey
-			case kvstore.ErrStaleData.Error():
-				finalErr = kvstore.ErrStaleData
-			case kvstore.ErrKeyNotFound.Error():
-				finalErr = kvstore.ErrKeyNotFound
-			}
+			// switch rpcCall.Error.Error() {
+			// case kvstore.ErrExistingKey.Error():
+			// 	finalErr = kvstore.ErrExistingKey
+			// case kvstore.ErrStaleData.Error():
+			// 	finalErr = kvstore.ErrStaleData
+			// case kvstore.ErrKeyNotFound.Error():
+			// 	finalErr = kvstore.ErrKeyNotFound
+			// }
 			return fmt.Errorf("failed to call %v: %w", remoteFn, finalErr)
 		}
 	case <-time.After(time.Duration(config.Cfg.RpcTimeout) * time.Second):

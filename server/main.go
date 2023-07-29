@@ -11,7 +11,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/config"
-	"github.com/semafind/semadb/kvstore"
 )
 
 // ---------------------------
@@ -52,15 +51,8 @@ func main() {
 	}
 	log.Info().Str("hostname", hostname).Msg("Initial parameters")
 	// ---------------------------
-	// Setup kvstore
-	kvstore, err := kvstore.NewKVStore()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to create kvstore")
-	}
-	log.Info().Msg("KVStore created")
-	// ---------------------------
 	// Setup cluster state
-	clusterNode, err := cluster.NewNode(kvstore)
+	clusterNode, err := cluster.NewNode()
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create cluster state")
 	}
@@ -83,8 +75,4 @@ func main() {
 	// TODO: Gracefully shutdown cluster
 	clusterNode.Close()
 	// ---------------------------
-	// We don't timeout here because we don't want to lose data
-	if err := kvstore.Close(); err != nil {
-		log.Error().Err(err).Msg("KVStore did not close gracefully")
-	}
 }
