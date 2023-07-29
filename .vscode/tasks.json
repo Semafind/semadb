@@ -29,7 +29,7 @@
 		{
 			"type": "shell",
 			"label": "run-single-server",
-			"command": "go run ./server",
+			"command": "go run ./",
 			"presentation": {
 				"echo": true,
 				"reveal": "always",
@@ -51,7 +51,7 @@
 		{
 			"type": "shell",
 			"label": "run-server1",
-			"command": "go run ./server",
+			"command": "go run ./",
 			"presentation": {
 				"echo": true,
 				"reveal": "always",
@@ -72,7 +72,7 @@
 		{
 			"type": "shell",
 			"label": "run-server2",
-			"command": "go run ./server",
+			"command": "go run ./",
 			"presentation": {
 				"echo": true,
 				"reveal": "always",
@@ -93,7 +93,7 @@
 		{
 			"type": "shell",
 			"label": "run-server3",
-			"command": "go run ./server",
+			"command": "go run ./",
 			"presentation": {
 				"echo": true,
 				"reveal": "always",
