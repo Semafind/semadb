@@ -152,7 +152,7 @@ func (s *Shard) insertPoint(pc *PointCache, startPointId uuid.UUID, shardPoint S
 
 // ---------------------------
 
-func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error) {
+func (s *Shard) UpsertPoints(points []models.Point) error {
 	// ---------------------------
 	if config.Cfg.Debug {
 		profileFile, _ := os.Create("dump/cpu.prof")
@@ -164,10 +164,7 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("UpsertPoints")
 	// ---------------------------
 	// Upsert points
-	results := make(map[uuid.UUID]error)
 	bar := progressbar.Default(int64(len(points)))
-	// ---------------------------
-	// Write points to shard
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("points"))
 		pc := NewPointCache(b)
@@ -199,12 +196,12 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 	})
 	if err != nil {
 		log.Debug().Err(err).Msg("could not insert point")
-		return nil, fmt.Errorf("could not insert point: %w", err)
+		return fmt.Errorf("could not insert point: %w", err)
 	}
 	// ---------------------------
 	bar.Close()
 	// ---------------------------
-	return results, nil
+	return nil
 }
 
 // ---------------------------

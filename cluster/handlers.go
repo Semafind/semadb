@@ -49,9 +49,7 @@ func (c *ClusterNode) RPCUpsertPoints(args *RPCUpsertPointsRequest, reply *RPCUp
 	if err != nil {
 		return fmt.Errorf("could not load shard: %w", err)
 	}
-	results, err := shard.UpsertPoints(args.Points)
-	reply.ErrMap = results
-	return err
+	return shard.UpsertPoints(args.Points)
 }
 
 // ---------------------------

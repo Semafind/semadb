@@ -27,6 +27,6 @@ func TestShard_CreatePoint(t *testing.T) {
 	}
 	ps := make([]models.Point, 1)
 	ps[0] = p
-	_, err = shard.UpsertPoints(ps)
+	err = shard.UpsertPoints(ps)
 	assert.NoError(t, err)
 }
