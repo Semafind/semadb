@@ -172,40 +172,19 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 		b := tx.Bucket([]byte("points"))
 		pc := NewPointCache(b)
 		// ---------------------------
-		currentTime := time.Now()
-		// First pass, check for updates
-		toPrune := make(map[uuid.UUID]struct{})
-		updateSet := make(map[uuid.UUID]struct{})
-		updateList := make([]*CachePoint, 0)
-		for _, point := range points {
-			cachePoint, err := pc.GetPoint(point.Id)
-			if err != nil {
-				// point does not exist, insert
-				continue
-			}
-			// We need to remove the incoming edges from neighbours and
-			// re-insert.
-			updateList = append(updateList, cachePoint)
-		}
-		for _, point := range updateList {
-			updateSet[point.Id] = struct{}{}
-			for _, edgeId := range point.Edges {
-				// If neighbour is also being updated, we don't need to prune
-				if _, ok := updateSet[edgeId]; !ok {
-					toPrune[edgeId] = struct{}{}
-				}
-			}
-		}
-		for pointId := range toPrune {
-			if err := s.pruneDeleteNeighbour(pc, pointId, updateSet); err != nil {
-				log.Debug().Err(err).Msg("could not prune delete neighbour")
-				return fmt.Errorf("could not prune delete neighbour: %w", err)
-			}
-		}
-		log.Debug().Str("component", "shard").Str("duration", time.Since(currentTime).String()).Int("count", len(updateList)).Msg("UpsertPoints - Update")
-		// ---------------------------
 		// Insert points
 		for _, point := range points {
+			cachedPoint, err := pc.GetPoint(point.Id)
+			if err == nil {
+				// The point already exists, we need to prune it's neighbours before re-inserting
+				for _, edgeId := range cachedPoint.Edges {
+					updateSet := map[uuid.UUID]struct{}{point.Id: {}}
+					if err := s.pruneDeleteNeighbour(pc, edgeId, updateSet); err != nil {
+						log.Debug().Err(err).Msg("could not prune delete neighbour")
+						return fmt.Errorf("could not prune delete neighbour for update: %w", err)
+					}
+				}
+			}
 			if err := s.insertPoint(pc, s.startId, ShardPoint{Point: point}); err != nil {
 				log.Debug().Err(err).Msg("could not insert point")
 				return fmt.Errorf("could not insert point: %w", err)
@@ -213,7 +192,7 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 			bar.Add(1)
 		}
 		// ---------------------------
-		currentTime = time.Now()
+		currentTime := time.Now()
 		err := pc.Flush()
 		log.Debug().Str("component", "shard").Str("duration", time.Since(currentTime).String()).Msg("UpsertPoints - Flush")
 		return err
