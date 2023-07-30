@@ -2,6 +2,8 @@ package shard
 
 import (
 	"fmt"
+	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"runtime/pprof"
@@ -20,22 +22,75 @@ type Shard struct {
 	db         *bbolt.DB
 	collection models.Collection
 	distFn     distance.DistFunc
+	startId    uuid.UUID
 }
 
 func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
-	// dbDir := filepath.Join(shardDir, "db")
-	// opts := badger.DefaultOptions(dbDir).WithLogger(nil)
+	// ---------------------------
 	db, err := bbolt.Open(filepath.Join(shardDir, "db"), 0666, nil)
 	if err != nil {
 		return nil, fmt.Errorf("could not open shard db: %w", err)
 	}
-	db.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists([]byte("points"))
+	// ---------------------------
+	var startId uuid.UUID
+	err = db.Update(func(tx *bbolt.Tx) error {
+		// ---------------------------
+		// Setup buckets
+		bPoints, err := tx.CreateBucketIfNotExists([]byte("points"))
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
+		bInternal, err := tx.CreateBucketIfNotExists([]byte("internal"))
+		if err != nil {
+			return fmt.Errorf("create bucket: %s", err)
+		}
+		// ---------------------------
+		// Setup start point
+		sid := bInternal.Get([]byte("startId"))
+		if sid == nil {
+			// There is no start point, we'll create one
+			// Create random unit vector of size n
+			randVector := make([]float32, collection.VectorSize)
+			sum := float32(0)
+			for i := range randVector {
+				randVector[i] = rand.Float32()*2 - 1
+				sum += randVector[i] * randVector[i]
+			}
+			// Normalise the vector
+			norm := 1 / float32(math.Sqrt(float64(sum)))
+			for i := range randVector {
+				randVector[i] *= norm
+			}
+			// ---------------------------
+			// Create start point
+			randPoint := ShardPoint{
+				Point: models.Point{
+					Id:     uuid.New(),
+					Vector: randVector,
+				},
+			}
+			log.Debug().Str("id", randPoint.Id.String()).Msg("creating start point")
+			if err := setPoint(bPoints, randPoint); err != nil {
+				return fmt.Errorf("could not set start point: %w", err)
+			}
+			if err := bInternal.Put([]byte("startId"), randPoint.Id[:]); err != nil {
+				return fmt.Errorf("could not set start point id: %w", err)
+			}
+			startId = randPoint.Id
+			// ---------------------------
+		} else {
+			startId, err = uuid.FromBytes(sid)
+			if err != nil {
+				return fmt.Errorf("could not parse start point: %w", err)
+			}
+			log.Debug().Str("id", startId.String()).Msg("found start point")
+		}
+		// ---------------------------
 		return nil
 	})
+	if err != nil {
+		return nil, fmt.Errorf("could not initialise shard: %w", err)
+	}
 	// ---------------------------
 	distFn := distance.EuclideanDistance
 	if collection.DistMetric == "cosine" {
@@ -46,6 +101,7 @@ func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
 		db:         db,
 		collection: collection,
 		distFn:     distFn,
+		startId:    startId,
 	}, nil
 }
 
@@ -57,14 +113,9 @@ func (s *Shard) Close() error {
 
 func (s *Shard) insertPoint(pc *PointCache, startPointId uuid.UUID, shardPoint ShardPoint) error {
 	// ---------------------------
-	sp, err := pc.GetPoint(startPointId)
-	if err != nil {
-		return fmt.Errorf("could not get start point: %w", err)
-	}
-	// ---------------------------
 	point := pc.SetPoint(shardPoint)
 	// ---------------------------
-	_, visitedSet, err := s.greedySearch(pc, sp, point.Vector, 1, s.collection.Parameters.SearchSize)
+	_, visitedSet, err := s.greedySearch(pc, startPointId, point.Vector, 1, s.collection.Parameters.SearchSize)
 	if err != nil {
 		return fmt.Errorf("could not greedy search: %w", err)
 	}
@@ -94,9 +145,6 @@ func (s *Shard) insertPoint(pc *PointCache, startPointId uuid.UUID, shardPoint S
 			// Add the edge
 			pc.AddNeighbour(n, point)
 		}
-		// if err := setPointEdges(b, n); err != nil {
-		// 	return fmt.Errorf("could not set neighbour point: %w", err)
-		// }
 	}
 	// ---------------------------
 	return nil
@@ -115,30 +163,17 @@ func (s *Shard) UpsertPoints(points []models.Point) (map[uuid.UUID]error, error)
 	// ---------------------------
 	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("UpsertPoints")
 	// ---------------------------
-	// Get start point
-	var startPoint ShardPoint
-	err := s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("points"))
-		var err error
-		candidate := ShardPoint{Point: points[0]}
-		startPoint, err = getOrSetStartPoint(b, candidate)
-		return err
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not get start point: %w", err)
-	}
-	// ---------------------------
 	// Upsert points
 	results := make(map[uuid.UUID]error)
 	bar := progressbar.Default(int64(len(points)))
 	// ---------------------------
 	// Write points to shard
-	err = s.db.Update(func(tx *bbolt.Tx) error {
+	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("points"))
 		pc := NewPointCache(b)
 		// ---------------------------
 		for _, point := range points {
-			if err := s.insertPoint(pc, startPoint.Id, ShardPoint{Point: point}); err != nil {
+			if err := s.insertPoint(pc, s.startId, ShardPoint{Point: point}); err != nil {
 				log.Debug().Err(err).Msg("could not insert point")
 				return fmt.Errorf("could not insert point: %w", err)
 			}
@@ -168,16 +203,9 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]models.Point, error) {
 	var searchSet DistSet
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("points"))
-		startPoint, err := getStartPoint(b)
-		if err != nil {
-			return fmt.Errorf("could not get start point: %w", err)
-		}
 		pc := NewPointCache(b)
-		sp, err := pc.GetPoint(startPoint.Id)
-		if err != nil {
-			return fmt.Errorf("could not get start point: %w", err)
-		}
-		searchSet, _, err = s.greedySearch(pc, sp, query, k, s.collection.Parameters.SearchSize)
+		var err error
+		searchSet, _, err = s.greedySearch(pc, s.startId, query, k, s.collection.Parameters.SearchSize)
 		return err
 	})
 	if err != nil {

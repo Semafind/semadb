@@ -2,9 +2,11 @@ package shard
 
 import (
 	"fmt"
+
+	"github.com/google/uuid"
 )
 
-func (s *Shard) greedySearch(pc *PointCache, startPoint *CachePoint, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
+func (s *Shard) greedySearch(pc *PointCache, startPointId uuid.UUID, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
 	// ---------------------------
 	// Initialise distance set
 	searchSet := NewDistSet(query, searchSize*2, s.distFn)
@@ -14,8 +16,21 @@ func (s *Shard) greedySearch(pc *PointCache, startPoint *CachePoint, query []flo
 		return searchSet, visitedSet, fmt.Errorf("searchSize (%d) must be greater than k (%d)", searchSize, k)
 	}
 	// ---------------------------
-	// Start the search with the start point
-	searchSet.AddPoint(startPoint)
+	// Start the search with the start point neighbours, recall that the start
+	// point is not part of the database but an entry point to the graph. So we
+	// expand the start node and then start the search. In this case, the start
+	// point is in the visited set but not in the search set.
+	sp, err := pc.GetPoint(startPointId)
+	if err != nil {
+		return searchSet, visitedSet, fmt.Errorf("failed to get start point: %w", err)
+	}
+	spnns, err := pc.GetPointNeighbours(sp)
+	if err != nil {
+		return searchSet, visitedSet, fmt.Errorf("failed to get start point neighbours: %w", err)
+	}
+	visitedSet.AddPoint(sp)
+	searchSet.AddPoint(spnns...)
+	searchSet.Sort()
 	// ---------------------------
 	/* This loop looks to curate the closest nodes to the query vector along the
 	 * way. The loop terminates when we visited all the nodes in our search list. */

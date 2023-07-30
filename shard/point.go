@@ -104,42 +104,6 @@ func deletePoint(b *bbolt.Bucket, id uuid.UUID) error {
 	return nil
 }
 
-func getStartPoint(b *bbolt.Bucket) (ShardPoint, error) {
-	// ---------------------------
-	var startPoint ShardPoint
-	// ---------------------------
-	// Get start id
-	startVal := b.Get([]byte("_sid"))
-	if startVal == nil {
-		return startPoint, ErrNotFound
-	}
-	startId, err := uuid.FromBytes(startVal)
-	if err != nil {
-		return startPoint, fmt.Errorf("could not get start id value: %w", err)
-	}
-	// ---------------------------
-	startPoint, err = getPoint(b, startId)
-	return startPoint, err
-}
-
-func getOrSetStartPoint(b *bbolt.Bucket, candidate ShardPoint) (ShardPoint, error) {
-	// ---------------------------
-	// Get start point, set if not found
-	startPoint, err := getStartPoint(b)
-	if err == ErrNotFound {
-		// ---------------------------
-		if err := setPoint(b, candidate); err != nil {
-			return candidate, fmt.Errorf("could not set start point: %w", err)
-		}
-		if err := b.Put([]byte("_sid"), candidate.Id[:]); err != nil {
-			return candidate, fmt.Errorf("could not set start id: %w", err)
-		}
-		return candidate, nil
-	}
-	// ---------------------------
-	return startPoint, err
-}
-
 func getPointMetadata(b *bbolt.Bucket, id uuid.UUID) ([]byte, error) {
 	// ---------------------------
 	// Get metadata
