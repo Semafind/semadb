@@ -80,6 +80,10 @@ func setPoint(b *bbolt.Bucket, point ShardPoint) error {
 		if err := b.Put(suffixedKey(point.Id, 'm'), point.Metadata); err != nil {
 			return fmt.Errorf("could not set metadata: %w", err)
 		}
+	} else {
+		if err := b.Delete(suffixedKey(point.Id, 'm')); err != nil {
+			return fmt.Errorf("could not delete metadata on nil: %w", err)
+		}
 	}
 	return nil
 }
