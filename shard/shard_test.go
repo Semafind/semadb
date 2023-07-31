@@ -70,3 +70,27 @@ func TestShard_Persistence(t *testing.T) {
 	assert.Equal(t, 7, getShardSize(shard))
 	assert.NoError(t, shard.Close())
 }
+
+func TestShard_DuplicatePointId(t *testing.T) {
+	shard, _ := NewShard(t.TempDir(), sampleCol)
+	points := randPoints(2)
+	points[0].Id = points[1].Id
+	err := shard.UpsertPoints(points)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, getShardSize(shard))
+	assert.NoError(t, shard.Close())
+}
+
+func TestShard_BasicSearch(t *testing.T) {
+	shard, _ := NewShard(t.TempDir(), sampleCol)
+	points := randPoints(2)
+	points[0].Metadata = []byte("test")
+	shard.UpsertPoints(points)
+	res, err := shard.SearchPoints(points[0].Vector, 1)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(res))
+	assert.Equal(t, points[0].Id, res[0].Id)
+	assert.Equal(t, points[0].Vector, res[0].Vector)
+	assert.Equal(t, points[0].Metadata, res[0].Metadata)
+	assert.NoError(t, shard.Close())
+}

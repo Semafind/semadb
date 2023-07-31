@@ -209,36 +209,35 @@ func (s *Shard) UpsertPoints(points []models.Point) error {
 func (s *Shard) SearchPoints(query []float32, k int) ([]models.Point, error) {
 	// ---------------------------
 	// Perform search
-	var searchSet DistSet
+	results := make([]models.Point, 0, k)
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("points"))
 		pc := NewPointCache(b)
-		var err error
-		searchSet, _, err = s.greedySearch(pc, s.startId, query, k, s.collection.Parameters.SearchSize)
-		return err
+		searchSet, _, err := s.greedySearch(pc, s.startId, query, k, s.collection.Parameters.SearchSize)
+		if err != nil {
+			return fmt.Errorf("could not perform graph search: %w", err)
+		}
+		// ---------------------------
+		// Clean up results and backfill metadata
+		searchSet.KeepFirstK(k)
+		for _, distElem := range searchSet.items {
+			point := distElem.point.Point
+			mdata, err := getPointMetadata(b, point.Id)
+			if err != nil {
+				return fmt.Errorf("could not get point metadata: %w", err)
+			}
+			// We copy here because the byte slice is only valid for the
+			// lifetime of the transaction
+			point.Metadata = make([]byte, len(mdata))
+			copy(point.Metadata, mdata)
+			results = append(results, point)
+		}
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("could not perform search: %w", err)
 	}
 	// ---------------------------
-	// Clean up results and backfill metadata
-	searchSet.KeepFirstK(k)
-	results := make([]models.Point, len(searchSet.items))
-	err = s.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("points"))
-		for i, distElem := range searchSet.items {
-			results[i] = distElem.point.Point
-			mdata, err := getPointMetadata(b, distElem.point.Id)
-			if err != nil {
-				return fmt.Errorf("could not get point metadata: %w", err)
-			}
-			results[i].Metadata = mdata
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not get point metadata: %w", err)
-	}
 	return results, nil
 }
 
