@@ -35,20 +35,16 @@ func getShardSize(shard *Shard) int {
 	return size - 1 // -1 for the start point
 }
 
-func randPoint() models.Point {
-	randVector := make([]float32, 2)
-	randVector[0] = rand.Float32()
-	randVector[1] = rand.Float32()
-	return models.Point{
-		Id:     uuid.New(),
-		Vector: randVector,
-	}
-}
-
 func randPoints(size int) []models.Point {
 	points := make([]models.Point, size)
 	for i := 0; i < size; i++ {
-		points[i] = randPoint()
+		randVector := make([]float32, 2)
+		randVector[0] = rand.Float32()
+		randVector[1] = rand.Float32()
+		points[i] = models.Point{
+			Id:     uuid.New(),
+			Vector: randVector,
+		}
 	}
 	return points
 }
