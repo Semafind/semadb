@@ -111,7 +111,7 @@ func (s *Shard) Close() error {
 
 // ---------------------------
 
-func (s *Shard) insertPoint(pc *PointCache, startPointId uuid.UUID, shardPoint ShardPoint) error {
+func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uuid.UUID, shardPoint ShardPoint) error {
 	// ---------------------------
 	point := pc.SetPoint(shardPoint)
 	// ---------------------------
@@ -152,7 +152,7 @@ func (s *Shard) insertPoint(pc *PointCache, startPointId uuid.UUID, shardPoint S
 
 // ---------------------------
 
-func (s *Shard) UpsertPoints(points []models.Point) error {
+func (s *Shard) InsertPoints(points []models.Point) error {
 	// ---------------------------
 	if config.Cfg.Debug {
 		profileFile, _ := os.Create("dump/cpu.prof")
@@ -161,9 +161,9 @@ func (s *Shard) UpsertPoints(points []models.Point) error {
 		defer pprof.StopCPUProfile()
 	}
 	// ---------------------------
-	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("UpsertPoints")
+	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("InsertPoints")
 	// ---------------------------
-	// Upsert points
+	// Insert points
 	bar := progressbar.Default(int64(len(points)))
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte("points"))
@@ -171,18 +171,15 @@ func (s *Shard) UpsertPoints(points []models.Point) error {
 		// ---------------------------
 		// Insert points
 		for _, point := range points {
-			cachedPoint, err := pc.GetPoint(point.Id)
+			_, err := pc.GetPoint(point.Id)
 			if err == nil {
-				// The point already exists, we need to prune it's neighbours before re-inserting
-				for _, edgeId := range cachedPoint.Edges {
-					updateSet := map[uuid.UUID]struct{}{point.Id: {}}
-					if err := s.pruneDeleteNeighbour(pc, edgeId, updateSet); err != nil {
-						log.Debug().Err(err).Msg("could not prune delete neighbour")
-						return fmt.Errorf("could not prune delete neighbour for update: %w", err)
-					}
-				}
+				// The point exists, we can't re-insert it. This is actually an
+				// error because the edges will be wrong in the graph. It needs
+				// to be updated instead.
+				log.Debug().Str("id", point.Id.String()).Msg("point already exists")
+				return fmt.Errorf("point already exists: %s", point.Id.String())
 			}
-			if err := s.insertPoint(pc, s.startId, ShardPoint{Point: point}); err != nil {
+			if err := s.insertSinglePoint(pc, s.startId, ShardPoint{Point: point}); err != nil {
 				log.Debug().Err(err).Msg("could not insert point")
 				return fmt.Errorf("could not insert point: %w", err)
 			}
@@ -191,17 +188,58 @@ func (s *Shard) UpsertPoints(points []models.Point) error {
 		// ---------------------------
 		currentTime := time.Now()
 		err := pc.Flush()
-		log.Debug().Str("component", "shard").Str("duration", time.Since(currentTime).String()).Msg("UpsertPoints - Flush")
+		log.Debug().Str("component", "shard").Str("duration", time.Since(currentTime).String()).Msg("InsertPoints - Flush")
 		return err
 	})
 	if err != nil {
-		log.Debug().Err(err).Msg("could not insert point")
-		return fmt.Errorf("could not insert point: %w", err)
+		log.Debug().Err(err).Msg("could not insert points")
+		return fmt.Errorf("could not insert points: %w", err)
 	}
 	// ---------------------------
 	bar.Close()
 	// ---------------------------
 	return nil
+}
+
+// ---------------------------
+
+func (s *Shard) UpdatePoints(points []models.Point) (map[uuid.UUID]error, error) {
+	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("UpdatePoints")
+	// ---------------------------
+	results := make(map[uuid.UUID]error)
+	err := s.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket([]byte("points"))
+		pc := NewPointCache(b)
+		// ---------------------------
+		// Update points if they exist
+		for _, point := range points {
+			cachedPoint, err := pc.GetPoint(point.Id)
+			if err != nil {
+				// Point does not exist, or we can't access it at the moment
+				results[point.Id] = err
+				continue
+			}
+			// The point already exists, we need to prune it's neighbours before re-inserting
+			for _, edgeId := range cachedPoint.Edges {
+				updateSet := map[uuid.UUID]struct{}{point.Id: {}}
+				if err := s.pruneDeleteNeighbour(pc, edgeId, updateSet); err != nil {
+					log.Debug().Err(err).Msg("could not prune delete neighbour")
+					return fmt.Errorf("could not prune delete neighbour for update: %w", err)
+				}
+			}
+			if err := s.insertSinglePoint(pc, s.startId, ShardPoint{Point: point}); err != nil {
+				log.Debug().Err(err).Msg("could not re-insert point for update")
+				return fmt.Errorf("could not re-insert point: %w", err)
+			}
+		}
+		return pc.Flush()
+	})
+	if err != nil {
+		log.Debug().Err(err).Msg("could not insert points")
+		return nil, fmt.Errorf("could not update points: %w", err)
+	}
+	// ---------------------------
+	return results, nil
 }
 
 // ---------------------------

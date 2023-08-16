@@ -53,7 +53,7 @@ func TestShard_CreatePoint(t *testing.T) {
 	shard, err := NewShard(t.TempDir(), sampleCol)
 	assert.NoError(t, err)
 	assert.Equal(t, 0, getShardSize(shard))
-	err = shard.UpsertPoints(randPoints(2))
+	err = shard.InsertPoints(randPoints(2))
 	assert.NoError(t, err)
 	assert.Equal(t, 2, getShardSize(shard))
 	assert.NoError(t, shard.Close())
@@ -62,7 +62,7 @@ func TestShard_CreatePoint(t *testing.T) {
 func TestShard_Persistence(t *testing.T) {
 	shardDir := t.TempDir()
 	shard, _ := NewShard(shardDir, sampleCol)
-	err := shard.UpsertPoints(randPoints(7))
+	err := shard.InsertPoints(randPoints(7))
 	assert.NoError(t, err)
 	assert.NoError(t, shard.Close())
 	shard, err = NewShard(shardDir, sampleCol)
@@ -75,9 +75,9 @@ func TestShard_DuplicatePointId(t *testing.T) {
 	shard, _ := NewShard(t.TempDir(), sampleCol)
 	points := randPoints(2)
 	points[0].Id = points[1].Id
-	err := shard.UpsertPoints(points)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, getShardSize(shard))
+	err := shard.InsertPoints(points)
+	assert.Error(t, err)
+	assert.Equal(t, 0, getShardSize(shard))
 	assert.NoError(t, shard.Close())
 }
 
@@ -85,12 +85,27 @@ func TestShard_BasicSearch(t *testing.T) {
 	shard, _ := NewShard(t.TempDir(), sampleCol)
 	points := randPoints(2)
 	points[0].Metadata = []byte("test")
-	shard.UpsertPoints(points)
+	shard.InsertPoints(points)
 	res, err := shard.SearchPoints(points[0].Vector, 1)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(res))
 	assert.Equal(t, points[0].Id, res[0].Id)
 	assert.Equal(t, points[0].Vector, res[0].Vector)
 	assert.Equal(t, points[0].Metadata, res[0].Metadata)
+	assert.NoError(t, shard.Close())
+}
+
+func TestShard_UpdatePoint(t *testing.T) {
+	shard, _ := NewShard(t.TempDir(), sampleCol)
+	points := randPoints(2)
+	err := shard.InsertPoints(points[:1])
+	assert.NoError(t, err)
+	updateRes, err := shard.UpdatePoints(points)
+	assert.NoError(t, err)
+	assert.Equal(t, 1, len(updateRes))
+	_, ok := updateRes[points[0].Id]
+	assert.False(t, ok)
+	_, ok = updateRes[points[1].Id]
+	assert.True(t, ok)
 	assert.NoError(t, shard.Close())
 }

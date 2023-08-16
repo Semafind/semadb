@@ -166,7 +166,7 @@ func loadIntoShard(vcol VectorCollection) {
 		// ---------------------------
 		// Add points to collection
 		log.Debug().Int("i", i).Int("end", end).Msg("loadHDF5 - createPoints")
-		if _, err := shard.UpsertPoints(points[i:end]); err != nil {
+		if err := shard.InsertPoints(points[i:end]); err != nil {
 			log.Fatal().Err(err).Msg("loadHDF5")
 		}
 	}
