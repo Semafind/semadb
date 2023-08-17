@@ -116,3 +116,25 @@ func TestShard_UpdatePoint(t *testing.T) {
 	assert.True(t, ok)
 	assert.NoError(t, shard.Close())
 }
+
+func TestShard_DeletePoint(t *testing.T) {
+	shard, _ := NewShard(t.TempDir(), sampleCol)
+	points := randPoints(2)
+	shard.InsertPoints(points)
+	deleteSet := make(map[uuid.UUID]struct{})
+	deleteSet[points[0].Id] = struct{}{}
+	// delete one point
+	err := shard.DeletePoints(deleteSet)
+	assert.NoError(t, err)
+	checkShardSize(t, shard, 1)
+	// Try deleting the same point again
+	err = shard.DeletePoints(deleteSet)
+	assert.NoError(t, err)
+	checkShardSize(t, shard, 1)
+	// Delete other point too
+	deleteSet[points[1].Id] = struct{}{}
+	err = shard.DeletePoints(deleteSet)
+	assert.NoError(t, err)
+	checkShardSize(t, shard, 0)
+	assert.NoError(t, shard.Close())
+}

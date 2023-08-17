@@ -373,6 +373,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) error {
 		// ---------------------------
 		// Collect all the neighbours of the points to be deleted
 		toPrune := make(map[uuid.UUID]struct{}, len(deleteSet))
+		deleteCount := 0
 		for pointId := range deleteSet {
 			point, err := pc.GetPoint(pointId)
 			if err != nil {
@@ -380,6 +381,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) error {
 				log.Debug().Err(err).Msg("could not get point for deletion")
 				continue
 			}
+			deleteCount++
 			point.isDeleted = true
 			for _, edgeId := range point.Edges {
 				if _, ok := deleteSet[edgeId]; !ok {
@@ -396,7 +398,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) error {
 		}
 		// ---------------------------
 		// Update point count accordingly
-		if err := changePointCount(tx, -int64(len(deleteSet))); err != nil {
+		if err := changePointCount(tx, -int64(deleteCount)); err != nil {
 			log.Debug().Err(err).Msg("could not change point count")
 			return fmt.Errorf("could not change point count for deletion: %w", err)
 		}
