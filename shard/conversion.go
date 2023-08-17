@@ -7,6 +7,16 @@ import (
 	"github.com/google/uuid"
 )
 
+func int64ToBytes(i int64) []byte {
+	b := make([]byte, 8)
+	binary.LittleEndian.PutUint64(b, uint64(i))
+	return b
+}
+
+func bytesToInt64(b []byte) int64 {
+	return int64(binary.LittleEndian.Uint64(b))
+}
+
 func float32ToBytes(f []float32) []byte {
 	b := make([]byte, len(f)*4)
 	for i, v := range f {

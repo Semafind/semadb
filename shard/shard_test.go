@@ -35,6 +35,13 @@ func getShardSize(shard *Shard) int {
 	return size - 1 // -1 for the start point
 }
 
+func checkShardSize(t *testing.T, shard *Shard, expected int) {
+	assert.Equal(t, expected, getShardSize(shard))
+	pointCount, err := shard.GetPointCount()
+	assert.NoError(t, err)
+	assert.Equal(t, expected, int(pointCount))
+}
+
 func randPoints(size int) []models.Point {
 	points := make([]models.Point, size)
 	for i := 0; i < size; i++ {
@@ -52,10 +59,10 @@ func randPoints(size int) []models.Point {
 func TestShard_CreatePoint(t *testing.T) {
 	shard, err := NewShard(t.TempDir(), sampleCol)
 	assert.NoError(t, err)
-	assert.Equal(t, 0, getShardSize(shard))
+	checkShardSize(t, shard, 0)
 	err = shard.InsertPoints(randPoints(2))
 	assert.NoError(t, err)
-	assert.Equal(t, 2, getShardSize(shard))
+	checkShardSize(t, shard, 2)
 	assert.NoError(t, shard.Close())
 }
 
@@ -67,7 +74,7 @@ func TestShard_Persistence(t *testing.T) {
 	assert.NoError(t, shard.Close())
 	shard, err = NewShard(shardDir, sampleCol)
 	assert.NoError(t, err)
-	assert.Equal(t, 7, getShardSize(shard))
+	checkShardSize(t, shard, 7)
 	assert.NoError(t, shard.Close())
 }
 
@@ -77,7 +84,7 @@ func TestShard_DuplicatePointId(t *testing.T) {
 	points[0].Id = points[1].Id
 	err := shard.InsertPoints(points)
 	assert.Error(t, err)
-	assert.Equal(t, 0, getShardSize(shard))
+	checkShardSize(t, shard, 0)
 	assert.NoError(t, shard.Close())
 }
 

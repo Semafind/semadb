@@ -28,6 +28,7 @@ type Shard struct {
 var POINTSKEY = []byte("points")
 var INTERNALKEY = []byte("internal")
 var STARTIDKEY = []byte("startId")
+var POINTCOUNTKEY = []byte("pointCount")
 
 func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
 	// ---------------------------
@@ -115,6 +116,39 @@ func (s *Shard) Close() error {
 
 // ---------------------------
 
+func changePointCount(tx *bbolt.Tx, change int64) error {
+	bInternal := tx.Bucket(INTERNALKEY)
+	countBytes := bInternal.Get(POINTCOUNTKEY)
+	var count int64
+	if countBytes != nil {
+		count = bytesToInt64(countBytes)
+	}
+	count += change
+	countBytes = int64ToBytes(count)
+	if err := bInternal.Put(POINTCOUNTKEY, countBytes); err != nil {
+		return fmt.Errorf("could not change point count: %w", err)
+	}
+	return nil
+}
+
+func (s *Shard) GetPointCount() (int64, error) {
+	var count int64
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		bInternal := tx.Bucket(INTERNALKEY)
+		countBytes := bInternal.Get(POINTCOUNTKEY)
+		if countBytes != nil {
+			count = bytesToInt64(countBytes)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("could not get point count: %w", err)
+	}
+	return count, nil
+}
+
+// ---------------------------
+
 func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uuid.UUID, shardPoint ShardPoint) error {
 	// ---------------------------
 	point := pc.SetPoint(shardPoint)
@@ -188,6 +222,12 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 				return fmt.Errorf("could not insert point: %w", err)
 			}
 			bar.Add(1)
+		}
+		// ---------------------------
+		// Update point count accordingly
+		if err := changePointCount(tx, int64(len(points))); err != nil {
+			log.Debug().Err(err).Msg("could not update point count")
+			return fmt.Errorf("could not update point count for insertion: %w", err)
 		}
 		// ---------------------------
 		currentTime := time.Now()
@@ -353,6 +393,12 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) error {
 				log.Debug().Err(err).Msg("could not prune delete neighbour")
 				return fmt.Errorf("could not prune delete neighbour: %w", err)
 			}
+		}
+		// ---------------------------
+		// Update point count accordingly
+		if err := changePointCount(tx, -int64(len(deleteSet))); err != nil {
+			log.Debug().Err(err).Msg("could not change point count")
+			return fmt.Errorf("could not change point count for deletion: %w", err)
 		}
 		// ---------------------------
 		return pc.Flush()
