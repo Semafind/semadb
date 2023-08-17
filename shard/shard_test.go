@@ -23,7 +23,7 @@ var sampleCol models.Collection = models.Collection{
 func getShardSize(shard *Shard) int {
 	size := 0
 	shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("points"))
+		b := tx.Bucket(POINTSKEY)
 		b.ForEach(func(k, v []byte) error {
 			if k[len(k)-1] == 'v' {
 				size++

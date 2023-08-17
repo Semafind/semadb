@@ -25,6 +25,10 @@ type Shard struct {
 	startId    uuid.UUID
 }
 
+var POINTSKEY = []byte("points")
+var INTERNALKEY = []byte("internal")
+var STARTIDKEY = []byte("startId")
+
 func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
 	// ---------------------------
 	db, err := bbolt.Open(filepath.Join(shardDir, "db"), 0666, nil)
@@ -36,17 +40,17 @@ func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
 	err = db.Update(func(tx *bbolt.Tx) error {
 		// ---------------------------
 		// Setup buckets
-		bPoints, err := tx.CreateBucketIfNotExists([]byte("points"))
+		bPoints, err := tx.CreateBucketIfNotExists(POINTSKEY)
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
-		bInternal, err := tx.CreateBucketIfNotExists([]byte("internal"))
+		bInternal, err := tx.CreateBucketIfNotExists(INTERNALKEY)
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
 		// ---------------------------
 		// Setup start point
-		sid := bInternal.Get([]byte("startId"))
+		sid := bInternal.Get(STARTIDKEY)
 		if sid == nil {
 			// There is no start point, we'll create one
 			// Create random unit vector of size n
@@ -73,7 +77,7 @@ func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
 			if err := setPoint(bPoints, randPoint); err != nil {
 				return fmt.Errorf("could not set start point: %w", err)
 			}
-			if err := bInternal.Put([]byte("startId"), randPoint.Id[:]); err != nil {
+			if err := bInternal.Put(STARTIDKEY, randPoint.Id[:]); err != nil {
 				return fmt.Errorf("could not set start point id: %w", err)
 			}
 			startId = randPoint.Id
@@ -166,7 +170,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 	// Insert points
 	bar := progressbar.Default(int64(len(points)))
 	err := s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("points"))
+		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
 		// Insert points
@@ -208,7 +212,7 @@ func (s *Shard) UpdatePoints(points []models.Point) (map[uuid.UUID]error, error)
 	// ---------------------------
 	results := make(map[uuid.UUID]error)
 	err := s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("points"))
+		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
 		// Update points if they exist
@@ -249,7 +253,7 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]models.Point, error) {
 	// Perform search
 	results := make([]models.Point, 0, k)
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("points"))
+		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
 		searchSet, _, err := s.greedySearch(pc, s.startId, query, k, s.collection.Parameters.SearchSize)
 		if err != nil {
@@ -324,7 +328,7 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uuid.UUID, deleteSet map
 func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) error {
 	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("points"))
+		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
 		// Collect all the neighbours of the points to be deleted
