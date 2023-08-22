@@ -123,7 +123,12 @@ func (c *ClusterNode) CreateShard(col models.Collection) (string, error) {
 	return shardDir, nil
 }
 
-func (c *ClusterNode) GetShards(col models.Collection) ([]string, error) {
+type shardInfo struct {
+	ShardDir string
+	Size     int64
+}
+
+func (c *ClusterNode) GetShards(col models.Collection, withSize bool) ([]shardInfo, error) {
 	// ---------------------------
 	colDir := filepath.Join(config.Cfg.RootDir, col.UserId, col.Id)
 	shardDirs, err := os.ReadDir(colDir)
@@ -131,12 +136,31 @@ func (c *ClusterNode) GetShards(col models.Collection) ([]string, error) {
 		return nil, fmt.Errorf("could not read collection directory: %w", err)
 	}
 	// ---------------------------
-	shards := make([]string, 0, len(shardDirs))
+	shards := make([]shardInfo, 0, len(shardDirs))
 	for _, shardDir := range shardDirs {
 		if !shardDir.IsDir() {
 			continue
 		}
-		shards = append(shards, filepath.Join(colDir, shardDir.Name()))
+		// ---------------------------
+		// Get db size
+		dbSize := int64(0)
+		fullShardDir := filepath.Join(colDir, shardDir.Name())
+		if withSize {
+			dbFile := filepath.Join(fullShardDir, "db")
+			dbStat, err := os.Stat(dbFile)
+			if err != nil {
+				c.logger.Error().Err(err).Str("dbFile", dbFile).Msg("could not stat db file")
+				continue
+			}
+			c.logger.Debug().Str("dbFile", dbFile).Int64("dbSize", dbStat.Size()).Msg("GetShards")
+			dbSize = dbStat.Size()
+		}
+		// ---------------------------
+		si := shardInfo{
+			ShardDir: fullShardDir,
+			Size:     dbSize,
+		}
+		shards = append(shards, si)
 	}
 	// ---------------------------
 	return shards, nil
@@ -145,7 +169,7 @@ func (c *ClusterNode) GetShards(col models.Collection) ([]string, error) {
 func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point) ([]error, error) {
 	// ---------------------------
 	// This is where shard distribution happens
-	shards, err := c.GetShards(col)
+	shards, err := c.GetShards(col, true)
 	if err != nil {
 		return nil, fmt.Errorf("could not get shards: %w", err)
 	}
@@ -155,14 +179,17 @@ func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point)
 		if err != nil {
 			return nil, fmt.Errorf("could not create shard: %w", err)
 		}
-		shards = append(shards, newShard)
+		shards = append(shards, shardInfo{
+			ShardDir: newShard,
+			Size:     0,
+		}) // empty shard
 	}
 	// ---------------------------
 	// Distribute points to shards
 	shardPoints := make(map[string][]models.Point)
 	for _, point := range points {
-		shardId := shards[rand.Intn(len(shards))]
-		shardPoints[shardId] = append(shardPoints[shardId], point)
+		si := shards[rand.Intn(len(shards))]
+		shardPoints[si.ShardDir] = append(shardPoints[si.ShardDir], point)
 	}
 	// ---------------------------
 	// Insert points
@@ -194,7 +221,7 @@ func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point)
 
 func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit int) ([]models.Point, error) {
 	// ---------------------------
-	shards, err := c.GetShards(col)
+	shards, err := c.GetShards(col, false)
 	if err != nil {
 		return nil, fmt.Errorf("could not get shards: %w", err)
 	}
@@ -209,13 +236,13 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 		return nil, fmt.Errorf("searching multiple shards is not supported yet")
 	}
 	// ---------------------------
-	targetServer := RendezvousHash(shards[0], c.Servers, 1)[0]
+	targetServer := RendezvousHash(shards[0].ShardDir, c.Servers, 1)[0]
 	searchReq := rpcSearchPointsRequest{
 		rpcRequestArgs: rpcRequestArgs{
 			Source: c.MyHostname,
 			Dest:   targetServer,
 		},
-		ShardDir: shards[0],
+		ShardDir: shards[0].ShardDir,
 		Vector:   query,
 		Limit:    limit,
 	}
