@@ -9,38 +9,38 @@ import (
 
 // ---------------------------
 
-type PingRequest struct {
-	RequestArgs
-	Message string
-}
+// type rpcPingRequest struct {
+// 	rpcRequestArgs
+// 	Message string
+// }
 
-type PingResponse struct {
-	Message string
-}
+// type rpcPingResponse struct {
+// 	Message string
+// }
 
-func (c *ClusterNode) Ping(args *PingRequest, reply *PingResponse) error {
-	c.logger.Debug().Interface("args", args).Msg("Ping")
-	if args.Dest != c.MyHostname {
-		return c.internalRoute("ClusterNode.Ping", args, reply)
-	}
-	reply.Message = fmt.Sprintf("Pong from semadb %v, message: %v", c.MyHostname, args.Message)
-	return nil
-}
+// func (c *ClusterNode) rpcPing(args *rpcPingRequest, reply *rpcPingResponse) error {
+// 	c.logger.Debug().Interface("args", args).Msg("Ping")
+// 	if args.Dest != c.MyHostname {
+// 		return c.internalRoute("ClusterNode.Ping", args, reply)
+// 	}
+// 	reply.Message = fmt.Sprintf("Pong from semadb %v, message: %v", c.MyHostname, args.Message)
+// 	return nil
+// }
 
 // ---------------------------
 
-type RPCUpsertPointsRequest struct {
-	RequestArgs
+type rpcUpsertPointsRequest struct {
+	rpcRequestArgs
 	ShardDir string
 	Points   []models.Point
 }
 
-type RPCUpsertPointsResponse struct {
+type rpcUpsertPointsResponse struct {
 	ErrMap map[uuid.UUID]error
 }
 
-func (c *ClusterNode) RPCUpsertPoints(args *RPCUpsertPointsRequest, reply *RPCUpsertPointsResponse) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RequestArgs).Msg("RPCUpsertPoints")
+func (c *ClusterNode) rpcUpsertPoints(args *rpcUpsertPointsRequest, reply *rpcUpsertPointsResponse) error {
+	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.rpcRequestArgs).Msg("RPCUpsertPoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCUpsertPoints", args, reply)
 	}
@@ -54,19 +54,19 @@ func (c *ClusterNode) RPCUpsertPoints(args *RPCUpsertPointsRequest, reply *RPCUp
 
 // ---------------------------
 
-type RPCSearchPointsRequest struct {
-	RequestArgs
+type rpcSearchPointsRequest struct {
+	rpcRequestArgs
 	ShardDir string
 	Vector   []float32
 	Limit    int
 }
 
-type RPCSearchPointsResponse struct {
+type rpcSearchPointsResponse struct {
 	Points []models.Point
 }
 
-func (c *ClusterNode) RPCSearchPoints(args *RPCSearchPointsRequest, reply *RPCSearchPointsResponse) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RequestArgs).Msg("RPCSearchPoints")
+func (c *ClusterNode) rpcSearchPoints(args *rpcSearchPointsRequest, reply *rpcSearchPointsResponse) error {
+	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.rpcRequestArgs).Msg("RPCSearchPoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCSearchPoints", args, reply)
 	}
