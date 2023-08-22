@@ -170,7 +170,7 @@ func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point)
 	// ---------------------------
 	for shardId, shardPoints := range shardPoints {
 		targetServer := RendezvousHash(shardId, c.Servers, 1)[0]
-		upsertReq := rpcUpsertPointsRequest{
+		insertReq := rpcInsertPointsRequest{
 			rpcRequestArgs: rpcRequestArgs{
 				Source: c.MyHostname,
 				Dest:   targetServer,
@@ -178,15 +178,14 @@ func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point)
 			ShardDir: shardId,
 			Points:   shardPoints,
 		}
-		upsertResp := rpcUpsertPointsResponse{}
-		if err := c.rpcUpsertPoints(&upsertReq, &upsertResp); err != nil {
+		if err := c.RPCInsertPoints(&insertReq, nil); err != nil {
 			results[shardId] = err
 		}
 	}
 	// ---------------------------
 	for shardId, err := range results {
 		if err != nil {
-			c.logger.Error().Err(err).Str("shardId", shardId).Msg("could not upsert points")
+			c.logger.Error().Err(err).Str("shardId", shardId).Msg("could not insert points")
 		}
 	}
 	// ---------------------------
@@ -221,7 +220,7 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 		Limit:    limit,
 	}
 	searchResp := rpcSearchPointsResponse{}
-	if err := c.rpcSearchPoints(&searchReq, &searchResp); err != nil {
+	if err := c.RPCSearchPoints(&searchReq, &searchResp); err != nil {
 		return nil, fmt.Errorf("could not search points: %w", err)
 	}
 	return searchResp.Points, nil
