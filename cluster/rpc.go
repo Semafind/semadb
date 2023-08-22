@@ -60,9 +60,9 @@ func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply i
 			}
 			// The method's return value, if non-nil, is passed back as a string that the client sees as if created by errors.New
 			// This means error wrapping, errors.Is and equality checks do not work as expected from rpcCall.Error
-			// We do this ugly re-wrap to get the original error
-			// TODO: organise remote errors into a manageable list
+			// We try to avoid relying on returning internal errors from remote calls
 			finalErr := rpcCall.Error
+			// Otherwise, we need to check the error string using an ugly switch statement below.
 			// switch rpcCall.Error.Error() {
 			// case kvstore.ErrExistingKey.Error():
 			// 	finalErr = kvstore.ErrExistingKey
