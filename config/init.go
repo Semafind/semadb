@@ -17,6 +17,8 @@ type configMap struct {
 	RootDir string `yaml:"rootDir"`
 	// Maximum size of shards in bytes
 	MaxShardSize int64 `yaml:"maxShardSize"`
+	// Shard timeout in seconds
+	ShardTimeout int `yaml:"shardTimeout"`
 	// List of known servers at the beginning
 	Servers []string `yaml:"servers"`
 	// RPC Parameters

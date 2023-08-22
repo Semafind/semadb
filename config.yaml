@@ -4,6 +4,8 @@ debug: false
 rootDir: /tmp/semadb
 # Maximum size of shards in bytes
 maxShardSize: 268435456 # 2GiB
+# Shard timeout in seconds
+shardTimeout: 300 # 5 minutes
 # List of known servers at the beginning
 servers:
   - localhost:9898 

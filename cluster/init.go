@@ -11,7 +11,6 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
-	"github.com/semafind/semadb/shard"
 )
 
 type ClusterNode struct {
@@ -25,7 +24,7 @@ type ClusterNode struct {
 	rpcClientsMu sync.Mutex
 	rpcServer    *http.Server
 	// ---------------------------
-	shardStore map[string]*shard.Shard
+	shardStore map[string]loadedShard
 	shardLock  sync.Mutex
 }
 
@@ -53,7 +52,7 @@ func NewNode() (*ClusterNode, error) {
 		Servers:    config.Cfg.Servers,
 		MyHostname: envHostname,
 		rpcClients: make(map[string]*rpc.Client),
-		shardStore: make(map[string]*shard.Shard),
+		shardStore: make(map[string]loadedShard),
 	}
 	return cluster, nil
 }
