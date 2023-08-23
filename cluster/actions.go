@@ -3,7 +3,6 @@ package cluster
 import (
 	"errors"
 	"fmt"
-	"math/rand"
 	"os"
 	"path/filepath"
 
@@ -186,17 +185,42 @@ func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point)
 	}
 	// ---------------------------
 	// Distribute points to shards
-	shardPoints := make(map[string][]models.Point)
-	for _, point := range points {
-		si := shards[rand.Intn(len(shards))]
-		shardPoints[si.ShardDir] = append(shardPoints[si.ShardDir], point)
+	shardAssignments := make(map[string][2]int)
+	lastShardIndex, lastPointIndex := 0, 0
+	runningSize := shards[lastShardIndex].Size
+	for i, point := range points {
+		runningSize += int64(len(point.Metadata)+len(point.Vector)*4) + 8 // 8 bytes for id
+		if runningSize > config.Cfg.MaxShardSize {
+			// This shard can't take any more points, did it take any points?
+			if i > lastPointIndex {
+				// This shard took some points
+				shardAssignments[shards[lastShardIndex].ShardDir] = [2]int{lastPointIndex, i}
+				lastPointIndex = i
+			}
+			// Did we reach the last shard?
+			if lastShardIndex == len(shards)-1 {
+				// We need more shards to take the rest of the points
+				newShard, err := c.CreateShard(col)
+				if err != nil {
+					return nil, fmt.Errorf("could not create shard: %w", err)
+				}
+				shards = append(shards, shardInfo{
+					ShardDir: newShard,
+					Size:     0,
+				}) // empty shard
+			}
+			lastShardIndex++
+			runningSize = shards[lastShardIndex].Size
+		}
+	}
+	if lastPointIndex < len(points) {
+		shardAssignments[shards[lastShardIndex].ShardDir] = [2]int{lastPointIndex, len(points)}
 	}
 	// ---------------------------
 	// Insert points
-	results := make(map[string]error)
-	// ---------------------------
-	for shardId, shardPoints := range shardPoints {
+	for shardId, pointRange := range shardAssignments {
 		targetServer := RendezvousHash(shardId, c.Servers, 1)[0]
+		shardPoints := points[pointRange[0]:pointRange[1]]
 		insertReq := rpcInsertPointsRequest{
 			rpcRequestArgs: rpcRequestArgs{
 				Source: c.MyHostname,
@@ -206,12 +230,6 @@ func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point)
 			Points:   shardPoints,
 		}
 		if err := c.RPCInsertPoints(&insertReq, nil); err != nil {
-			results[shardId] = err
-		}
-	}
-	// ---------------------------
-	for shardId, err := range results {
-		if err != nil {
 			c.logger.Error().Err(err).Str("shardId", shardId).Msg("could not insert points")
 		}
 	}
