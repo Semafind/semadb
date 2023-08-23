@@ -102,6 +102,16 @@ func TestShard_BasicSearch(t *testing.T) {
 	assert.NoError(t, shard.Close())
 }
 
+func TestShard_SearchMaxLimit(t *testing.T) {
+	shard, _ := NewShard(t.TempDir(), sampleCol)
+	points := randPoints(2)
+	shard.InsertPoints(points)
+	res, err := shard.SearchPoints(points[0].Vector, 7)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, len(res))
+	assert.NoError(t, shard.Close())
+}
+
 func TestShard_UpdatePoint(t *testing.T) {
 	shard, _ := NewShard(t.TempDir(), sampleCol)
 	points := randPoints(2)

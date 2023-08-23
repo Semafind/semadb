@@ -290,8 +290,10 @@ func (s *Shard) UpdatePoints(points []models.Point) (map[uuid.UUID]error, error)
 
 func (s *Shard) SearchPoints(query []float32, k int) ([]models.Point, error) {
 	// ---------------------------
-	// Perform search
-	results := make([]models.Point, 0, k)
+	// Perform search, we add 1 to k because the start point is included in the
+	// search set. Recall that the start point is only used to bootstrap the
+	// search, and is not included in the results.
+	results := make([]models.Point, 0, k+1)
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
@@ -304,6 +306,13 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]models.Point, error) {
 		searchSet.KeepFirstK(k)
 		for _, distElem := range searchSet.items {
 			point := distElem.point.Point
+			// We skip the start point
+			if point.Id == s.startId {
+				continue
+			}
+			if len(results) >= k {
+				break
+			}
 			mdata, err := getPointMetadata(b, point.Id)
 			if err != nil {
 				return fmt.Errorf("could not get point metadata: %w", err)
