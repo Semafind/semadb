@@ -16,6 +16,9 @@ type loadedShard struct {
 	mu     sync.RWMutex // This locks stops the cleanup goroutine from unloading the shard while it is being used
 }
 
+// Load a shard into memory. If the shard is already loaded, the shard is
+// returned from the local cache. The shard is unloaded after a timeout if it is
+// not used.
 func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
 	c.logger.Debug().Str("shardDir", shardDir).Msg("LoadShard")
 	c.shardLock.Lock()
@@ -89,6 +92,9 @@ func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
 	return ls, nil
 }
 
+// DoWithShard executes a function with a shard. The shard is loaded if it is
+// not already loaded and prevents the shard from being cleaned up while the
+// function is executing.
 func (c *ClusterNode) DoWithShard(shardDir string, f func(*shard.Shard) error) error {
 	c.logger.Debug().Str("shardDir", shardDir).Msg("DoWithShard")
 	ls, err := c.loadShard(shardDir)
