@@ -28,6 +28,17 @@
 		},
 		{
 			"type": "shell",
+			"label": "go: update packages",
+			"command": "go",
+			"args": [
+				"get",
+				"-u",
+				"./..."
+			],
+			"problemMatcher": []
+		},
+		{
+			"type": "shell",
 			"label": "run-single-server",
 			"command": "go run ./",
 			"presentation": {
