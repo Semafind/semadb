@@ -173,17 +173,6 @@ func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point)
 		return nil, fmt.Errorf("could not get shards: %w", err)
 	}
 	// ---------------------------
-	if len(shards) == 0 {
-		newShard, err := c.CreateShard(col)
-		if err != nil {
-			return nil, fmt.Errorf("could not create shard: %w", err)
-		}
-		shards = append(shards, shardInfo{
-			ShardDir: newShard,
-			Size:     0,
-		}) // empty shard
-	}
-	// ---------------------------
 	// Distribute points to shards
 	shardAssignments, err := distributePoints(shards, points, config.Cfg.MaxShardSize, func() (string, error) {
 		return c.CreateShard(col)
