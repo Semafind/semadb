@@ -18,7 +18,6 @@ type ClusterNode struct {
 	// ---------------------------
 	Servers    []string
 	MyHostname string
-	serversMu  sync.RWMutex
 	// ---------------------------
 	rpcClients   map[string]*rpc.Client
 	rpcClientsMu sync.Mutex

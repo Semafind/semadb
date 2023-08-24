@@ -185,36 +185,11 @@ func (c *ClusterNode) UpsertPoints(col models.Collection, points []models.Point)
 	}
 	// ---------------------------
 	// Distribute points to shards
-	shardAssignments := make(map[string][2]int)
-	lastShardIndex, lastPointIndex := 0, 0
-	runningSize := shards[lastShardIndex].Size
-	for i, point := range points {
-		runningSize += int64(len(point.Metadata)+len(point.Vector)*4) + 8 // 8 bytes for id
-		if runningSize > config.Cfg.MaxShardSize {
-			// This shard can't take any more points, did it take any points?
-			if i > lastPointIndex {
-				// This shard took some points
-				shardAssignments[shards[lastShardIndex].ShardDir] = [2]int{lastPointIndex, i}
-				lastPointIndex = i
-			}
-			// Did we reach the last shard?
-			if lastShardIndex == len(shards)-1 {
-				// We need more shards to take the rest of the points
-				newShard, err := c.CreateShard(col)
-				if err != nil {
-					return nil, fmt.Errorf("could not create shard: %w", err)
-				}
-				shards = append(shards, shardInfo{
-					ShardDir: newShard,
-					Size:     0,
-				}) // empty shard
-			}
-			lastShardIndex++
-			runningSize = shards[lastShardIndex].Size
-		}
-	}
-	if lastPointIndex < len(points) {
-		shardAssignments[shards[lastShardIndex].ShardDir] = [2]int{lastPointIndex, len(points)}
+	shardAssignments, err := distributePoints(shards, points, config.Cfg.MaxShardSize, func() (string, error) {
+		return c.CreateShard(col)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not distribute points: %w", err)
 	}
 	// ---------------------------
 	// Insert points
