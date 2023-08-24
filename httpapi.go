@@ -138,22 +138,17 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 	// ---------------------------
 }
 
-type NewPointRequest struct {
+type InsertSinglePointRequest struct {
+	Id       string    `json:"id" binding:"uuid"`
 	Vector   []float32 `json:"vector" binding:"required"`
 	Metadata any       `json:"metadata"`
 }
 
-type UpdatePointRequest struct {
-	Id       string    `json:"id" binding:"required,uuid"`
-	Vector   []float32 `json:"vector" binding:"required"`
-	Metadata any       `json:"metadata"`
+type InsertPointsRequest struct {
+	Points []InsertSinglePointRequest `json:"points" binding:"required"`
 }
 
-type NewPointsRequest struct {
-	Points []NewPointRequest `json:"points" binding:"required"`
-}
-
-func (sdbh *SemaDBHandlers) UpsertPoints(c *gin.Context) {
+func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
 	var uri GetCollectionUri
@@ -162,7 +157,7 @@ func (sdbh *SemaDBHandlers) UpsertPoints(c *gin.Context) {
 		return
 	}
 	// ---------------------------
-	var req NewPointsRequest
+	var req InsertPointsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -172,7 +167,7 @@ func (sdbh *SemaDBHandlers) UpsertPoints(c *gin.Context) {
 	collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
 	switch err {
 	case nil:
-		// TODO: refactor this processing
+		// Pass
 	case cluster.ErrNotFound:
 		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "collection not found"})
 		return
@@ -211,7 +206,7 @@ func (sdbh *SemaDBHandlers) UpsertPoints(c *gin.Context) {
 		}
 	}
 	// ---------------------------
-	results, err := sdbh.clusterNode.UpsertPoints(collection, points)
+	results, err := sdbh.clusterNode.InsertPoints(collection, points)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -220,6 +215,16 @@ func (sdbh *SemaDBHandlers) UpsertPoints(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"count": len(results)})
 	// ---------------------------
 }
+
+type UpdatePointRequest struct {
+	Id       string    `json:"id" binding:"required,uuid"`
+	Vector   []float32 `json:"vector" binding:"required"`
+	Metadata any       `json:"metadata"`
+}
+
+// TODO(nuric): implement update points endpoint
+
+// ---------------------------
 
 type SearchPointsRequest struct {
 	Vector []float32 `json:"vector" binding:"required"`
@@ -299,7 +304,7 @@ func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
 	v1.POST("/collections", semaDBHandlers.NewCollection)
 	v1.GET("/collections", semaDBHandlers.ListCollections)
 	v1.GET("/collections/:collectionId", semaDBHandlers.GetCollection)
-	v1.POST("/collections/:collectionId/points", semaDBHandlers.UpsertPoints)
+	v1.POST("/collections/:collectionId/points", semaDBHandlers.InsertPoints)
 	v1.POST("/collections/:collectionId/points/search", semaDBHandlers.SearchPoints)
 	// ---------------------------
 	server := &http.Server{
