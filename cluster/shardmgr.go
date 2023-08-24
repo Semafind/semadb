@@ -11,9 +11,9 @@ import (
 )
 
 type loadedShard struct {
-	shard     *shard.Shard
-	resetChan chan bool
-	mu        sync.RWMutex // This locks stops the cleanup goroutine from unloading the shard while it is being used
+	shard  *shard.Shard
+	doneCh chan bool
+	mu     sync.RWMutex // This locks stops the cleanup goroutine from unloading the shard while it is being used
 }
 
 func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
@@ -23,7 +23,7 @@ func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
 	if ls, ok := c.shardStore[shardDir]; ok {
 		// We reset the timer here so that the shard is not unloaded prematurely
 		c.logger.Debug().Str("shardDir", shardDir).Msg("Returning cached shard")
-		ls.resetChan <- true
+		ls.doneCh <- false
 		return ls, nil
 	}
 	// ---------------------------
@@ -43,35 +43,46 @@ func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
 		return nil, fmt.Errorf("could not open shard: %w", err)
 	}
 	ls := &loadedShard{
-		shard:     shard,
-		resetChan: make(chan bool),
+		shard:  shard,
+		doneCh: make(chan bool),
 	}
 	c.shardStore[shardDir] = ls
 	// ---------------------------
 	// Setup cleanup goroutine
 	go func() {
 		timeoutDuration := time.Duration(config.Cfg.ShardTimeout) * time.Second
+		timer := time.NewTimer(timeoutDuration)
 		for {
+			shutdown := false
 			select {
-			case resetVal := <-ls.resetChan:
-				if !resetVal {
-					c.logger.Debug().Str("shardDir", shardDir).Msg("Exiting shard reset goroutine")
-					return
+			case isDone := <-ls.doneCh:
+				// The following condition comes from the documentation of timer.Stop()
+				if !timer.Stop() {
+					<-timer.C
 				}
-				c.logger.Debug().Str("shardDir", shardDir).Msg("Resetting shard timeout")
-			case <-time.After(timeoutDuration):
+				if isDone {
+					shutdown = true
+				} else {
+					c.logger.Debug().Str("shardDir", shardDir).Msg("Resetting shard timeout")
+					// Timer must be stopped or expired before it can be reset
+					timer.Reset(timeoutDuration)
+				}
+			case <-timer.C:
+				shutdown = true
+			}
+			if shutdown {
 				c.logger.Debug().Str("shardDir", shardDir).Msg("Unloading shard")
-				ls.mu.Lock()
 				c.shardLock.Lock()
+				delete(c.shardStore, shardDir)
+				c.shardLock.Unlock()
+				ls.mu.Lock()
 				if err := ls.shard.Close(); err != nil {
 					c.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to close shard")
 				} else {
 					c.logger.Debug().Str("shardDir", shardDir).Msg("Closed shard")
-					delete(c.shardStore, shardDir)
 				}
-				c.shardLock.Unlock()
 				ls.mu.Unlock()
-				return
+				break
 			}
 		}
 	}()
