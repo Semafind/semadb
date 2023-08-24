@@ -1,10 +1,9 @@
 package cluster
 
 import (
-	"fmt"
-
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/shard"
 )
 
 // ---------------------------
@@ -41,11 +40,9 @@ func (c *ClusterNode) RPCInsertPoints(args *rpcInsertPointsRequest, reply *struc
 		return c.internalRoute("ClusterNode.RPCInsertPoints", args, reply)
 	}
 	// ---------------------------
-	shard, err := c.LoadShard(args.ShardDir)
-	if err != nil {
-		return fmt.Errorf("could not load shard: %w", err)
-	}
-	return shard.InsertPoints(args.Points)
+	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
+		return s.InsertPoints(args.Points)
+	})
 }
 
 // ---------------------------
@@ -66,13 +63,11 @@ func (c *ClusterNode) RPCUpdatePoints(args *rpcUpdatePointsRequest, reply *rpcUp
 		return c.internalRoute("ClusterNode.RPCUpdatePoints", args, reply)
 	}
 	// ---------------------------
-	shard, err := c.LoadShard(args.ShardDir)
-	if err != nil {
-		return fmt.Errorf("could not load shard: %w", err)
-	}
-	errMap, err := shard.UpdatePoints(args.Points)
-	reply.ErrMap = errMap
-	return err
+	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
+		errMap, err := s.UpdatePoints(args.Points)
+		reply.ErrMap = errMap
+		return err
+	})
 }
 
 // ---------------------------
@@ -89,15 +84,13 @@ func (c *ClusterNode) RPCDeletePoints(args *rpcDeletePointsRequest, reply *struc
 		return c.internalRoute("ClusterNode.RPCDeletePoints", args, reply)
 	}
 	// ---------------------------
-	shard, err := c.LoadShard(args.ShardDir)
-	if err != nil {
-		return fmt.Errorf("could not load shard: %w", err)
-	}
 	deleteSet := make(map[uuid.UUID]struct{})
 	for _, id := range args.Ids {
 		deleteSet[id] = struct{}{}
 	}
-	return shard.DeletePoints(deleteSet)
+	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
+		return s.DeletePoints(deleteSet)
+	})
 }
 
 // ---------------------------
@@ -117,13 +110,11 @@ func (c *ClusterNode) RPCGetPointCount(args *rpcGetPointCountRequest, reply *rpc
 		return c.internalRoute("ClusterNode.RPCGetPointCount", args, reply)
 	}
 	// ---------------------------
-	shard, err := c.LoadShard(args.ShardDir)
-	if err != nil {
-		return fmt.Errorf("could not load shard: %w", err)
-	}
-	count, err := shard.GetPointCount()
-	reply.Count = count
-	return err
+	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
+		count, err := s.GetPointCount()
+		reply.Count = count
+		return err
+	})
 }
 
 // ---------------------------
@@ -145,13 +136,11 @@ func (c *ClusterNode) RPCSearchPoints(args *rpcSearchPointsRequest, reply *rpcSe
 		return c.internalRoute("ClusterNode.RPCSearchPoints", args, reply)
 	}
 	// ---------------------------
-	shard, err := c.LoadShard(args.ShardDir)
-	if err != nil {
-		return fmt.Errorf("could not load shard: %w", err)
-	}
-	points, err := shard.SearchPoints(args.Vector, args.Limit)
-	reply.Points = points
-	return err
+	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
+		points, err := s.SearchPoints(args.Vector, args.Limit)
+		reply.Points = points
+		return err
+	})
 }
 
 // ---------------------------

@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/semafind/semadb/config"
@@ -12,9 +13,10 @@ import (
 type loadedShard struct {
 	shard     *shard.Shard
 	resetChan chan bool
+	mu        sync.RWMutex // This locks stops the cleanup goroutine from unloading the shard while it is being used
 }
 
-func (c *ClusterNode) LoadShard(shardDir string) (*shard.Shard, error) {
+func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
 	c.logger.Debug().Str("shardDir", shardDir).Msg("LoadShard")
 	c.shardLock.Lock()
 	defer c.shardLock.Unlock()
@@ -22,7 +24,7 @@ func (c *ClusterNode) LoadShard(shardDir string) (*shard.Shard, error) {
 		// We reset the timer here so that the shard is not unloaded prematurely
 		c.logger.Debug().Str("shardDir", shardDir).Msg("Returning cached shard")
 		ls.resetChan <- true
-		return ls.shard, nil
+		return ls, nil
 	}
 	// ---------------------------
 	// Load corresponding collection
@@ -40,7 +42,7 @@ func (c *ClusterNode) LoadShard(shardDir string) (*shard.Shard, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not open shard: %w", err)
 	}
-	ls := loadedShard{
+	ls := &loadedShard{
 		shard:     shard,
 		resetChan: make(chan bool),
 	}
@@ -59,6 +61,7 @@ func (c *ClusterNode) LoadShard(shardDir string) (*shard.Shard, error) {
 				c.logger.Debug().Str("shardDir", shardDir).Msg("Resetting shard timeout")
 			case <-time.After(timeoutDuration):
 				c.logger.Debug().Str("shardDir", shardDir).Msg("Unloading shard")
+				ls.mu.Lock()
 				c.shardLock.Lock()
 				if err := ls.shard.Close(); err != nil {
 					c.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to close shard")
@@ -67,9 +70,21 @@ func (c *ClusterNode) LoadShard(shardDir string) (*shard.Shard, error) {
 					delete(c.shardStore, shardDir)
 				}
 				c.shardLock.Unlock()
+				ls.mu.Unlock()
 				return
 			}
 		}
 	}()
-	return shard, nil
+	return ls, nil
+}
+
+func (c *ClusterNode) DoWithShard(shardDir string, f func(*shard.Shard) error) error {
+	c.logger.Debug().Str("shardDir", shardDir).Msg("DoWithShard")
+	ls, err := c.loadShard(shardDir)
+	if err != nil {
+		return fmt.Errorf("could not load shard: %w", err)
+	}
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+	return f(ls.shard)
 }

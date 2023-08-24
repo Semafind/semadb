@@ -24,7 +24,7 @@ type ClusterNode struct {
 	rpcClientsMu sync.Mutex
 	rpcServer    *http.Server
 	// ---------------------------
-	shardStore map[string]loadedShard
+	shardStore map[string]*loadedShard
 	shardLock  sync.Mutex
 }
 
@@ -52,7 +52,7 @@ func NewNode() (*ClusterNode, error) {
 		Servers:    config.Cfg.Servers,
 		MyHostname: envHostname,
 		rpcClients: make(map[string]*rpc.Client),
-		shardStore: make(map[string]loadedShard),
+		shardStore: make(map[string]*loadedShard),
 	}
 	return cluster, nil
 }
