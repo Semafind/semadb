@@ -165,7 +165,7 @@ func (c *ClusterNode) GetShards(col models.Collection, withSize bool) ([]shardIn
 	return shards, nil
 }
 
-func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point) (map[string][2]int, error) {
+func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point) ([][2]int, error) {
 	// ---------------------------
 	// This is where shard distribution happens
 	shards, err := c.GetShards(col, true)
@@ -182,7 +182,7 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 	}
 	// ---------------------------
 	// Insert points
-	failedRanges := make(map[string][2]int)
+	failedRanges := make([][2]int, 0)
 	for shardId, pointRange := range shardAssignments {
 		targetServer := RendezvousHash(shardId, c.Servers, 1)[0]
 		shardPoints := points[pointRange[0]:pointRange[1]]
@@ -196,7 +196,7 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 		}
 		if err := c.RPCInsertPoints(&insertReq, nil); err != nil {
 			c.logger.Error().Err(err).Str("shardId", shardId).Msg("could not insert points")
-			failedRanges[shardId] = pointRange
+			failedRanges = append(failedRanges, pointRange)
 		}
 	}
 	// ---------------------------

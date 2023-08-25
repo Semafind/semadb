@@ -213,13 +213,17 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 		}
 	}
 	// ---------------------------
-	results, err := sdbh.clusterNode.InsertPoints(collection, points)
+	// Insert points returns a range of errors for failed shards
+	errRanges, err := sdbh.clusterNode.InsertPoints(collection, points)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	log.Debug().Msgf("InsertPoints results: %+v", results)
-	c.JSON(http.StatusOK, gin.H{"count": len(results)})
+	if len(errRanges) > 0 {
+		c.AbortWithStatusJSON(http.StatusAccepted, gin.H{"message": "accepted", "failed": errRanges})
+		return
+	}
+	c.Status(http.StatusOK)
 	// ---------------------------
 }
 
