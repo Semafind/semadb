@@ -4,15 +4,11 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
 	"path/filepath"
-	"runtime/pprof"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"github.com/schollz/progressbar/v3"
-	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
 	"go.etcd.io/bbolt"
@@ -192,23 +188,22 @@ func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uuid.UUID, shardP
 
 func (s *Shard) InsertPoints(points []models.Point) error {
 	// ---------------------------
-	if config.Cfg.Debug {
-		profileFile, _ := os.Create("dump/cpu.prof")
-		defer profileFile.Close()
-		pprof.StartCPUProfile(profileFile)
-		defer pprof.StopCPUProfile()
-	}
+	// profileFile, _ := os.Create("dump/cpu.prof")
+	// defer profileFile.Close()
+	// pprof.StartCPUProfile(profileFile)
+	// defer pprof.StopCPUProfile()
 	// ---------------------------
 	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("InsertPoints")
 	// ---------------------------
 	// Insert points
-	bar := progressbar.Default(int64(len(points)))
+	// bar := progressbar.Default(int64(len(points)))
+	startTime := time.Now()
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
 		// Insert points
-		for _, point := range points {
+		for i, point := range points {
 			_, err := pc.GetPoint(point.Id)
 			if err == nil {
 				// The point exists, we can't re-insert it. This is actually an
@@ -221,8 +216,13 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 				log.Debug().Err(err).Msg("could not insert point")
 				return fmt.Errorf("could not insert point: %w", err)
 			}
-			bar.Add(1)
+			// bar.Add(1)
+			if i%10000 == 0 && i != 0 {
+				// Print points per second performance
+				log.Debug().Int("i", i).Float64("perf(p/s)", float64(i)/time.Since(startTime).Seconds()).Msg("InsertPoints - Performance")
+			}
 		}
+		log.Debug().Int("points", len(points)).Float64("perf(p/s)", float64(len(points))/time.Since(startTime).Seconds()).Msg("InsertPoints Points / Second")
 		// ---------------------------
 		// Update point count accordingly
 		if err := changePointCount(tx, int64(len(points))); err != nil {
@@ -230,9 +230,9 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 			return fmt.Errorf("could not update point count for insertion: %w", err)
 		}
 		// ---------------------------
-		currentTime := time.Now()
+		startTime = time.Now()
 		err := pc.Flush()
-		log.Debug().Str("component", "shard").Str("duration", time.Since(currentTime).String()).Msg("InsertPoints - Flush")
+		log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("InsertPoints - Flush")
 		return err
 	})
 	if err != nil {
@@ -240,7 +240,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		return fmt.Errorf("could not insert points: %w", err)
 	}
 	// ---------------------------
-	bar.Close()
+	// bar.Close()
 	// ---------------------------
 	return nil
 }
