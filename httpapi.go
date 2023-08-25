@@ -49,6 +49,13 @@ func AppHeaderMiddleware() gin.HandlerFunc {
 		}
 		c.Set("appHeaders", appHeaders)
 		log.Debug().Interface("appHeaders", appHeaders).Msg("AppHeaderMiddleware")
+		// Extract user plan
+		userPlan, ok := config.Cfg.UserPlans[appHeaders.Package]
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unknown package"})
+			return
+		}
+		c.Set("userPlan", userPlan)
 		c.Next()
 	}
 }
@@ -150,6 +157,7 @@ type InsertPointsRequest struct {
 
 func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
+	userPlan := c.MustGet("userPlan").(config.UserPlan)
 	// ---------------------------
 	var uri GetCollectionUri
 	if err := c.ShouldBindUri(&uri); err != nil {
@@ -179,7 +187,6 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	// ---------------------------
 	// Convert request points into internal points, doing checks along the way
 	points := make([]models.Point, len(req.Points))
-	maxMetadataSize := 1024 // TODO: make this configurable
 	for i, point := range req.Points {
 		if len(point.Vector) != int(collection.VectorSize) {
 			errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d for point at index %d", collection.VectorSize, len(point.Vector), i)
@@ -197,8 +204,8 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 				return
 			}
-			if len(binaryMetadata) > maxMetadataSize {
-				errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryMetadata), maxMetadataSize)
+			if len(binaryMetadata) > userPlan.MaxMetadataSize {
+				errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryMetadata), userPlan.MaxMetadataSize)
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 				return
 			}

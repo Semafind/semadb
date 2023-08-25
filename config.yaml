@@ -16,3 +16,10 @@ rpcTimeout: 300 # seconds
 # HTTP Parameters
 httpHost: localhost
 httpPort: 8080
+# User Plans
+userPlans:
+  BASIC:
+    name: Basic Plan
+    maxCollections: 5
+    maxCollectionSize: 1073741824 # 1GiB
+    maxMetadataSize: 1024 # 1KiB
