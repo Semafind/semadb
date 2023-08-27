@@ -120,6 +120,64 @@ func loadRemote(vcol VectorCollection) {
 	}
 }
 
+func loadIntoCollection(vcol VectorCollection) {
+	// ---------------------------
+	clusterNode, err := cluster.NewNode()
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create cluster node")
+	}
+	// ---------------------------
+	// Create a new collection
+	collection := models.Collection{
+		UserId:     "benchmark",
+		Id:         vcol.Name,
+		VectorSize: uint(len(vcol.Vectors[0])),
+		DistMetric: vcol.DistMetric,
+		Replicas:   1,
+		Algorithm:  "vamana",
+		Timestamp:  0,
+		CreatedAt:  0,
+		Parameters: models.DefaultVamanaParameters(),
+	}
+	clusterNode.CreateCollection(collection)
+	config.Cfg.RootDir = "dump"
+	if err := clusterNode.CreateCollection(collection); err != nil {
+		log.Fatal().Err(err).Msg("failed to create collection")
+	}
+	// ---------------------------
+	// Curate points
+	totalSize := 0
+	points := make([]models.Point, len(vcol.Vectors))
+	for i := 0; i < len(vcol.Vectors); i++ {
+		mdata, _ := msgpack.Marshal(map[string]interface{}{
+			"xid": i})
+		points[i] = models.Point{
+			Id:       uuid.New(),
+			Vector:   vcol.Vectors[i],
+			Metadata: mdata,
+		}
+		totalSize += len(mdata) + len(vcol.Vectors[i])*4 + 8 // 8 bytes for id
+	}
+	log.Info().Int("totalSize", totalSize).Msg("loadHDF5")
+	// ---------------------------
+	// Insert points
+	config.Cfg.MaxShardSize = int64(totalSize) / 10
+	batchSize := 10000000
+	for i := 0; i < len(points); i += batchSize {
+		end := i + batchSize
+		if end > len(points) {
+			end = len(points)
+		}
+		// ---------------------------
+		// Add points to collection
+		log.Debug().Int("i", i).Int("end", end).Msg("loadHDF5 - createPoints")
+		res, err := clusterNode.InsertPoints(collection, points[i:end])
+		if err != nil || len(res) != 0 {
+			log.Fatal().Err(err).Interface("failedRanges", res).Msg("failed to insert points")
+		}
+	}
+}
+
 func loadIntoShard(vcol VectorCollection) {
 	points := make([]models.Point, len(vcol.Vectors))
 	for i := 0; i < len(vcol.Vectors); i++ {
@@ -176,15 +234,23 @@ func main() {
 	// Pretty print logs
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 	// ---------------------------
-	vcol := loadHDF5("glove-25-angular")
-	// ---------------------------
-	isRemote := flag.Bool("remote", false, "load into remote collection")
+	dataset := flag.String("dataset", "glove-25-angular", "dataset to load")
+	target := flag.String("target", "collection", "target to load into, remote, collection or shard")
 	flag.Parse()
-	if *isRemote {
+	// ---------------------------
+	vcol := loadHDF5(*dataset)
+	// ---------------------------
+	switch *target {
+	case "remote":
 		log.Info().Msg("loadHDF5 - remote")
 		loadRemote(vcol)
-	} else {
+	case "collection":
+		log.Info().Msg("loadHDF5 - collection")
+		loadIntoCollection(vcol)
+	case "shard":
 		log.Info().Msg("loadHDF5 - shard")
 		loadIntoShard(vcol)
+	default:
+		log.Fatal().Str("target", *target).Msg("loadHDF5 - unknown target")
 	}
 }

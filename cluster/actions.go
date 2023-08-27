@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/config"
@@ -183,22 +184,34 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 	// ---------------------------
 	// Insert points
 	failedRanges := make([][2]int, 0)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 	for shardId, pointRange := range shardAssignments {
-		targetServer := RendezvousHash(shardId, c.Servers, 1)[0]
-		shardPoints := points[pointRange[0]:pointRange[1]]
-		insertReq := rpcInsertPointsRequest{
-			rpcRequestArgs: rpcRequestArgs{
-				Source: c.MyHostname,
-				Dest:   targetServer,
-			},
-			ShardDir: shardId,
-			Points:   shardPoints,
-		}
-		if err := c.RPCInsertPoints(&insertReq, nil); err != nil {
-			c.logger.Error().Err(err).Str("shardId", shardId).Msg("could not insert points")
-			failedRanges = append(failedRanges, pointRange)
-		}
+		wg.Add(1)
+		go func(shardId string, pointRange [2]int) {
+			// ---------------------------
+			targetServer := RendezvousHash(shardId, c.Servers, 1)[0]
+			shardPoints := points[pointRange[0]:pointRange[1]]
+			insertReq := rpcInsertPointsRequest{
+				rpcRequestArgs: rpcRequestArgs{
+					Source: c.MyHostname,
+					Dest:   targetServer,
+				},
+				ShardDir: shardId,
+				Points:   shardPoints,
+			}
+			if err := c.RPCInsertPoints(&insertReq, nil); err != nil {
+				c.logger.Error().Err(err).Str("shardId", shardId).Msg("could not insert points")
+				mu.Lock()
+				failedRanges = append(failedRanges, pointRange)
+				mu.Unlock()
+			}
+			wg.Done()
+		}(shardId, pointRange)
 	}
+	// ---------------------------
+	// Wait for all insertions to finish
+	wg.Wait()
 	// ---------------------------
 	return failedRanges, nil
 }
