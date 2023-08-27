@@ -114,12 +114,15 @@ func (s *Shard) Close() error {
 
 func changePointCount(tx *bbolt.Tx, change int64) error {
 	bInternal := tx.Bucket(INTERNALKEY)
+	// ---------------------------
 	countBytes := bInternal.Get(POINTCOUNTKEY)
 	var count int64
 	if countBytes != nil {
 		count = bytesToInt64(countBytes)
 	}
+	// ---------------------------
 	count += change
+	// ---------------------------
 	countBytes = int64ToBytes(count)
 	if err := bInternal.Put(POINTCOUNTKEY, countBytes); err != nil {
 		return fmt.Errorf("could not change point count: %w", err)
@@ -127,20 +130,27 @@ func changePointCount(tx *bbolt.Tx, change int64) error {
 	return nil
 }
 
-func (s *Shard) GetPointCount() (int64, error) {
-	var count int64
-	err := s.db.View(func(tx *bbolt.Tx) error {
+type shardInfo struct {
+	PointCount int64
+	Allocated  int64 // Bytes allocated for points bucket
+	InUse      int64 // Bytes in use for points bucket
+}
+
+func (s *Shard) Info() (si shardInfo, err error) {
+	err = s.db.View(func(tx *bbolt.Tx) error {
 		bInternal := tx.Bucket(INTERNALKEY)
+		// ---------------------------
 		countBytes := bInternal.Get(POINTCOUNTKEY)
 		if countBytes != nil {
-			count = bytesToInt64(countBytes)
+			si.PointCount = bytesToInt64(countBytes)
 		}
+		// ---------------------------
+		pStats := tx.Bucket(POINTSKEY).Stats()
+		si.Allocated = int64(pStats.BranchAlloc + pStats.LeafAlloc)
+		si.InUse = int64(pStats.BranchInuse + pStats.LeafInuse)
 		return nil
 	})
-	if err != nil {
-		return 0, fmt.Errorf("could not get point count: %w", err)
-	}
-	return count, nil
+	return
 }
 
 // ---------------------------

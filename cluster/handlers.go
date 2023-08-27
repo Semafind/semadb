@@ -95,24 +95,26 @@ func (c *ClusterNode) RPCDeletePoints(args *rpcDeletePointsRequest, reply *struc
 
 // ---------------------------
 
-type rpcGetPointCountRequest struct {
+type rpcGetShardInfoRequest struct {
 	rpcRequestArgs
 	ShardDir string
 }
 
-type rpcGetPointCountResponse struct {
-	Count int64
+type rpcGetShardInfoResponse struct {
+	PointCount int64
+	Size       int64
 }
 
-func (c *ClusterNode) RPCGetPointCount(args *rpcGetPointCountRequest, reply *rpcGetPointCountResponse) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.rpcRequestArgs).Msg("RPCGetPointCount")
+func (c *ClusterNode) RPCGetShardInfo(args *rpcGetShardInfoRequest, reply *rpcGetShardInfoResponse) error {
+	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.rpcRequestArgs).Msg("RPCGetShardInfo")
 	if args.Dest != c.MyHostname {
-		return c.internalRoute("ClusterNode.RPCGetPointCount", args, reply)
+		return c.internalRoute("ClusterNode.GetShardInfo", args, reply)
 	}
 	// ---------------------------
 	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
-		count, err := s.GetPointCount()
-		reply.Count = count
+		si, err := s.Info()
+		reply.PointCount = si.PointCount
+		reply.Size = si.InUse
 		return err
 	})
 }

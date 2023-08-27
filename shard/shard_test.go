@@ -20,26 +20,26 @@ var sampleCol models.Collection = models.Collection{
 	Parameters: models.DefaultVamanaParameters(),
 }
 
-func getShardSize(shard *Shard) int {
-	size := 0
+func getPointCount(shard *Shard) (count int64) {
 	shard.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
 		b.ForEach(func(k, v []byte) error {
 			if k[len(k)-1] == 'v' {
-				size++
+				count++
 			}
 			return nil
 		})
 		return nil
 	})
-	return size - 1 // -1 for the start point
+	count-- // Subtract one for the start point
+	return
 }
 
-func checkShardSize(t *testing.T, shard *Shard, expected int) {
-	assert.Equal(t, expected, getShardSize(shard))
-	pointCount, err := shard.GetPointCount()
+func checkPointCount(t *testing.T, shard *Shard, expected int64) {
+	assert.Equal(t, expected, getPointCount(shard))
+	si, err := shard.Info()
 	assert.NoError(t, err)
-	assert.Equal(t, expected, int(pointCount))
+	assert.Equal(t, expected, si.PointCount)
 }
 
 func randPoints(size int) []models.Point {
@@ -48,9 +48,13 @@ func randPoints(size int) []models.Point {
 		randVector := make([]float32, 2)
 		randVector[0] = rand.Float32()
 		randVector[1] = rand.Float32()
+		id := uuid.New()
+		randIndex := rand.Intn(16)
+		// We're using a slice of the id as random metadata
 		points[i] = models.Point{
-			Id:     uuid.New(),
-			Vector: randVector,
+			Id:       id,
+			Vector:   randVector,
+			Metadata: id[:randIndex],
 		}
 	}
 	return points
@@ -59,22 +63,27 @@ func randPoints(size int) []models.Point {
 func TestShard_CreatePoint(t *testing.T) {
 	shard, err := NewShard(t.TempDir(), sampleCol)
 	assert.NoError(t, err)
-	checkShardSize(t, shard, 0)
-	err = shard.InsertPoints(randPoints(2))
+	// Check that the shard is empty
+	checkPointCount(t, shard, 0)
+	points := randPoints(2)
+	err = shard.InsertPoints(points)
 	assert.NoError(t, err)
-	checkShardSize(t, shard, 2)
+	// Check that the shard has two points
+	checkPointCount(t, shard, 2)
 	assert.NoError(t, shard.Close())
 }
 
 func TestShard_Persistence(t *testing.T) {
 	shardDir := t.TempDir()
 	shard, _ := NewShard(shardDir, sampleCol)
-	err := shard.InsertPoints(randPoints(7))
+	points := randPoints(7)
+	err := shard.InsertPoints(points)
 	assert.NoError(t, err)
 	assert.NoError(t, shard.Close())
 	shard, err = NewShard(shardDir, sampleCol)
 	assert.NoError(t, err)
-	checkShardSize(t, shard, 7)
+	// Does the shard still have the points?
+	checkPointCount(t, shard, 7)
 	assert.NoError(t, shard.Close())
 }
 
@@ -83,8 +92,9 @@ func TestShard_DuplicatePointId(t *testing.T) {
 	points := randPoints(2)
 	points[0].Id = points[1].Id
 	err := shard.InsertPoints(points)
+	// Insert expects unique ids and should fail
 	assert.Error(t, err)
-	checkShardSize(t, shard, 0)
+	checkPointCount(t, shard, 0)
 	assert.NoError(t, shard.Close())
 }
 
@@ -136,15 +146,15 @@ func TestShard_DeletePoint(t *testing.T) {
 	// delete one point
 	err := shard.DeletePoints(deleteSet)
 	assert.NoError(t, err)
-	checkShardSize(t, shard, 1)
+	checkPointCount(t, shard, 1)
 	// Try deleting the same point again
 	err = shard.DeletePoints(deleteSet)
 	assert.NoError(t, err)
-	checkShardSize(t, shard, 1)
+	checkPointCount(t, shard, 1)
 	// Delete other point too
 	deleteSet[points[1].Id] = struct{}{}
 	err = shard.DeletePoints(deleteSet)
 	assert.NoError(t, err)
-	checkShardSize(t, shard, 0)
+	checkPointCount(t, shard, 0)
 	assert.NoError(t, shard.Close())
 }
