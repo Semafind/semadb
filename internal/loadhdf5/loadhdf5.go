@@ -156,13 +156,13 @@ func loadIntoCollection(vcol VectorCollection) {
 			Vector:   vcol.Vectors[i],
 			Metadata: mdata,
 		}
-		totalSize += len(mdata) + len(vcol.Vectors[i])*4 + 8 // 8 bytes for id
+		totalSize += len(mdata) + len(vcol.Vectors[i])*4 + 16 // 16 bytes for id
 	}
 	log.Info().Int("totalSize", totalSize).Msg("loadHDF5")
 	// ---------------------------
 	// Insert points
-	config.Cfg.MaxShardSize = int64(totalSize) / 10
-	batchSize := 10000000
+	// config.Cfg.MaxShardSize = int64(totalSize) / 10
+	batchSize := 10000
 	for i := 0; i < len(points); i += batchSize {
 		end := i + batchSize
 		if end > len(points) {

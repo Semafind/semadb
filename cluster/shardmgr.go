@@ -96,7 +96,6 @@ func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
 // not already loaded and prevents the shard from being cleaned up while the
 // function is executing.
 func (c *ClusterNode) DoWithShard(shardDir string, f func(*shard.Shard) error) error {
-	c.logger.Debug().Str("shardDir", shardDir).Msg("DoWithShard")
 	ls, err := c.loadShard(shardDir)
 	if err != nil {
 		return fmt.Errorf("could not load shard: %w", err)
