@@ -124,8 +124,9 @@ func (c *ClusterNode) CreateShard(col models.Collection) (string, error) {
 }
 
 type shardInfo struct {
-	ShardDir string
-	Size     int64
+	ShardDir   string
+	Size       int64
+	PointCount int64
 }
 
 func (c *ClusterNode) GetShards(col models.Collection, withSize bool) ([]shardInfo, error) {
@@ -142,23 +143,28 @@ func (c *ClusterNode) GetShards(col models.Collection, withSize bool) ([]shardIn
 			continue
 		}
 		// ---------------------------
-		// Get db size
-		dbSize := int64(0)
 		fullShardDir := filepath.Join(colDir, shardDir.Name())
-		if withSize {
-			dbFile := filepath.Join(fullShardDir, "db")
-			dbStat, err := os.Stat(dbFile)
-			if err != nil {
-				c.logger.Error().Err(err).Str("dbFile", dbFile).Msg("could not stat db file")
-				continue
-			}
-			c.logger.Debug().Str("dbFile", dbFile).Int64("dbSize", dbStat.Size()).Msg("GetShards")
-			dbSize = dbStat.Size()
-		}
-		// ---------------------------
 		si := shardInfo{
 			ShardDir: fullShardDir,
-			Size:     dbSize,
+		}
+		// ---------------------------
+		if withSize {
+			targetServer := RendezvousHash(shardDir.Name(), c.Servers, 1)[0]
+			getInfoRequest := rpcGetShardInfoRequest{
+				rpcRequestArgs: rpcRequestArgs{
+					Source: c.MyHostname,
+					Dest:   targetServer,
+				},
+				ShardDir: fullShardDir,
+			}
+			getInfoResponse := rpcGetShardInfoResponse{}
+			if err := c.RPCGetShardInfo(&getInfoRequest, &getInfoResponse); err != nil {
+				c.logger.Error().Err(err).Str("shardDir", shardDir.Name()).Msg("could not get shard info")
+				return nil, fmt.Errorf("could not get shard info: %w: %w", ErrShardUnavailable, err)
+			}
+			// ---------------------------
+			si.Size = getInfoResponse.Size
+			si.PointCount = getInfoResponse.PointCount
 		}
 		shards = append(shards, si)
 	}
@@ -175,7 +181,7 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 	}
 	// ---------------------------
 	// Distribute points to shards
-	shardAssignments, err := distributePoints(shards, points, config.Cfg.MaxShardSize, func() (string, error) {
+	shardAssignments, err := distributePoints(shards, points, config.Cfg.MaxShardSize, config.Cfg.MaxShardPointCount, func() (string, error) {
 		return c.CreateShard(col)
 	})
 	if err != nil {

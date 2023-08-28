@@ -33,6 +33,7 @@ func randShardInfo(size int64) shardInfo {
 
 func Test_distributePoints(t *testing.T) {
 	maxShardSize := int64(16) // 16 bytes is the size of a single point
+	maxShardPointCount := int64(1)
 	testCases := []struct {
 		shardCount      int
 		pointCount      int
@@ -64,7 +65,7 @@ func Test_distributePoints(t *testing.T) {
 				shards[i] = randShardInfo(tc.initShardSize)
 			}
 			points := randPoints(tc.pointCount)
-			ass, err := distributePoints(shards, points, maxShardSize, createShardFn)
+			ass, err := distributePoints(shards, points, maxShardSize, maxShardPointCount, createShardFn)
 			assert.NoError(t, err)
 			assert.Len(t, ass, tc.wantAssLen)
 			for _, assRange := range ass {

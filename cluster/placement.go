@@ -6,7 +6,7 @@ import (
 	"github.com/semafind/semadb/models"
 )
 
-func distributePoints(shards []shardInfo, points []models.Point, maxShardSize int64, createShardFn func() (string, error)) (map[string][2]int, error) {
+func distributePoints(shards []shardInfo, points []models.Point, maxShardSize, maxShardPointCount int64, createShardFn func() (string, error)) (map[string][2]int, error) {
 	// ---------------------------
 	shardAssignments := make(map[string][2]int)
 	// ---------------------------
@@ -17,16 +17,17 @@ func distributePoints(shards []shardInfo, points []models.Point, maxShardSize in
 		}
 		shards = append(shards, shardInfo{
 			ShardDir: newShard,
-			Size:     0,
 		}) // empty shard
 	}
 	// ---------------------------
 	for lastPointIndex, i := 0, 0; i < len(shards); i++ {
 		j := lastPointIndex
 		runningSize := shards[i].Size
+		runningPointCount := shards[i].PointCount
 		for ; j < len(points); j++ {
 			runningSize += int64(len(points[j].Metadata) + len(points[j].Vector)*4 + 8) // 8 bytes for id
-			if runningSize > maxShardSize {
+			runningPointCount++
+			if runningSize > maxShardSize || runningPointCount > maxShardPointCount {
 				break
 			}
 		}
@@ -43,7 +44,6 @@ func distributePoints(shards []shardInfo, points []models.Point, maxShardSize in
 			}
 			shards = append(shards, shardInfo{
 				ShardDir: newShard,
-				Size:     0,
 			}) // empty shard
 		}
 	}
