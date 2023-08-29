@@ -26,6 +26,8 @@ type ConfigMap struct {
 	MaxShardSize int64 `yaml:"maxShardSize"`
 	// Maximum number of points in a shard
 	MaxShardPointCount int64 `yaml:"maxShardPointCount"`
+	// Maximum number of points to search
+	MaxSearchLimit int `yaml:"maxSearchLimit"`
 	// Shard timeout in seconds
 	ShardTimeout int `yaml:"shardTimeout"`
 	// List of known servers at the beginning

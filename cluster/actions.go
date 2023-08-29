@@ -222,6 +222,14 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 	return failedRanges, nil
 }
 
+// These are the parameters for the linear approximation of the inverse of the
+// CDF of the Poisson distribution for the number of shards to search and limit
+// around 100 to 1000 points. It allows us to limit the shard search to reduce
+// the number of points to discard. See the SearchPoints function for more
+// information.
+const poissonApproxA = 1.42
+const poissonApproxB = 10.0
+
 func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit int) ([]models.Point, error) {
 	// ---------------------------
 	shards, err := c.GetShards(col, false)
@@ -229,29 +237,59 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 		return nil, fmt.Errorf("could not get shards: %w", err)
 	}
 	// ---------------------------
-	if len(shards) == 0 {
-		// Nothing to search
-		return nil, nil
+	// Search every shard in parallel. If a shard is unavailable, we will
+	// simply ignore it for now to keep the search request alive.
+	results := make([][]models.Point, 0, len(shards))
+	var wg sync.WaitGroup
+	for i, shardInfo := range shards {
+		wg.Add(1)
+		go func(index int, sDir string) {
+			defer wg.Done()
+			targetServer := RendezvousHash(sDir, c.Servers, 1)[0]
+			// ---------------------------
+			// Here we calculate the target limit for each shard. We want to
+			// reduce the number of points discarded. For example, 5 chards with
+			// a limit of 100 would fetch 500 points and then discard 400 to
+			// return the desired count back to the user. Instead, we start by
+			// assuming each shard has equal number of points. This means on
+			// average we would expect true desired search points to be equally
+			// and randomly distributed across all shards. For 5 shards and
+			// limit 100, we expect 20 points per shard. We use the poisson
+			// distribution to find the upper bound on its CDF at 0.99
+			// percentile. So we set the lambda to equal (limit / numShards) =
+			// 20 and calculate the 0.99 percentile. In this case, it will
+			// sample >20 points per shard to account for the randomness but
+			// perhaps not 100 points reducing computation required. The inverse
+			// of Poisson CDF doesn't have a closed form, so we use a linear
+			// approximation for our expected operational ranges for lambda.
+			targetLimit := int(float32(limit)*(1/float32(len(shards)))*poissonApproxA + poissonApproxB)
+			if targetLimit > config.Cfg.MaxSearchLimit {
+				targetLimit = config.Cfg.MaxSearchLimit
+			}
+			if targetLimit > limit {
+				targetLimit = limit
+			}
+			// We don't check for minimum since it will be at least poissonApproxB = 10
+			// ---------------------------
+			searchReq := rpcSearchPointsRequest{
+				rpcRequestArgs: rpcRequestArgs{
+					Source: c.MyHostname,
+					Dest:   targetServer,
+				},
+				ShardDir: sDir,
+				Vector:   query,
+				Limit:    targetLimit,
+			}
+			searchResp := rpcSearchPointsResponse{}
+			if err := c.RPCSearchPoints(&searchReq, &searchResp); err != nil {
+				c.logger.Error().Err(err).Str("shardDir", sDir).Msg("could not search points")
+			} else {
+				results[index] = searchResp.Points
+			}
+		}(i, shardInfo.ShardDir)
 	}
 	// ---------------------------
-	// We have to search every shard
-	if len(shards) > 1 {
-		return nil, fmt.Errorf("searching multiple shards is not supported yet")
-	}
+	// TODO: Merge results in a single slice
 	// ---------------------------
-	targetServer := RendezvousHash(shards[0].ShardDir, c.Servers, 1)[0]
-	searchReq := rpcSearchPointsRequest{
-		rpcRequestArgs: rpcRequestArgs{
-			Source: c.MyHostname,
-			Dest:   targetServer,
-		},
-		ShardDir: shards[0].ShardDir,
-		Vector:   query,
-		Limit:    limit,
-	}
-	searchResp := rpcSearchPointsResponse{}
-	if err := c.RPCSearchPoints(&searchReq, &searchResp); err != nil {
-		return nil, fmt.Errorf("could not search points: %w", err)
-	}
-	return searchResp.Points, nil
+	return results[0], nil
 }
