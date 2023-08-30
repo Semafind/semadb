@@ -9,7 +9,7 @@
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}/server",
+            "program": "${workspaceFolder}",
             "env": {
                 "SEMADB_DEBUG": "true",
                 "SEMADB_SERVERS": "localhost:11001",
