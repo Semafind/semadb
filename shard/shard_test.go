@@ -106,9 +106,10 @@ func TestShard_BasicSearch(t *testing.T) {
 	res, err := shard.SearchPoints(points[0].Vector, 1)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(res))
-	assert.Equal(t, points[0].Id, res[0].Id)
-	assert.Equal(t, points[0].Vector, res[0].Vector)
-	assert.Equal(t, points[0].Metadata, res[0].Metadata)
+	assert.Equal(t, points[0].Id, res[0].Point.Id)
+	assert.Equal(t, points[0].Vector, res[0].Point.Vector)
+	assert.Equal(t, points[0].Metadata, res[0].Point.Metadata)
+	assert.EqualValues(t, 0, res[0].Distance)
 	assert.NoError(t, shard.Close())
 }
 

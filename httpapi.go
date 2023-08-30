@@ -243,8 +243,9 @@ type SearchPointsRequest struct {
 }
 
 type SearchPointResult struct {
-	Id       string `json:"id"`
-	Metadata any    `json:"metadata"`
+	Id       string  `json:"id"`
+	Distance float32 `json:"distance"`
+	Metadata any     `json:"metadata"`
 }
 
 func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
@@ -289,14 +290,16 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 		return
 	}
 	results := make([]SearchPointResult, len(points))
-	for i, point := range points {
+	for i, sp := range points {
 		var mdata any
-		if err := msgpack.Unmarshal(point.Metadata, &mdata); err != nil {
-			log.Err(err).Msg("msgpack.Unmarshal failed")
-			mdata = nil
+		if sp.Point.Metadata != nil {
+			if err := msgpack.Unmarshal(sp.Point.Metadata, &mdata); err != nil {
+				log.Err(err).Interface("meta", sp.Point.Metadata).Msg("msgpack.Unmarshal failed")
+			}
 		}
 		results[i] = SearchPointResult{
-			Id:       point.Id.String(),
+			Id:       sp.Point.Id.String(),
+			Distance: sp.Distance,
 			Metadata: mdata,
 		}
 	}

@@ -298,12 +298,17 @@ func (s *Shard) UpdatePoints(points []models.Point) (map[uuid.UUID]error, error)
 
 // ---------------------------
 
-func (s *Shard) SearchPoints(query []float32, k int) ([]models.Point, error) {
+type SearchPoint struct {
+	Point    models.Point
+	Distance float32
+}
+
+func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 	// ---------------------------
 	// Perform search, we add 1 to k because the start point is included in the
 	// search set. Recall that the start point is only used to bootstrap the
 	// search, and is not included in the results.
-	results := make([]models.Point, 0, k+1)
+	results := make([]SearchPoint, 0, k+1)
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
@@ -329,9 +334,14 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]models.Point, error) {
 			}
 			// We copy here because the byte slice is only valid for the
 			// lifetime of the transaction
-			point.Metadata = make([]byte, len(mdata))
-			copy(point.Metadata, mdata)
-			results = append(results, point)
+			if mdata != nil {
+				point.Metadata = make([]byte, len(mdata))
+				copy(point.Metadata, mdata)
+			}
+			sp := SearchPoint{
+				Point:    point,
+				Distance: distElem.distance}
+			results = append(results, sp)
 		}
 		return nil
 	})

@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/shard"
 	"github.com/vmihailenco/msgpack"
 )
 
@@ -230,7 +232,7 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 const poissonApproxA = 1.42
 const poissonApproxB = 10.0
 
-func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit int) ([]models.Point, error) {
+func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit int) ([]shard.SearchPoint, error) {
 	// ---------------------------
 	shards, err := c.GetShards(col, false)
 	if err != nil {
@@ -239,8 +241,9 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 	// ---------------------------
 	// Search every shard in parallel. If a shard is unavailable, we will
 	// simply ignore it for now to keep the search request alive.
-	results := make([][]models.Point, 0, len(shards))
+	results := make([]shard.SearchPoint, 0, len(shards))
 	var wg sync.WaitGroup
+	var mu sync.Mutex
 	for i, shardInfo := range shards {
 		wg.Add(1)
 		go func(index int, sDir string) {
@@ -284,12 +287,24 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 			if err := c.RPCSearchPoints(&searchReq, &searchResp); err != nil {
 				c.logger.Error().Err(err).Str("shardDir", sDir).Msg("could not search points")
 			} else {
-				results[index] = searchResp.Points
+				mu.Lock()
+				results = append(results, searchResp.Points...)
+				mu.Unlock()
 			}
 		}(i, shardInfo.ShardDir)
 	}
 	// ---------------------------
-	// TODO: Merge results in a single slice
+	// Merge results in a single slice. We could instead use a channel to stream
+	// and merge results on the go but that adds more complexity which could be
+	// future work.
+	wg.Wait()
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Distance < results[j].Distance
+	})
+	// Take the top limit points
+	if len(results) > limit {
+		results = results[:limit]
+	}
 	// ---------------------------
-	return results[0], nil
+	return results, nil
 }

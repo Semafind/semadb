@@ -129,7 +129,7 @@ type rpcSearchPointsRequest struct {
 }
 
 type rpcSearchPointsResponse struct {
-	Points []models.Point
+	Points []shard.SearchPoint
 }
 
 func (c *ClusterNode) RPCSearchPoints(args *rpcSearchPointsRequest, reply *rpcSearchPointsResponse) error {
