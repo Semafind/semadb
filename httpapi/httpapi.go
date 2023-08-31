@@ -1,4 +1,4 @@
-package main
+package httpapi
 
 import (
 	"fmt"
@@ -309,7 +309,7 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 
 // ---------------------------
 
-func runHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
+func RunHTTPServer(clusterState *cluster.ClusterNode) *http.Server {
 	router := gin.Default()
 	v1 := router.Group("/v1", AppHeaderMiddleware())
 	v1.GET("/ping", pongHandler)

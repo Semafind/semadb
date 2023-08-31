@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/config"
+	"github.com/semafind/semadb/httpapi"
 )
 
 // ---------------------------
@@ -58,7 +59,7 @@ func main() {
 	}
 	clusterNode.Serve()
 	// ---------------------------
-	httpServer := runHTTPServer(clusterNode)
+	httpServer := httpapi.RunHTTPServer(clusterNode)
 	// ---------------------------
 	quit := make(chan os.Signal, 1)
 	// kill (no param) default send syscanll.SIGTERM
