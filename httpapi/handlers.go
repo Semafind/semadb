@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -55,35 +56,58 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	err := sdbh.clusterNode.CreateCollection(vamanaCollection)
 	switch err {
 	case nil:
-		c.JSON(http.StatusCreated, gin.H{"message": "collection created"})
+		c.JSON(http.StatusOK, gin.H{"message": "collection created"})
 	case cluster.ErrExists:
 		c.JSON(http.StatusConflict, gin.H{"error": "collection exists"})
-	case cluster.ErrConflict:
-		c.JSON(http.StatusConflict, gin.H{"error": "conflict"})
-	case cluster.ErrTimeout:
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "timeout"})
-	case cluster.ErrPartialSuccess:
-		c.JSON(http.StatusAccepted, gin.H{"message": "collection accepted"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		log.Error().Err(err).Str("id", vamanaCollection.Id).Msg("CreateCollection failed")
 	}
+}
+
+type ListCollectionItem struct {
+	Id             string `json:"id"`
+	VectorSize     uint   `json:"vectorSize"`
+	DistanceMetric string `json:"distanceMetric"`
+}
+
+type ListCollectionsResponse struct {
+	Collections []ListCollectionItem `json:"collections"`
 }
 
 func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
 	collections, err := sdbh.clusterNode.ListCollections(appHeaders.UserID)
+	colItems := make([]ListCollectionItem, len(collections))
+	for i, col := range collections {
+		colItems[i] = ListCollectionItem{Id: col.Id, VectorSize: col.VectorSize, DistanceMetric: col.DistMetric}
+	}
+	resp := ListCollectionsResponse{Collections: colItems}
 	switch err {
 	case nil:
-		c.JSON(http.StatusOK, gin.H{"collections": collections})
+		c.JSON(http.StatusOK, resp)
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		log.Error().Err(err).Msg("ListCollections failed")
 	}
 	// ---------------------------
 }
 
 type GetCollectionUri struct {
 	CollectionId string `uri:"collectionId" binding:"required,alphanum,min=3,max=16"`
+}
+
+type ShardItem struct {
+	Id         string `json:"id"`
+	PointCount int64  `json:"pointCount"`
+}
+
+type GetCollectionResponse struct {
+	Id             string      `json:"id"`
+	VectorSize     uint        `json:"vectorSize"`
+	DistanceMetric string      `json:"distanceMetric"`
+	Shards         []ShardItem `json:"shards"`
 }
 
 func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
@@ -96,15 +120,36 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
 	collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
-	switch err {
-	case nil:
-		c.JSON(http.StatusOK, gin.H{"collection": collection})
-	case cluster.ErrNotFound:
+	if err == cluster.ErrNotFound {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-	default:
+		return
+	}
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
 	}
 	// ---------------------------
+	shards, err := sdbh.clusterNode.GetShards(collection, true)
+	if errors.Is(err, cluster.ErrShardUnavailable) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "shard unavailable"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		return
+	}
+	// ---------------------------
+	shardItems := make([]ShardItem, len(shards))
+	for i, shard := range shards {
+		shardItems[i] = ShardItem{Id: shard.Id, PointCount: shard.PointCount}
+	}
+	resp := GetCollectionResponse{
+		Id:             collection.Id,
+		VectorSize:     collection.VectorSize,
+		DistanceMetric: collection.DistMetric,
+		Shards:         shardItems,
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 type InsertSinglePointRequest struct {

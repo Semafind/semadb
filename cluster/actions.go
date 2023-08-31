@@ -89,17 +89,17 @@ func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error
 func (c *ClusterNode) GetCollection(userId string, collectionId string) (models.Collection, error) {
 	// ---------------------------
 	fpath := filepath.Join(config.Cfg.RootDir, userId, collectionId, "collection.msgpack")
+	var collection models.Collection
 	// ---------------------------
 	colBytes, err := os.ReadFile(fpath)
 	if errors.Is(err, os.ErrNotExist) {
-		return models.Collection{}, ErrNotFound
+		return collection, ErrNotFound
 	} else if err != nil {
-		return models.Collection{}, fmt.Errorf("could not read collection file: %w", err)
+		return collection, fmt.Errorf("could not read collection file: %w", err)
 	}
 	// ---------------------------
-	var collection models.Collection
 	if err := msgpack.Unmarshal(colBytes, &collection); err != nil {
-		return models.Collection{}, fmt.Errorf("could not unmarshal collection file: %w", err)
+		return collection, fmt.Errorf("could not unmarshal collection file: %w", err)
 	}
 	// ---------------------------
 	return collection, nil
@@ -126,6 +126,7 @@ func (c *ClusterNode) CreateShard(col models.Collection) (string, error) {
 }
 
 type shardInfo struct {
+	Id         string
 	ShardDir   string
 	Size       int64
 	PointCount int64
@@ -147,6 +148,7 @@ func (c *ClusterNode) GetShards(col models.Collection, withSize bool) ([]shardIn
 		// ---------------------------
 		fullShardDir := filepath.Join(colDir, shardDir.Name())
 		si := shardInfo{
+			Id:       shardDir.Name(),
 			ShardDir: fullShardDir,
 		}
 		// ---------------------------
