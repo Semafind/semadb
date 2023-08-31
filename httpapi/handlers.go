@@ -24,7 +24,6 @@ func NewSemaDBHandlers(clusterNode *cluster.ClusterNode) *SemaDBHandlers {
 }
 
 // ---------------------------
-/* Collection handlers */
 
 type NewCollectionRequest struct {
 	Id             string `json:"id" binding:"required,alphanum,min=3,max=16"`
@@ -94,9 +93,35 @@ func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
 	// ---------------------------
 }
 
+// ---------------------------
+
 type GetCollectionUri struct {
 	CollectionId string `uri:"collectionId" binding:"required,alphanum,min=3,max=16"`
 }
+
+func (sdbh *SemaDBHandlers) CollectionURIMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var uri GetCollectionUri
+		if err := c.ShouldBindUri(&uri); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		appHeaders := c.MustGet("appHeaders").(AppHeaders)
+		collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
+		if err == cluster.ErrNotFound {
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			return
+		}
+		c.Set("collection", collection)
+		c.Next()
+	}
+}
+
+// ---------------------------
 
 type ShardItem struct {
 	Id         string `json:"id"`
@@ -111,23 +136,8 @@ type GetCollectionResponse struct {
 }
 
 func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
-	var uri GetCollectionUri
-	if err := c.ShouldBindUri(&uri); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
 	// ---------------------------
-	appHeaders := c.MustGet("appHeaders").(AppHeaders)
-	// ---------------------------
-	collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
-	if err == cluster.ErrNotFound {
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-		return
-	}
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-		return
-	}
+	collection := c.MustGet("collection").(models.Collection)
 	// ---------------------------
 	shards, err := sdbh.clusterNode.GetShards(collection, true)
 	if errors.Is(err, cluster.ErrShardUnavailable) {
@@ -152,6 +162,15 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// ---------------------------
+
+func (sdbh *SemaDBHandlers) DeleteCollection(c *gin.Context) {
+	// Not implemented
+	c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+}
+
+// ---------------------------
+
 type InsertSinglePointRequest struct {
 	Id       string    `json:"id" binding:"uuid"`
 	Vector   []float32 `json:"vector" binding:"required"`
@@ -163,14 +182,7 @@ type InsertPointsRequest struct {
 }
 
 func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
-	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	userPlan := c.MustGet("userPlan").(config.UserPlan)
-	// ---------------------------
-	var uri GetCollectionUri
-	if err := c.ShouldBindUri(&uri); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
 	// ---------------------------
 	var req InsertPointsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -179,18 +191,7 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	}
 	// ---------------------------
 	// Get corresponding collection
-	collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
-	switch err {
-	case nil:
-		// Pass
-	case cluster.ErrNotFound:
-		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "collection not found"})
-		return
-	default:
-		log.Err(err).Msg("GetCollection failed")
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-		return
-	}
+	collection := c.MustGet("collection").(models.Collection)
 	// ---------------------------
 	// Convert request points into internal points, doing checks along the way
 	points := make([]models.Point, len(req.Points))
@@ -234,13 +235,23 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	// ---------------------------
 }
 
+// ---------------------------
+
 type UpdatePointRequest struct {
 	Id       string    `json:"id" binding:"required,uuid"`
 	Vector   []float32 `json:"vector" binding:"required"`
 	Metadata any       `json:"metadata"`
 }
 
-// TODO(nuric): implement update points endpoint
+func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
+	c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+}
+
+// ---------------------------
+
+func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
+	c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+}
 
 // ---------------------------
 
@@ -256,13 +267,6 @@ type SearchPointResult struct {
 }
 
 func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
-	appHeaders := c.MustGet("appHeaders").(AppHeaders)
-	// ---------------------------
-	var uri GetCollectionUri
-	if err := c.ShouldBindUri(&uri); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
 	// ---------------------------
 	var req SearchPointsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -271,18 +275,7 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	}
 	// ---------------------------
 	// Get corresponding collection
-	collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
-	switch err {
-	case nil:
-		// TODO: refactor this processing
-	case cluster.ErrNotFound:
-		c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "collection not found"})
-		return
-	default:
-		log.Err(err).Msg("GetCollection failed")
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-		return
-	}
+	collection := c.MustGet("collection").(models.Collection)
 	// ---------------------------
 	// Check vector dimension
 	if len(req.Vector) != int(collection.VectorSize) {

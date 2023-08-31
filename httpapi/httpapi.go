@@ -31,12 +31,19 @@ func RunHTTPServer(cnode *cluster.ClusterNode) *http.Server {
 	v1 := router.Group("/v1", AppHeaderMiddleware())
 	v1.GET("/ping", pongHandler)
 	// ---------------------------
+	// https://stackoverflow.blog/2020/03/02/best-practices-for-rest-api-design/
 	semaDBHandlers := NewSemaDBHandlers(cnode)
 	v1.POST("/collections", semaDBHandlers.NewCollection)
 	v1.GET("/collections", semaDBHandlers.ListCollections)
-	v1.GET("/collections/:collectionId", semaDBHandlers.GetCollection)
-	v1.POST("/collections/:collectionId/points", semaDBHandlers.InsertPoints)
-	v1.POST("/collections/:collectionId/points/search", semaDBHandlers.SearchPoints)
+	colRoutes := v1.Group("/collections/:collectionId", semaDBHandlers.CollectionURIMiddleware())
+	colRoutes.GET("/", semaDBHandlers.GetCollection)
+	colRoutes.DELETE("/", semaDBHandlers.DeleteCollection)
+	// We're batching point requests for peformance reasons. Alternatively we
+	// can provide points/:pointId endpoint in the future.
+	colRoutes.POST("/points", semaDBHandlers.InsertPoints)
+	colRoutes.PUT("/points", semaDBHandlers.UpdatePoints)
+	colRoutes.DELETE("/points", semaDBHandlers.DeletePoints)
+	colRoutes.POST("/points/search", semaDBHandlers.SearchPoints)
 	// ---------------------------
 	server := &http.Server{
 		Addr:    config.Cfg.HttpHost + ":" + strconv.Itoa(config.Cfg.HttpPort),
