@@ -31,20 +31,11 @@ func setupLogging() {
 	log.Debug().Msg("Debug mode enabled")
 }
 
-func init() {
-	setupLogging()
-	// ---------------------------
-	// Setup gin
-	// ginMode := os.Getenv("GIN_MODE")
-	// if ginMode == "release" {
-	// 	gin.SetMode(gin.ReleaseMode)
-	// }
-	// ---------------------------
-}
-
 // ---------------------------
 
 func main() {
+	setupLogging()
+	// ---------------------------
 	log.Info().Str("version", "0.0.1").Msg("Starting semadb")
 	hostname, err := os.Hostname()
 	if err != nil {
