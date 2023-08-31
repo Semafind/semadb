@@ -1,11 +1,12 @@
 package cluster
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"sync"
 
 	"github.com/google/uuid"
@@ -300,8 +301,8 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 	// and merge results on the go but that adds more complexity which could be
 	// future work.
 	wg.Wait()
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Distance < results[j].Distance
+	slices.SortFunc(results, func(a, b shard.SearchPoint) int {
+		return cmp.Compare(a.Distance, b.Distance)
 	})
 	// Take the top limit points
 	if len(results) > limit {
