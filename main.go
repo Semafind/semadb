@@ -18,12 +18,12 @@ import (
 
 func setupLogging() {
 	// UNIX Time is faster and smaller than most timestamps
-	// zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	// ---------------------------
 	// Default level for this example is info, unless debug flag is present
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	if config.Cfg.Debug {
+		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 		log.Debug().Interface("config", config.Cfg).Msg("Configuration")
 	}

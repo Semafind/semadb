@@ -50,8 +50,7 @@ func ZerologLogger() gin.HandlerFunc {
 		c.Next()
 		// ---------------------------
 		// Stop timer and gather information
-		timeStamp := time.Now()
-		latency := timeStamp.Sub(start)
+		latency := time.Since(start)
 
 		clientIP := c.ClientIP()
 		method := c.Request.Method
@@ -64,7 +63,7 @@ func ZerologLogger() gin.HandlerFunc {
 			path = path + "?" + raw
 		}
 		// ---------------------------
-		logEvent := log.Info().Time("timeStamp", timeStamp).
+		logEvent := log.Info().
 			Dur("latency", latency).
 			Str("clientIP", clientIP).
 			Str("method", method).Str("path", path).
