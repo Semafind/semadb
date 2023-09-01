@@ -158,14 +158,14 @@ func (c *ClusterNode) GetShards(col models.Collection, withSize bool) ([]shardIn
 		// ---------------------------
 		if withSize {
 			targetServer := RendezvousHash(shardDir.Name(), c.Servers, 1)[0]
-			getInfoRequest := rpcGetShardInfoRequest{
-				rpcRequestArgs: rpcRequestArgs{
+			getInfoRequest := RPCGetShardInfoRequest{
+				RPCRequestArgs: RPCRequestArgs{
 					Source: c.MyHostname,
 					Dest:   targetServer,
 				},
 				ShardDir: fullShardDir,
 			}
-			getInfoResponse := rpcGetShardInfoResponse{}
+			getInfoResponse := RPCGetShardInfoResponse{}
 			if err := c.RPCGetShardInfo(&getInfoRequest, &getInfoResponse); err != nil {
 				c.logger.Error().Err(err).Str("shardDir", shardDir.Name()).Msg("could not get shard info")
 				return nil, fmt.Errorf("could not get shard info: %w: %w", ErrShardUnavailable, err)
@@ -206,8 +206,8 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 			// ---------------------------
 			targetServer := RendezvousHash(shardId, c.Servers, 1)[0]
 			shardPoints := points[pointRange[0]:pointRange[1]]
-			insertReq := rpcInsertPointsRequest{
-				rpcRequestArgs: rpcRequestArgs{
+			insertReq := RPCInsertPointsRequest{
+				RPCRequestArgs: RPCRequestArgs{
 					Source: c.MyHostname,
 					Dest:   targetServer,
 				},
@@ -281,8 +281,8 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 			}
 			// We don't check for minimum since it will be at least poissonApproxB = 10
 			// ---------------------------
-			searchReq := rpcSearchPointsRequest{
-				rpcRequestArgs: rpcRequestArgs{
+			searchReq := RPCSearchPointsRequest{
+				RPCRequestArgs: RPCRequestArgs{
 					Source: c.MyHostname,
 					Dest:   targetServer,
 				},
@@ -290,7 +290,7 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 				Vector:   query,
 				Limit:    targetLimit,
 			}
-			searchResp := rpcSearchPointsResponse{}
+			searchResp := RPCSearchPointsResponse{}
 			if err := c.RPCSearchPoints(&searchReq, &searchResp); err != nil {
 				c.logger.Error().Err(err).Str("shardDir", sDir).Msg("could not search points")
 				errCount.Add(1)
@@ -308,7 +308,7 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 	// and merge results on the go but that adds more complexity which could be
 	// future work.
 	wg.Wait()
-	if errCount.Load() == int32(len(shards)) {
+	if len(shards) > 0 && errCount.Load() == int32(len(shards)) {
 		return nil, fmt.Errorf("could not search any shards")
 	}
 	slices.SortFunc(results, func(a, b shard.SearchPoint) int {

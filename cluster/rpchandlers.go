@@ -28,14 +28,14 @@ import (
 
 // ---------------------------
 
-type rpcInsertPointsRequest struct {
-	rpcRequestArgs
+type RPCInsertPointsRequest struct {
+	RPCRequestArgs
 	ShardDir string
 	Points   []models.Point
 }
 
-func (c *ClusterNode) RPCInsertPoints(args *rpcInsertPointsRequest, reply *struct{}) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.rpcRequestArgs).Msg("RPCInsertPoints")
+func (c *ClusterNode) RPCInsertPoints(args *RPCInsertPointsRequest, reply *struct{}) error {
+	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCInsertPoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCInsertPoints", args, reply)
 	}
@@ -47,18 +47,18 @@ func (c *ClusterNode) RPCInsertPoints(args *rpcInsertPointsRequest, reply *struc
 
 // ---------------------------
 
-type rpcUpdatePointsRequest struct {
-	rpcRequestArgs
+type RPCUpdatePointsRequest struct {
+	RPCRequestArgs
 	ShardDir string
 	Points   []models.Point
 }
 
-type rpcUpdatePointsResponse struct {
+type RPCUpdatePointsResponse struct {
 	ErrMap map[uuid.UUID]error
 }
 
-func (c *ClusterNode) RPCUpdatePoints(args *rpcUpdatePointsRequest, reply *rpcUpdatePointsResponse) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.rpcRequestArgs).Msg("RPCUpdatePoints")
+func (c *ClusterNode) RPCUpdatePoints(args *RPCUpdatePointsRequest, reply *RPCUpdatePointsResponse) error {
+	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCUpdatePoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCUpdatePoints", args, reply)
 	}
@@ -72,14 +72,14 @@ func (c *ClusterNode) RPCUpdatePoints(args *rpcUpdatePointsRequest, reply *rpcUp
 
 // ---------------------------
 
-type rpcDeletePointsRequest struct {
-	rpcRequestArgs
+type RPCDeletePointsRequest struct {
+	RPCRequestArgs
 	ShardDir string
 	Ids      []uuid.UUID
 }
 
-func (c *ClusterNode) RPCDeletePoints(args *rpcDeletePointsRequest, reply *struct{}) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.rpcRequestArgs).Msg("RPCDeletePoints")
+func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *struct{}) error {
+	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCDeletePoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCDeletePoints", args, reply)
 	}
@@ -95,20 +95,20 @@ func (c *ClusterNode) RPCDeletePoints(args *rpcDeletePointsRequest, reply *struc
 
 // ---------------------------
 
-type rpcGetShardInfoRequest struct {
-	rpcRequestArgs
+type RPCGetShardInfoRequest struct {
+	RPCRequestArgs
 	ShardDir string
 }
 
-type rpcGetShardInfoResponse struct {
+type RPCGetShardInfoResponse struct {
 	PointCount int64
 	Size       int64
 }
 
-func (c *ClusterNode) RPCGetShardInfo(args *rpcGetShardInfoRequest, reply *rpcGetShardInfoResponse) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.rpcRequestArgs).Msg("RPCGetShardInfo")
+func (c *ClusterNode) RPCGetShardInfo(args *RPCGetShardInfoRequest, reply *RPCGetShardInfoResponse) error {
+	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCGetShardInfo")
 	if args.Dest != c.MyHostname {
-		return c.internalRoute("ClusterNode.GetShardInfo", args, reply)
+		return c.internalRoute("ClusterNode.RPCGetShardInfo", args, reply)
 	}
 	// ---------------------------
 	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
@@ -121,19 +121,19 @@ func (c *ClusterNode) RPCGetShardInfo(args *rpcGetShardInfoRequest, reply *rpcGe
 
 // ---------------------------
 
-type rpcSearchPointsRequest struct {
-	rpcRequestArgs
+type RPCSearchPointsRequest struct {
+	RPCRequestArgs
 	ShardDir string
 	Vector   []float32
 	Limit    int
 }
 
-type rpcSearchPointsResponse struct {
+type RPCSearchPointsResponse struct {
 	Points []shard.SearchPoint
 }
 
-func (c *ClusterNode) RPCSearchPoints(args *rpcSearchPointsRequest, reply *rpcSearchPointsResponse) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.rpcRequestArgs).Msg("RPCSearchPoints")
+func (c *ClusterNode) RPCSearchPoints(args *RPCSearchPointsRequest, reply *RPCSearchPointsResponse) error {
+	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCSearchPoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCSearchPoints", args, reply)
 	}

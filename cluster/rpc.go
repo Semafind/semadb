@@ -30,12 +30,12 @@ type Destinationer interface {
 // Common to all RPC requests, this trick allows us to locally call the same RPC
 // endpoints and let the functions route to the right server assuming mesh
 // network
-type rpcRequestArgs struct {
+type RPCRequestArgs struct {
 	Source string
 	Dest   string
 }
 
-func (args rpcRequestArgs) Destination() string {
+func (args RPCRequestArgs) Destination() string {
 	return args.Dest
 }
 
