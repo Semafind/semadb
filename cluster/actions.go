@@ -157,7 +157,7 @@ func (c *ClusterNode) GetShards(col models.Collection, withSize bool) ([]shardIn
 		}
 		// ---------------------------
 		if withSize {
-			targetServer := RendezvousHash(shardDir.Name(), c.Servers, 1)[0]
+			targetServer := RendezvousHash(si.ShardDir, c.Servers, 1)[0]
 			getInfoRequest := RPCGetShardInfoRequest{
 				RPCRequestArgs: RPCRequestArgs{
 					Source: c.MyHostname,
@@ -200,28 +200,29 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 	failedRanges := make([][2]int, 0)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for shardId, pointRange := range shardAssignments {
+	for shardDir, pointRange := range shardAssignments {
 		wg.Add(1)
-		go func(shardId string, pointRange [2]int) {
+		go func(sDir string, pointRange [2]int) {
 			// ---------------------------
-			targetServer := RendezvousHash(shardId, c.Servers, 1)[0]
+			targetServer := RendezvousHash(sDir, c.Servers, 1)[0]
 			shardPoints := points[pointRange[0]:pointRange[1]]
 			insertReq := RPCInsertPointsRequest{
 				RPCRequestArgs: RPCRequestArgs{
 					Source: c.MyHostname,
 					Dest:   targetServer,
 				},
-				ShardDir: shardId,
+				ShardDir: sDir,
 				Points:   shardPoints,
 			}
-			if err := c.RPCInsertPoints(&insertReq, nil); err != nil {
-				c.logger.Error().Err(err).Str("shardId", shardId).Msg("could not insert points")
+			insertResp := RPCInsertPointsResponse{}
+			if err := c.RPCInsertPoints(&insertReq, &insertResp); err != nil {
+				c.logger.Error().Err(err).Str("shardDir", sDir).Msg("could not insert points")
 				mu.Lock()
 				failedRanges = append(failedRanges, pointRange)
 				mu.Unlock()
 			}
 			wg.Done()
-		}(shardId, pointRange)
+		}(shardDir, pointRange)
 	}
 	// ---------------------------
 	// Wait for all insertions to finish

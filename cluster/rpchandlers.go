@@ -34,13 +34,21 @@ type RPCInsertPointsRequest struct {
 	Points   []models.Point
 }
 
-func (c *ClusterNode) RPCInsertPoints(args *RPCInsertPointsRequest, reply *struct{}) error {
+// This response is not really used, but we need to return something otherwise
+// enc/glob fails. That is, we can have reply be nil. We can use this response
+// in the future.
+type RPCInsertPointsResponse struct {
+	Count int
+}
+
+func (c *ClusterNode) RPCInsertPoints(args *RPCInsertPointsRequest, reply *RPCInsertPointsResponse) error {
 	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCInsertPoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCInsertPoints", args, reply)
 	}
 	// ---------------------------
 	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
+		reply.Count = len(args.Points)
 		return s.InsertPoints(args.Points)
 	})
 }
@@ -78,7 +86,11 @@ type RPCDeletePointsRequest struct {
 	Ids      []uuid.UUID
 }
 
-func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *struct{}) error {
+type RPCDeletePointsResponse struct {
+	Count int
+}
+
+func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *RPCDeletePointsResponse) error {
 	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCDeletePoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCDeletePoints", args, reply)
@@ -89,6 +101,7 @@ func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *struc
 		deleteSet[id] = struct{}{}
 	}
 	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
+		reply.Count = len(deleteSet)
 		return s.DeletePoints(deleteSet)
 	})
 }
