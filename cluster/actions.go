@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/config"
@@ -244,9 +245,10 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 	// ---------------------------
 	// Search every shard in parallel. If a shard is unavailable, we will
 	// simply ignore it for now to keep the search request alive.
-	results := make([]shard.SearchPoint, 0, len(shards))
+	results := make([]shard.SearchPoint, 0, len(shards)*10)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	var errCount atomic.Int32
 	for i, shardInfo := range shards {
 		wg.Add(1)
 		go func(index int, sDir string) {
@@ -289,7 +291,10 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 			searchResp := rpcSearchPointsResponse{}
 			if err := c.RPCSearchPoints(&searchReq, &searchResp); err != nil {
 				c.logger.Error().Err(err).Str("shardDir", sDir).Msg("could not search points")
+				errCount.Add(1)
 			} else {
+				// Alternatively we can stream the results into a channel and
+				// loop over. This is more straightforward for now.
 				mu.Lock()
 				results = append(results, searchResp.Points...)
 				mu.Unlock()
@@ -301,6 +306,9 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 	// and merge results on the go but that adds more complexity which could be
 	// future work.
 	wg.Wait()
+	if errCount.Load() == int32(len(shards)) {
+		return nil, fmt.Errorf("could not search any shards")
+	}
 	slices.SortFunc(results, func(a, b shard.SearchPoint) int {
 		return cmp.Compare(a.Distance, b.Distance)
 	})

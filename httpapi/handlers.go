@@ -228,7 +228,7 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 		return
 	}
 	if len(errRanges) > 0 {
-		c.AbortWithStatusJSON(http.StatusAccepted, gin.H{"message": "accepted", "failed": errRanges})
+		c.AbortWithStatusJSON(http.StatusAccepted, gin.H{"message": "partial success", "failed": errRanges})
 		return
 	}
 	c.Status(http.StatusOK)
@@ -257,13 +257,17 @@ func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
 
 type SearchPointsRequest struct {
 	Vector []float32 `json:"vector" binding:"required"`
-	Limit  int       `json:"limit" binding:"required,min=1,max=100"`
+	Limit  int       `json:"limit" binding:"min=1,max=75,default=10"`
 }
 
 type SearchPointResult struct {
 	Id       string  `json:"id"`
 	Distance float32 `json:"distance"`
 	Metadata any     `json:"metadata"`
+}
+
+type SearchPointsResponse struct {
+	Points []SearchPointResult `json:"points"`
 }
 
 func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
@@ -303,6 +307,7 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 			Metadata: mdata,
 		}
 	}
-	c.JSON(http.StatusOK, gin.H{"points": results})
+	resp := SearchPointsResponse{Points: results}
+	c.JSON(http.StatusOK, resp)
 	// ---------------------------
 }
