@@ -257,7 +257,7 @@ func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
 
 type SearchPointsRequest struct {
 	Vector []float32 `json:"vector" binding:"required"`
-	Limit  int       `json:"limit" binding:"min=1,max=75,default=10"`
+	Limit  int       `json:"limit" binding:"min=0,max=75"`
 }
 
 type SearchPointResult struct {
@@ -276,6 +276,10 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	// Default limit is 10
+	if req.Limit == 0 {
+		req.Limit = 10
 	}
 	// ---------------------------
 	// Get corresponding collection
