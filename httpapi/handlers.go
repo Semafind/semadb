@@ -78,14 +78,16 @@ func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
 	collections, err := sdbh.clusterNode.ListCollections(appHeaders.UserID)
-	colItems := make([]ListCollectionItem, len(collections))
-	for i, col := range collections {
-		colItems[i] = ListCollectionItem{Id: col.Id, VectorSize: col.VectorSize, DistanceMetric: col.DistMetric}
-	}
-	resp := ListCollectionsResponse{Collections: colItems}
 	switch err {
 	case nil:
+		colItems := make([]ListCollectionItem, len(collections))
+		for i, col := range collections {
+			colItems[i] = ListCollectionItem{Id: col.Id, VectorSize: col.VectorSize, DistanceMetric: col.DistMetric}
+		}
+		resp := ListCollectionsResponse{Collections: colItems}
 		c.JSON(http.StatusOK, resp)
+	case cluster.ErrNotFound:
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 		log.Error().Err(err).Msg("ListCollections failed")

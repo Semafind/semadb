@@ -51,7 +51,9 @@ func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error
 	// ---------------------------
 	dirPath := filepath.Join(config.Cfg.RootDir, userId)
 	colDirs, err := os.ReadDir(dirPath)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, ErrNotFound
+	} else if err != nil {
 		return nil, fmt.Errorf("could not read user directory: %w", err)
 	}
 	// ---------------------------
