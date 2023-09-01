@@ -16,6 +16,7 @@ servers:
 rpcHost: localhost
 rpcPort: 9898
 rpcTimeout: 300 # seconds
+rpcRetries: 2
 # HTTP Parameters
 httpHost: localhost
 httpPort: 8080

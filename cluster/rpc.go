@@ -42,39 +42,44 @@ func (args RPCRequestArgs) Destination() string {
 func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply interface{}) error {
 	destination := args.Destination()
 	c.logger.Debug().Str("destination", destination).Msg(remoteFn + ": routing")
-	client, err := c.rpcClient(destination)
-	if err != nil {
-		return fmt.Errorf("failed to get client: %v", err)
-	}
-	// Make request with timeout
-	rpcCall := client.Go(remoteFn, args, reply, nil)
-	select {
-	case <-rpcCall.Done:
-		if rpcCall.Error != nil {
-			// Check if the connection is shutdown
-			if rpcCall.Error == rpc.ErrShutdown {
-				// Remove dead client from cache
-				c.rpcClientsMu.Lock()
-				delete(c.rpcClients, destination)
-				c.rpcClientsMu.Unlock()
-			}
-			// The method's return value, if non-nil, is passed back as a string that the client sees as if created by errors.New
-			// This means error wrapping, errors.Is and equality checks do not work as expected from rpcCall.Error
-			// We try to avoid relying on returning internal errors from remote calls
-			finalErr := rpcCall.Error
-			// Otherwise, we need to check the error string using an ugly switch statement below.
-			// switch rpcCall.Error.Error() {
-			// case kvstore.ErrExistingKey.Error():
-			// 	finalErr = kvstore.ErrExistingKey
-			// case kvstore.ErrStaleData.Error():
-			// 	finalErr = kvstore.ErrStaleData
-			// case kvstore.ErrKeyNotFound.Error():
-			// 	finalErr = kvstore.ErrKeyNotFound
-			// }
-			return fmt.Errorf("failed to call %v: %w", remoteFn, finalErr)
+	for i := 0; i < config.Cfg.RpcRetries; i++ {
+		client, err := c.rpcClient(destination)
+		if err != nil {
+			return fmt.Errorf("failed to get client: %v", err)
 		}
-	case <-time.After(time.Duration(config.Cfg.RpcTimeout) * time.Second):
-		return fmt.Errorf(remoteFn+" timed out: %w", ErrTimeout)
+		// Make request with timeout
+		rpcCall := client.Go(remoteFn, args, reply, nil)
+		timeout := time.NewTimer(time.Duration(config.Cfg.RpcTimeout) * time.Second)
+		defer timeout.Stop()
+		select {
+		case <-rpcCall.Done:
+			if rpcCall.Error != nil {
+				// Check if the connection is shutdown
+				if rpcCall.Error == rpc.ErrShutdown {
+					// Remove dead client from cache
+					c.rpcClientsMu.Lock()
+					delete(c.rpcClients, destination)
+					c.rpcClientsMu.Unlock()
+					c.logger.Debug().Str("destination", destination).Msg("Removed dead client")
+					continue
+				}
+				// The method's return value, if non-nil, is passed back as a string that the client sees as if created by errors.New
+				// This means error wrapping, errors.Is and equality checks do not work as expected from rpcCall.Error
+				// We try to avoid relying on returning internal errors from remote calls.
+				finalErr := rpcCall.Error
+				// Otherwise, we need to check the error string using an ugly switch statement below.
+				// switch rpcCall.Error.Error() {
+				// case ErrExists.Error():
+				// 	finalErr = ErrExists
+				// case ErrNotFound.Error():
+				// 	finalErr = ErrNotFound
+				// }
+				return fmt.Errorf("failed to call %v: %w", remoteFn, finalErr)
+			}
+			return nil
+		case <-timeout.C:
+			return fmt.Errorf(remoteFn+" timed out: %w", ErrTimeout)
+		}
 	}
 	return nil
 }

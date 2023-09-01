@@ -36,6 +36,7 @@ type ConfigMap struct {
 	RpcHost    string `yaml:"rpcHost"`
 	RpcPort    int    `yaml:"rpcPort"`
 	RpcTimeout int    `yaml:"rpcTimeout"`
+	RpcRetries int    `yaml:"rpcRetries"`
 	// HTTP Parameters
 	HttpHost string `yaml:"httpHost"`
 	HttpPort int    `yaml:"httpPort"`
