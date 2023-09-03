@@ -174,13 +174,13 @@ func (sdbh *SemaDBHandlers) DeleteCollection(c *gin.Context) {
 // ---------------------------
 
 type InsertSinglePointRequest struct {
-	Id       string    `json:"id" binding:"uuid"`
-	Vector   []float32 `json:"vector" binding:"required"`
+	Id       string    `json:"id" binding:"omitempty,uuid"`
+	Vector   []float32 `json:"vector" binding:"required,max=2000"`
 	Metadata any       `json:"metadata"`
 }
 
 type InsertPointsRequest struct {
-	Points []InsertSinglePointRequest `json:"points" binding:"required,max=10000"`
+	Points []InsertSinglePointRequest `json:"points" binding:"required,max=10000,dive"`
 }
 
 func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
@@ -241,12 +241,12 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 
 type UpdateSinglePointRequest struct {
 	Id       string    `json:"id" binding:"required,uuid"`
-	Vector   []float32 `json:"vector" binding:"required,max=75"`
+	Vector   []float32 `json:"vector" binding:"required,max=2000"`
 	Metadata any       `json:"metadata"`
 }
 
 type UpdatePointsRequest struct {
-	Points []UpdateSinglePointRequest `json:"points" binding:"required,dive"`
+	Points []UpdateSinglePointRequest `json:"points" binding:"required,max=100,dive"`
 }
 
 func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
@@ -312,7 +312,7 @@ func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
 // ---------------------------
 
 type SearchPointsRequest struct {
-	Vector []float32 `json:"vector" binding:"required"`
+	Vector []float32 `json:"vector" binding:"required,max=2000"`
 	Limit  int       `json:"limit" binding:"min=0,max=75"`
 }
 
