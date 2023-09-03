@@ -62,7 +62,7 @@ type RPCUpdatePointsRequest struct {
 }
 
 type RPCUpdatePointsResponse struct {
-	ErrMap map[uuid.UUID]error
+	UpdatedIds []uuid.UUID
 }
 
 func (c *ClusterNode) RPCUpdatePoints(args *RPCUpdatePointsRequest, reply *RPCUpdatePointsResponse) error {
@@ -72,8 +72,8 @@ func (c *ClusterNode) RPCUpdatePoints(args *RPCUpdatePointsRequest, reply *RPCUp
 	}
 	// ---------------------------
 	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
-		errMap, err := s.UpdatePoints(args.Points)
-		reply.ErrMap = errMap
+		updatedIds, err := s.UpdatePoints(args.Points)
+		reply.UpdatedIds = updatedIds
 		return err
 	})
 }

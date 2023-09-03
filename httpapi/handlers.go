@@ -180,7 +180,7 @@ type InsertSinglePointRequest struct {
 }
 
 type InsertPointsRequest struct {
-	Points []InsertSinglePointRequest `json:"points" binding:"required"`
+	Points []InsertSinglePointRequest `json:"points" binding:"required,max=10000"`
 }
 
 func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
@@ -239,14 +239,68 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 
 // ---------------------------
 
-type UpdatePointRequest struct {
+type UpdateSinglePointRequest struct {
 	Id       string    `json:"id" binding:"required,uuid"`
-	Vector   []float32 `json:"vector" binding:"required"`
+	Vector   []float32 `json:"vector" binding:"required,max=75"`
 	Metadata any       `json:"metadata"`
 }
 
+type UpdatePointsRequest struct {
+	Points []UpdateSinglePointRequest `json:"points" binding:"required,dive"`
+}
+
 func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
-	c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+	userPlan := c.MustGet("userPlan").(config.UserPlan)
+	// ---------------------------
+	var req UpdatePointsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
+	// Get corresponding collection
+	collection := c.MustGet("collection").(models.Collection)
+	// ---------------------------
+	// Convert request points into internal points, doing checks along the way
+	points := make([]models.Point, len(req.Points))
+	for i, point := range req.Points {
+		if len(point.Vector) != int(collection.VectorSize) {
+			errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d for point at index %d", collection.VectorSize, len(point.Vector), i)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
+		}
+		points[i] = models.Point{
+			Id:     uuid.MustParse(point.Id),
+			Vector: point.Vector,
+		}
+		if point.Metadata != nil {
+			binaryMetadata, err := msgpack.Marshal(point.Metadata)
+			if err != nil {
+				errMsg := fmt.Sprintf("invalid metadata for point %d", i)
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+				return
+			}
+			if len(binaryMetadata) > userPlan.MaxMetadataSize {
+				errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryMetadata), userPlan.MaxMetadataSize)
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+				return
+			}
+			points[i].Metadata = binaryMetadata
+		}
+	}
+	// ---------------------------
+	// Update points returns a list of failed point ids
+	failedIds, err := sdbh.clusterNode.UpdatePoints(collection, points)
+	if err != nil {
+		c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	if len(failedIds) > 0 {
+		c.AbortWithStatusJSON(http.StatusAccepted, gin.H{"message": "partial success", "failedIds": failedIds})
+		return
+	}
+	c.Status(http.StatusOK)
 }
 
 // ---------------------------

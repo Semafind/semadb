@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
@@ -252,9 +253,9 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errCount atomic.Int32
-	for i, shardInfo := range shards {
+	for _, shardInfo := range shards {
 		wg.Add(1)
-		go func(index int, sDir string) {
+		go func(sDir string) {
 			defer wg.Done()
 			targetServer := RendezvousHash(sDir, c.Servers, 1)[0]
 			// ---------------------------
@@ -302,7 +303,7 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 				results = append(results, searchResp.Points...)
 				mu.Unlock()
 			}
-		}(i, shardInfo.ShardDir)
+		}(shardInfo.ShardDir)
 	}
 	// ---------------------------
 	// Merge results in a single slice. We could instead use a channel to stream
@@ -321,4 +322,71 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 	}
 	// ---------------------------
 	return results, nil
+}
+
+// ---------------------------
+
+func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point) ([]uuid.UUID, error) {
+	// ---------------------------
+	shards, err := c.GetShards(col, false)
+	if err != nil {
+		return nil, fmt.Errorf("could not get shards: %w", err)
+	}
+	// ---------------------------
+	// The update request is similar to the search request except we need to
+	// request every shard to participate. This is because we don't keep a table
+	// of which points map to which shards and that the number of shards can
+	// change dynamically making it difficult to keep up. A potential solution
+	// is to keep a table or using a consistent hashing algorithm. Because at
+	// the moment we fill shards in order without any rebalancing, its a fair
+	// starting point to probe all shards for the update request since only 1
+	// shard will have the point.
+	results := make([]uuid.UUID, 0, len(points))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	for _, shardInfo := range shards {
+		wg.Add(1)
+		go func(sDir string) {
+			defer wg.Done()
+			targetServer := RendezvousHash(sDir, c.Servers, 1)[0]
+			updateReq := RPCUpdatePointsRequest{
+				RPCRequestArgs: RPCRequestArgs{
+					Source: c.MyHostname,
+					Dest:   targetServer,
+				},
+				ShardDir: sDir,
+				Points:   points,
+			}
+			updateResp := RPCUpdatePointsResponse{}
+			if err := c.RPCUpdatePoints(&updateReq, &updateResp); err != nil {
+				c.logger.Error().Err(err).Str("shardDir", sDir).Msg("could not update points")
+			} else {
+				mu.Lock()
+				results = append(results, updateResp.UpdatedIds...)
+				mu.Unlock()
+			}
+		}(shardInfo.ShardDir)
+	}
+	// ---------------------------
+	wg.Wait()
+	// *** Return which points were NOT updated. ***
+	// This is because we want to notify clients / user what failed but internally
+	// we communicate what succeeded. Instead of every shard saying what failed,
+	// we can just say more concisely what succeeded to reduce traffic size.
+	slices.SortFunc(results, func(a, b uuid.UUID) int {
+		return bytes.Compare(a[:], b[:])
+	})
+	successSize := len(results)
+	for _, point := range points {
+		_, found := slices.BinarySearchFunc(results, point.Id, func(a, b uuid.UUID) int {
+			return bytes.Compare(a[:], b[:])
+		})
+		if !found {
+			// Because results has capacity of len(points), we can just append
+			// and then slice. This re-uses the allocated memory.
+			results = append(results, point.Id)
+		}
+	}
+	// ---------------------------
+	return results[successSize:], nil
 }
