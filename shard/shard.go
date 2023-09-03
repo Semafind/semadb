@@ -257,10 +257,11 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 
 // ---------------------------
 
-func (s *Shard) UpdatePoints(points []models.Point) (map[uuid.UUID]error, error) {
+func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("UpdatePoints")
 	// ---------------------------
-	results := make(map[uuid.UUID]error)
+	// We don't expect to update all the points because some may be in other shards.
+	results := make([]uuid.UUID, 0, len(points)/2)
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
@@ -270,7 +271,6 @@ func (s *Shard) UpdatePoints(points []models.Point) (map[uuid.UUID]error, error)
 			cachedPoint, err := pc.GetPoint(point.Id)
 			if err != nil {
 				// Point does not exist, or we can't access it at the moment
-				results[point.Id] = err
 				continue
 			}
 			// The point already exists, we need to prune it's neighbours before re-inserting
@@ -285,6 +285,7 @@ func (s *Shard) UpdatePoints(points []models.Point) (map[uuid.UUID]error, error)
 				log.Debug().Err(err).Msg("could not re-insert point for update")
 				return fmt.Errorf("could not re-insert point: %w", err)
 			}
+			results = append(results, point.Id)
 		}
 		return pc.Flush()
 	})

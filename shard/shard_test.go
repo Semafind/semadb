@@ -131,10 +131,8 @@ func TestShard_UpdatePoint(t *testing.T) {
 	updateRes, err := shard.UpdatePoints(points)
 	assert.NoError(t, err)
 	assert.Equal(t, 1, len(updateRes))
-	_, ok := updateRes[points[0].Id]
-	assert.False(t, ok)
-	_, ok = updateRes[points[1].Id]
-	assert.True(t, ok)
+	assert.Contains(t, updateRes, points[0].Id)
+	assert.NotContains(t, updateRes, points[1].Id)
 	assert.NoError(t, shard.Close())
 }
 
