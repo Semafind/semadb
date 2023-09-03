@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
 )
@@ -55,7 +56,7 @@ func ZerologLogger() gin.HandlerFunc {
 		clientIP := c.ClientIP()
 		method := c.Request.Method
 		statusCode := c.Writer.Status()
-		errorMessage := c.Errors.ByType(gin.ErrorTypePrivate).String()
+		lastError := c.Errors.ByType(gin.ErrorTypePrivate).Last()
 
 		bodySize := c.Writer.Size()
 
@@ -63,12 +64,17 @@ func ZerologLogger() gin.HandlerFunc {
 			path = path + "?" + raw
 		}
 		// ---------------------------
-		logEvent := log.Info().
+		var logEvent *zerolog.Event
+		if statusCode == 500 || lastError != nil {
+			logEvent = log.Error()
+		} else {
+			logEvent = log.Info()
+		}
+		logEvent.Err(lastError).
 			Dur("latency", latency).
 			Str("clientIP", clientIP).
 			Str("method", method).Str("path", path).
 			Int("statusCode", statusCode).
-			Str("errorMessage", errorMessage).
 			Int("bodySize", bodySize).
 			Str("path", path)
 		// Extract app headers if any
