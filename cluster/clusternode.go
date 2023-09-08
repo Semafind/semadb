@@ -1,9 +1,11 @@
 package cluster
 
 import (
+	"fmt"
 	"net/http"
 	"net/rpc"
 	"os"
+	"path/filepath"
 	"strconv"
 	"sync"
 	"time"
@@ -11,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/config"
+	"go.etcd.io/bbolt"
 )
 
 type ClusterNode struct {
@@ -22,6 +25,8 @@ type ClusterNode struct {
 	rpcClients   map[string]*rpc.Client
 	rpcClientsMu sync.Mutex
 	rpcServer    *http.Server
+	// ---------------------------
+	nodedb *bbolt.DB
 	// ---------------------------
 	shardStore map[string]*loadedShard
 	shardLock  sync.Mutex
@@ -46,11 +51,21 @@ func NewNode() (*ClusterNode, error) {
 	// ---------------------------
 	logger := log.With().Str("hostname", envHostname).Str("component", "clusterNode").Logger()
 	// ---------------------------
+	rootDir := config.Cfg.RootDir
+	if err := os.MkdirAll(rootDir, 0755); err != nil {
+		return nil, fmt.Errorf("could not create root dir %s: %w", rootDir, err)
+	}
+	nodedb, err := bbolt.Open(filepath.Join(rootDir, "nodedb.bbolt"), 0666, &bbolt.Options{Timeout: 1 * time.Minute})
+	if err != nil {
+		return nil, fmt.Errorf("could not open node db: %w", err)
+	}
+	// ---------------------------
 	cluster := &ClusterNode{
 		logger:     logger,
 		Servers:    config.Cfg.Servers,
 		MyHostname: envHostname,
 		rpcClients: make(map[string]*rpc.Client),
+		nodedb:     nodedb,
 		shardStore: make(map[string]*loadedShard),
 	}
 	return cluster, nil
@@ -74,10 +89,12 @@ func (c *ClusterNode) Serve() {
 		}
 	}()
 	// ---------------------------
-	// go c.startRepLogService()
 }
 
 func (c *ClusterNode) Close() error {
+	if err := c.nodedb.Close(); err != nil {
+		return fmt.Errorf("could not close node db: %w", err)
+	}
 	return nil
 }
 
