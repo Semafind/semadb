@@ -16,6 +16,10 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+var USERCOLSKEY = []byte("userCollections")
+
+const DBDELIMITER = "/"
+
 type ClusterNode struct {
 	logger zerolog.Logger
 	// ---------------------------
@@ -51,6 +55,7 @@ func NewNode() (*ClusterNode, error) {
 	// ---------------------------
 	logger := log.With().Str("hostname", envHostname).Str("component", "clusterNode").Logger()
 	// ---------------------------
+	// Setup local node database
 	rootDir := config.Cfg.RootDir
 	if err := os.MkdirAll(rootDir, 0755); err != nil {
 		return nil, fmt.Errorf("could not create root dir %s: %w", rootDir, err)
@@ -58,6 +63,17 @@ func NewNode() (*ClusterNode, error) {
 	nodedb, err := bbolt.Open(filepath.Join(rootDir, "nodedb.bbolt"), 0666, &bbolt.Options{Timeout: 1 * time.Minute})
 	if err != nil {
 		return nil, fmt.Errorf("could not open node db: %w", err)
+	}
+	// Check if user collections bucket exists
+	err = nodedb.Update(func(tx *bbolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(USERCOLSKEY)
+		if err != nil {
+			return fmt.Errorf("could not create bucket: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not create user collections bucket: %w", err)
 	}
 	// ---------------------------
 	cluster := &ClusterNode{

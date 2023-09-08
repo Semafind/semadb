@@ -1,9 +1,13 @@
 package cluster
 
 import (
+	"fmt"
+
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
+	"github.com/vmihailenco/msgpack/v5"
+	"go.etcd.io/bbolt"
 )
 
 // ---------------------------
@@ -25,6 +29,46 @@ import (
 // 	reply.Message = fmt.Sprintf("Pong from semadb %v, message: %v", c.MyHostname, args.Message)
 // 	return nil
 // }
+
+// ---------------------------
+
+type RPCCreateCollectionRequest struct {
+	RPCRequestArgs
+	Collection models.Collection
+}
+
+type RPCCreateCollectionResponse struct {
+	AlreadyExists bool
+}
+
+func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, reply *RPCCreateCollectionResponse) error {
+	c.logger.Debug().Str("collectionId", args.Collection.Id).Msg("RPCCreateCollection")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCCreateCollection", args, reply)
+	}
+	// ---------------------------
+	// Marshal collection
+	colBytes, err := msgpack.Marshal(args.Collection)
+	if err != nil {
+		return fmt.Errorf("could not marshal collection: %w", err)
+	}
+	// ---------------------------
+	err = c.nodedb.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(USERCOLSKEY)
+		// ---------------------------
+		key := []byte(args.Collection.UserId + DBDELIMITER + args.Collection.Id)
+		if b.Get(key) != nil {
+			reply.AlreadyExists = true
+			return nil
+		}
+		// ---------------------------
+		if err := b.Put(key, colBytes); err != nil {
+			return fmt.Errorf("could not put collection: %w", err)
+		}
+		return nil
+	})
+	return err
+}
 
 // ---------------------------
 

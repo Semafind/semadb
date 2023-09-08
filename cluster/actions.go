@@ -20,29 +20,21 @@ import (
 
 func (c *ClusterNode) CreateCollection(collection models.Collection) error {
 	// ---------------------------
-	// Construct file path
-	fpath := filepath.Join(config.Cfg.RootDir, collection.UserId, collection.Id, "collection.msgpack")
-	// ---------------------------
-	// Check if the file exists?
-	if _, err := os.Stat(fpath); err == nil {
+	// The collection information is stored in the user cluster node. We
+	// construct the appropiate request and route it.
+	rpcReq := RPCCreateCollectionRequest{
+		RPCRequestArgs: RPCRequestArgs{
+			Source: c.MyHostname,
+			Dest:   RendezvousHash(collection.UserId, c.Servers, 1)[0],
+		},
+		Collection: collection,
+	}
+	rpcResp := RPCCreateCollectionResponse{}
+	if err := c.RPCCreateCollection(&rpcReq, &rpcResp); err != nil {
+		return fmt.Errorf("could not create collection: %w", err)
+	}
+	if rpcResp.AlreadyExists {
 		return ErrExists
-	}
-	// ---------------------------
-	// Create parent directories
-	if err := os.MkdirAll(filepath.Dir(fpath), os.ModePerm); err != nil {
-		return fmt.Errorf("could not create collection directory: %w", err)
-	}
-	// ---------------------------
-	// Marshal collection
-	colBytes, err := msgpack.Marshal(collection)
-	if err != nil {
-		return fmt.Errorf("could not marshal collection: %w", err)
-	}
-	// ---------------------------
-	// Write to file
-	c.logger.Debug().Str("fpath", fpath).Msg("CreateCollection")
-	if err := os.WriteFile(fpath, colBytes, os.ModePerm); err != nil {
-		return fmt.Errorf("could not write collection file: %w", err)
 	}
 	// ---------------------------
 	return nil

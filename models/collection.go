@@ -9,6 +9,7 @@ type Collection struct {
 	Algorithm  string
 	Timestamp  int64
 	CreatedAt  int64
+	ShardIds   []string
 	Parameters VamanaParameters
 }
 
