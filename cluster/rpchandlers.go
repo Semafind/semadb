@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -64,6 +65,75 @@ func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, repl
 		// ---------------------------
 		if err := b.Put(key, colBytes); err != nil {
 			return fmt.Errorf("could not put collection: %w", err)
+		}
+		return nil
+	})
+	return err
+}
+
+// ---------------------------
+
+type RPCListCollectionsRequest struct {
+	RPCRequestArgs
+	UserId string
+}
+
+type RPCListCollectionsResponse struct {
+	Collections []models.Collection
+}
+
+func (c *ClusterNode) RPCListCollections(args *RPCListCollectionsRequest, reply *RPCListCollectionsResponse) error {
+	c.logger.Debug().Str("userId", args.UserId).Msg("RPCListCollections")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCListCollections", args, reply)
+	}
+	reply.Collections = make([]models.Collection, 0)
+	err := c.nodedb.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(USERCOLSKEY)
+		// ---------------------------
+		c := b.Cursor()
+		for k, v := c.Seek([]byte(args.UserId + DBDELIMITER)); k != nil && bytes.HasPrefix(k, []byte(args.UserId)); k, v = c.Next() {
+			var col models.Collection
+			if err := msgpack.Unmarshal(v, &col); err != nil {
+				return fmt.Errorf("could not unmarshal collection %s: %w", k, err)
+			}
+			reply.Collections = append(reply.Collections, col)
+		}
+		return nil
+	})
+	return err
+}
+
+// ---------------------------
+
+type RPCGetCollectionRequest struct {
+	RPCRequestArgs
+	UserId       string
+	CollectionId string
+}
+
+type RPCGetCollectionResponse struct {
+	Collection models.Collection
+	NotFound   bool
+}
+
+func (c *ClusterNode) RPCGetCollection(args *RPCGetCollectionRequest, reply *RPCGetCollectionResponse) error {
+	c.logger.Debug().Str("userId", args.UserId).Str("collectionId", args.CollectionId).Msg("RPCGetCollection")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCGetCollection", args, reply)
+	}
+	err := c.nodedb.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(USERCOLSKEY)
+		// ---------------------------
+		key := []byte(args.UserId + DBDELIMITER + args.CollectionId)
+		value := b.Get(key)
+		if value == nil {
+			reply.NotFound = true
+			return nil
+		}
+		// ---------------------------
+		if err := msgpack.Unmarshal(value, &reply.Collection); err != nil {
+			return fmt.Errorf("could not unmarshal collection %s: %w", key, err)
 		}
 		return nil
 	})

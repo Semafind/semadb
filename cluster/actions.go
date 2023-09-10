@@ -3,7 +3,6 @@ package cluster
 import (
 	"bytes"
 	"cmp"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,7 +14,6 @@ import (
 	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
-	"github.com/vmihailenco/msgpack"
 )
 
 func (c *ClusterNode) CreateCollection(collection models.Collection) error {
@@ -42,64 +40,41 @@ func (c *ClusterNode) CreateCollection(collection models.Collection) error {
 
 func (c *ClusterNode) ListCollections(userId string) ([]models.Collection, error) {
 	// ---------------------------
-	dirPath := filepath.Join(config.Cfg.RootDir, userId)
-	colDirs, err := os.ReadDir(dirPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, ErrNotFound
-	} else if err != nil {
-		return nil, fmt.Errorf("could not read user directory: %w", err)
+	rpcReq := RPCListCollectionsRequest{
+		RPCRequestArgs: RPCRequestArgs{
+			Source: c.MyHostname,
+			Dest:   RendezvousHash(userId, c.Servers, 1)[0],
+		},
+		UserId: userId,
+	}
+	rpcResp := RPCListCollectionsResponse{}
+	if err := c.RPCListCollections(&rpcReq, &rpcResp); err != nil {
+		return nil, fmt.Errorf("could not list collections: %w", err)
 	}
 	// ---------------------------
-	// Iterate through collection directories
-	collections := make([]models.Collection, 0, 1)
-	errCount := 0
-	for _, colDir := range colDirs {
-		if !colDir.IsDir() {
-			continue
-		}
-		metaFile := filepath.Join(dirPath, colDir.Name(), "collection.msgpack")
-		// ---------------------------
-		// Read collection file
-		colBytes, err := os.ReadFile(metaFile)
-		if err != nil {
-			c.logger.Error().Err(err).Str("metaFile", metaFile).Msg("could not read collection file")
-			errCount++
-			continue
-		}
-		var col models.Collection
-		if err := msgpack.Unmarshal(colBytes, &col); err != nil {
-			c.logger.Error().Err(err).Str("metaFile", metaFile).Msg("could not unmarshal collection file")
-			errCount++
-			continue
-		}
-		collections = append(collections, col)
-	}
-	// ---------------------------
-	// Construct key and value
-	if errCount > 0 && len(collections) == 0 {
-		return nil, fmt.Errorf("could not read any collections")
-	}
-	// ---------------------------
-	return collections, nil
+	return rpcResp.Collections, nil
 }
 
 func (c *ClusterNode) GetCollection(userId string, collectionId string) (models.Collection, error) {
 	// ---------------------------
-	fpath := filepath.Join(config.Cfg.RootDir, userId, collectionId, "collection.msgpack")
-	var collection models.Collection
-	// ---------------------------
-	colBytes, err := os.ReadFile(fpath)
-	if errors.Is(err, os.ErrNotExist) {
-		return collection, ErrNotFound
-	} else if err != nil {
-		return collection, fmt.Errorf("could not read collection file: %w", err)
+	rpcReq := RPCGetCollectionRequest{
+		RPCRequestArgs: RPCRequestArgs{
+			Source: c.MyHostname,
+			Dest:   RendezvousHash(userId, c.Servers, 1)[0],
+		},
+		UserId:       userId,
+		CollectionId: collectionId,
+	}
+	rpcResp := RPCGetCollectionResponse{}
+	if err := c.RPCGetCollection(&rpcReq, &rpcResp); err != nil {
+		return models.Collection{}, fmt.Errorf("could not get collection: %w", err)
 	}
 	// ---------------------------
-	if err := msgpack.Unmarshal(colBytes, &collection); err != nil {
-		return collection, fmt.Errorf("could not unmarshal collection file: %w", err)
+	if rpcResp.NotFound {
+		return models.Collection{}, ErrNotFound
 	}
 	// ---------------------------
-	return collection, nil
+	return rpcResp.Collection, nil
 }
 
 func (c *ClusterNode) CreateShard(col models.Collection) (string, error) {
