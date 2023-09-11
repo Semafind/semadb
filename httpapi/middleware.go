@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/semafind/semadb/config"
 )
 
 // ---------------------------
@@ -17,7 +16,7 @@ type AppHeaders struct {
 	Package string `header:"X-Package" binding:"required"`
 }
 
-func AppHeaderMiddleware() gin.HandlerFunc {
+func AppHeaderMiddleware(config HttpApiConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var appHeaders AppHeaders
 		if err := c.ShouldBindHeader(&appHeaders); err != nil {
@@ -27,7 +26,7 @@ func AppHeaderMiddleware() gin.HandlerFunc {
 		c.Set("appHeaders", appHeaders)
 		log.Debug().Interface("appHeaders", appHeaders).Msg("AppHeaderMiddleware")
 		// Extract user plan
-		userPlan, ok := config.Cfg.UserPlans[appHeaders.Package]
+		userPlan, ok := config.UserPlans[appHeaders.Package]
 		if !ok {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unknown package"})
 			return

@@ -66,7 +66,14 @@ func main() {
 	}
 	clusterNode.Serve()
 	// ---------------------------
-	httpServer := httpapi.RunHTTPServer(clusterNode)
+	httpConfig := httpapi.HttpApiConfig{
+		Debug:     config.Cfg.Debug,
+		HttpHost:  config.Cfg.HttpHost,
+		HttpPort:  config.Cfg.HttpPort,
+		UserPlans: config.Cfg.UserPlans,
+	}
+
+	httpServer := httpapi.RunHTTPServer(clusterNode, httpConfig)
 	// ---------------------------
 	quit := make(chan os.Signal, 1)
 	// kill (no param) default send syscanll.SIGTERM

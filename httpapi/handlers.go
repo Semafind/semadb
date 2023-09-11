@@ -10,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
-	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/models"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -184,7 +183,7 @@ type InsertPointsRequest struct {
 }
 
 func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
-	userPlan := c.MustGet("userPlan").(config.UserPlan)
+	userPlan := c.MustGet("userPlan").(UserPlan)
 	// ---------------------------
 	var req InsertPointsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -250,7 +249,7 @@ type UpdatePointsRequest struct {
 }
 
 func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
-	userPlan := c.MustGet("userPlan").(config.UserPlan)
+	userPlan := c.MustGet("userPlan").(UserPlan)
 	// ---------------------------
 	var req UpdatePointsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

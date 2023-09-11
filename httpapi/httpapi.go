@@ -7,7 +7,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
-	"github.com/semafind/semadb/config"
 )
 
 // ---------------------------
@@ -20,10 +19,27 @@ func pongHandler(c *gin.Context) {
 
 // ---------------------------
 
-func setupRouter(cnode *cluster.ClusterNode) *gin.Engine {
+type UserPlan struct {
+	Name              string `yaml:"name"`
+	MaxCollections    int    `yaml:"maxCollections"`
+	MaxCollectionSize int64  `yaml:"maxCollectionSize"`
+	MaxMetadataSize   int    `yaml:"maxMetadataSize"`
+}
+
+type HttpApiConfig struct {
+	Debug    bool   `yaml:"debug"`
+	HttpHost string `yaml:"httpHost"`
+	HttpPort int    `yaml:"httpPort"`
+	// User plans
+	UserPlans map[string]UserPlan `yaml:"userPlans"`
+}
+
+// ---------------------------
+
+func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig) *gin.Engine {
 	router := gin.New()
 	router.Use(ZerologLogger(), gin.Recovery())
-	v1 := router.Group("/v1", AppHeaderMiddleware())
+	v1 := router.Group("/v1", AppHeaderMiddleware(cfg))
 	v1.GET("/ping", pongHandler)
 	// ---------------------------
 	// https://stackoverflow.blog/2020/03/02/best-practices-for-rest-api-design/
@@ -42,15 +58,15 @@ func setupRouter(cnode *cluster.ClusterNode) *gin.Engine {
 	return router
 }
 
-func RunHTTPServer(cnode *cluster.ClusterNode) *http.Server {
+func RunHTTPServer(cnode *cluster.ClusterNode, cfg HttpApiConfig) *http.Server {
 	// ---------------------------
-	if !config.Cfg.Debug {
+	if !cfg.Debug {
 		gin.SetMode(gin.ReleaseMode)
 	}
 	// ---------------------------
 	server := &http.Server{
-		Addr:    config.Cfg.HttpHost + ":" + strconv.Itoa(config.Cfg.HttpPort),
-		Handler: setupRouter(cnode),
+		Addr:    cfg.HttpHost + ":" + strconv.Itoa(cfg.HttpPort),
+		Handler: setupRouter(cnode, cfg),
 	}
 	go func() {
 		log.Info().Str("httpAddr", server.Addr).Msg("HTTPAPI.Serve")

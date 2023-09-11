@@ -6,17 +6,11 @@ import (
 
 	"github.com/caarlos0/env/v8"
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/httpapi"
 	"gopkg.in/yaml.v3"
 )
 
 // ---------------------------
-
-type UserPlan struct {
-	Name              string `yaml:"name"`
-	MaxCollections    int    `yaml:"maxCollections"`
-	MaxCollectionSize int64  `yaml:"maxCollectionSize"`
-	MaxMetadataSize   int    `yaml:"maxMetadataSize"`
-}
 
 type ConfigMap struct {
 	Debug bool `yaml:"debug"`
@@ -41,7 +35,7 @@ type ConfigMap struct {
 	HttpHost string `yaml:"httpHost"`
 	HttpPort int    `yaml:"httpPort"`
 	// User plans
-	UserPlans map[string]UserPlan `yaml:"userPlans"`
+	UserPlans map[string]httpapi.UserPlan `yaml:"userPlans"`
 }
 
 var Cfg ConfigMap
