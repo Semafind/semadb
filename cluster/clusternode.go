@@ -12,7 +12,6 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/semafind/semadb/config"
 	"go.etcd.io/bbolt"
 )
 
@@ -20,8 +19,31 @@ var USERCOLSKEY = []byte("userCollections")
 
 const DBDELIMITER = "/"
 
+type ClusterNodeConfig struct {
+	// RootDir is the root directory for all data
+	RootDir string `yaml:"rootDir"`
+	// ---------------------------
+	RpcHost    string `yaml:"rpcHost"`
+	RpcPort    int    `yaml:"rpcPort"`
+	RpcTimeout int    `yaml:"rpcTimeout"`
+	RpcRetries int    `yaml:"rpcRetries"`
+	// ---------------------------
+	// Initial set of known servers
+	Servers []string `yaml:"servers"`
+	// Shard timeout in seconds
+	ShardTimeout int `yaml:"shardTimeout"`
+	// Maximum size of shards in bytes
+	MaxShardSize int64 `yaml:"maxShardSize"`
+	// Maximum number of points in a shard
+	MaxShardPointCount int64 `yaml:"maxShardPointCount"`
+	// Maximum number of points to search
+	MaxSearchLimit int `yaml:"maxSearchLimit"`
+}
+
 type ClusterNode struct {
 	logger zerolog.Logger
+	// ---------------------------
+	cfg ClusterNodeConfig
 	// ---------------------------
 	Servers    []string
 	MyHostname string
@@ -36,10 +58,10 @@ type ClusterNode struct {
 	shardLock  sync.Mutex
 }
 
-func NewNode() (*ClusterNode, error) {
+func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
 	// ---------------------------
 	// Determine hostname
-	envHostname := config.Cfg.RpcHost
+	envHostname := config.RpcHost
 	{
 		if envHostname == "" {
 			hostname, err := os.Hostname()
@@ -49,14 +71,14 @@ func NewNode() (*ClusterNode, error) {
 			log.Warn().Str("hostname", hostname).Msg("host not set, using hostname")
 			envHostname = hostname
 		}
-		rpcPort := config.Cfg.RpcPort
+		rpcPort := config.RpcPort
 		envHostname = envHostname + ":" + strconv.Itoa(rpcPort)
 	}
 	// ---------------------------
 	logger := log.With().Str("hostname", envHostname).Str("component", "clusterNode").Logger()
 	// ---------------------------
 	// Setup local node database
-	rootDir := config.Cfg.RootDir
+	rootDir := config.RootDir
 	if err := os.MkdirAll(rootDir, 0755); err != nil {
 		return nil, fmt.Errorf("could not create root dir %s: %w", rootDir, err)
 	}
@@ -78,7 +100,8 @@ func NewNode() (*ClusterNode, error) {
 	// ---------------------------
 	cluster := &ClusterNode{
 		logger:     logger,
-		Servers:    config.Cfg.Servers,
+		cfg:        config,
+		Servers:    config.Servers,
 		MyHostname: envHostname,
 		rpcClients: make(map[string]*rpc.Client),
 		nodedb:     nodedb,

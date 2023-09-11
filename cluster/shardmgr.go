@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/shard"
 )
 
@@ -53,7 +52,7 @@ func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
 	// ---------------------------
 	// Setup cleanup goroutine
 	go func() {
-		timeoutDuration := time.Duration(config.Cfg.ShardTimeout) * time.Second
+		timeoutDuration := time.Duration(c.cfg.ShardTimeout) * time.Second
 		timer := time.NewTimer(timeoutDuration)
 		for {
 			shutdown := false

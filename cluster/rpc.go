@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net/rpc"
 	"time"
-
-	"github.com/semafind/semadb/config"
 )
 
 func (c *ClusterNode) rpcClient(destination string) (*rpc.Client, error) {
@@ -42,14 +40,14 @@ func (args RPCRequestArgs) Destination() string {
 func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply interface{}) error {
 	destination := args.Destination()
 	c.logger.Debug().Str("destination", destination).Msg(remoteFn + ": routing")
-	for i := 0; i < config.Cfg.RpcRetries; i++ {
+	for i := 0; i < c.cfg.RpcRetries; i++ {
 		client, err := c.rpcClient(destination)
 		if err != nil {
 			return fmt.Errorf("failed to get client: %v", err)
 		}
 		// Make request with timeout
 		rpcCall := client.Go(remoteFn, args, reply, nil)
-		timeout := time.NewTimer(time.Duration(config.Cfg.RpcTimeout) * time.Second)
+		timeout := time.NewTimer(time.Duration(c.cfg.RpcTimeout) * time.Second)
 		defer timeout.Stop()
 		select {
 		case <-rpcCall.Done:

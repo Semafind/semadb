@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 
 	"github.com/google/uuid"
-	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
 )
@@ -140,7 +139,7 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 	}
 	// ---------------------------
 	// Distribute points to shards
-	shardAssignments, err := distributePoints(shards, points, config.Cfg.MaxShardSize, config.Cfg.MaxShardPointCount, func() (string, error) {
+	shardAssignments, err := distributePoints(shards, points, c.cfg.MaxShardSize, c.cfg.MaxShardPointCount, func() (string, error) {
 		return c.CreateShard(col)
 	})
 	if err != nil {
@@ -222,8 +221,8 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 			// of Poisson CDF doesn't have a closed form, so we use a linear
 			// approximation for our expected operational ranges for lambda.
 			targetLimit := int(float32(limit)*(1/float32(len(col.ShardIds)))*poissonApproxA + poissonApproxB)
-			if targetLimit > config.Cfg.MaxSearchLimit {
-				targetLimit = config.Cfg.MaxSearchLimit
+			if targetLimit > c.cfg.MaxSearchLimit {
+				targetLimit = c.cfg.MaxSearchLimit
 			}
 			if targetLimit > limit {
 				targetLimit = limit

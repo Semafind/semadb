@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	"github.com/google/uuid"
-	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
 	"github.com/vmihailenco/msgpack/v5"
@@ -210,7 +209,7 @@ func (c *ClusterNode) RPCGetShardInfo(args *RPCGetShardInfoRequest, reply *RPCGe
 		return c.internalRoute("ClusterNode.RPCGetShardInfo", args, reply)
 	}
 	// ---------------------------
-	shardDir := filepath.Join(config.Cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
+	shardDir := filepath.Join(c.cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
 	return c.DoWithShard(shardDir, func(s *shard.Shard) error {
 		si, err := s.Info()
 		reply.PointCount = si.PointCount
@@ -242,7 +241,7 @@ func (c *ClusterNode) RPCInsertPoints(args *RPCInsertPointsRequest, reply *RPCIn
 		return c.internalRoute("ClusterNode.RPCInsertPoints", args, reply)
 	}
 	// ---------------------------
-	shardDir := filepath.Join(config.Cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
+	shardDir := filepath.Join(c.cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
 	return c.DoWithShard(shardDir, func(s *shard.Shard) error {
 		reply.Count = len(args.Points)
 		return s.InsertPoints(args.Points)
@@ -269,7 +268,7 @@ func (c *ClusterNode) RPCUpdatePoints(args *RPCUpdatePointsRequest, reply *RPCUp
 		return c.internalRoute("ClusterNode.RPCUpdatePoints", args, reply)
 	}
 	// ---------------------------
-	shardDir := filepath.Join(config.Cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
+	shardDir := filepath.Join(c.cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
 	return c.DoWithShard(shardDir, func(s *shard.Shard) error {
 		updatedIds, err := s.UpdatePoints(args.Points)
 		reply.UpdatedIds = updatedIds
@@ -301,7 +300,7 @@ func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *RPCDe
 	for _, id := range args.Ids {
 		deleteSet[id] = struct{}{}
 	}
-	shardDir := filepath.Join(config.Cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
+	shardDir := filepath.Join(c.cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
 	return c.DoWithShard(shardDir, func(s *shard.Shard) error {
 		reply.Count = len(deleteSet)
 		return s.DeletePoints(deleteSet)
@@ -329,7 +328,7 @@ func (c *ClusterNode) RPCSearchPoints(args *RPCSearchPointsRequest, reply *RPCSe
 		return c.internalRoute("ClusterNode.RPCSearchPoints", args, reply)
 	}
 	// ---------------------------
-	shardDir := filepath.Join(config.Cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
+	shardDir := filepath.Join(c.cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
 	return c.DoWithShard(shardDir, func(s *shard.Shard) error {
 		points, err := s.SearchPoints(args.Vector, args.Limit)
 		reply.Points = points
