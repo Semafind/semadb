@@ -26,8 +26,8 @@ func randPoints(size int) []models.Point {
 
 func randShardInfo(size int64) shardInfo {
 	return shardInfo{
-		ShardDir: uuid.New().String(),
-		Size:     size,
+		Id:   uuid.New().String(),
+		Size: size,
 	}
 }
 

@@ -141,7 +141,7 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 	// ---------------------------
 	collection := c.MustGet("collection").(models.Collection)
 	// ---------------------------
-	shards, err := sdbh.clusterNode.GetShards(collection, true)
+	shards, err := sdbh.clusterNode.GetShardsInfo(collection)
 	if errors.Is(err, cluster.ErrShardUnavailable) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "shard unavailable"})
 		return

@@ -3,8 +3,10 @@ package cluster
 import (
 	"bytes"
 	"fmt"
+	"path/filepath"
 
 	"github.com/google/uuid"
+	"github.com/semafind/semadb/config"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
 	"github.com/vmihailenco/msgpack/v5"
@@ -190,10 +192,41 @@ func (c *ClusterNode) RPCCreateShard(args *RPCCreateShardRequest, reply *RPCCrea
 
 // ---------------------------
 
+type RPCGetShardInfoRequest struct {
+	RPCRequestArgs
+	UserId       string
+	CollectionId string
+	ShardId      string
+}
+
+type RPCGetShardInfoResponse struct {
+	PointCount int64
+	Size       int64
+}
+
+func (c *ClusterNode) RPCGetShardInfo(args *RPCGetShardInfoRequest, reply *RPCGetShardInfoResponse) error {
+	c.logger.Debug().Str("userId", args.UserId).Str("collectionId", args.CollectionId).Str("shardId", args.ShardId).Msg("RPCGetShardInfo")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCGetShardInfo", args, reply)
+	}
+	// ---------------------------
+	shardDir := filepath.Join(config.Cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
+	return c.DoWithShard(shardDir, func(s *shard.Shard) error {
+		si, err := s.Info()
+		reply.PointCount = si.PointCount
+		reply.Size = si.InUse
+		return err
+	})
+}
+
+// ---------------------------
+
 type RPCInsertPointsRequest struct {
 	RPCRequestArgs
-	ShardDir string
-	Points   []models.Point
+	UserId       string
+	CollectionId string
+	ShardId      string
+	Points       []models.Point
 }
 
 // This response is not really used, but we need to return something otherwise
@@ -204,12 +237,13 @@ type RPCInsertPointsResponse struct {
 }
 
 func (c *ClusterNode) RPCInsertPoints(args *RPCInsertPointsRequest, reply *RPCInsertPointsResponse) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCInsertPoints")
+	c.logger.Debug().Str("userId", args.UserId).Str("collectionId", args.CollectionId).Str("shardId", args.ShardId).Msg("RPCInsertPoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCInsertPoints", args, reply)
 	}
 	// ---------------------------
-	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
+	shardDir := filepath.Join(config.Cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
+	return c.DoWithShard(shardDir, func(s *shard.Shard) error {
 		reply.Count = len(args.Points)
 		return s.InsertPoints(args.Points)
 	})
@@ -219,8 +253,10 @@ func (c *ClusterNode) RPCInsertPoints(args *RPCInsertPointsRequest, reply *RPCIn
 
 type RPCUpdatePointsRequest struct {
 	RPCRequestArgs
-	ShardDir string
-	Points   []models.Point
+	UserId       string
+	CollectionId string
+	ShardId      string
+	Points       []models.Point
 }
 
 type RPCUpdatePointsResponse struct {
@@ -228,12 +264,13 @@ type RPCUpdatePointsResponse struct {
 }
 
 func (c *ClusterNode) RPCUpdatePoints(args *RPCUpdatePointsRequest, reply *RPCUpdatePointsResponse) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCUpdatePoints")
+	c.logger.Debug().Str("userId", args.UserId).Str("collectionId", args.CollectionId).Str("shardId", args.ShardId).Msg("RPCUpdatePoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCUpdatePoints", args, reply)
 	}
 	// ---------------------------
-	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
+	shardDir := filepath.Join(config.Cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
+	return c.DoWithShard(shardDir, func(s *shard.Shard) error {
 		updatedIds, err := s.UpdatePoints(args.Points)
 		reply.UpdatedIds = updatedIds
 		return err
@@ -244,8 +281,10 @@ func (c *ClusterNode) RPCUpdatePoints(args *RPCUpdatePointsRequest, reply *RPCUp
 
 type RPCDeletePointsRequest struct {
 	RPCRequestArgs
-	ShardDir string
-	Ids      []uuid.UUID
+	UserId       string
+	CollectionId string
+	ShardId      string
+	Ids          []uuid.UUID
 }
 
 type RPCDeletePointsResponse struct {
@@ -253,7 +292,7 @@ type RPCDeletePointsResponse struct {
 }
 
 func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *RPCDeletePointsResponse) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCDeletePoints")
+	c.logger.Debug().Str("userId", args.UserId).Str("collectionId", args.CollectionId).Str("shardId", args.ShardId).Msg("RPCDeletePoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCDeletePoints", args, reply)
 	}
@@ -262,7 +301,8 @@ func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *RPCDe
 	for _, id := range args.Ids {
 		deleteSet[id] = struct{}{}
 	}
-	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
+	shardDir := filepath.Join(config.Cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
+	return c.DoWithShard(shardDir, func(s *shard.Shard) error {
 		reply.Count = len(deleteSet)
 		return s.DeletePoints(deleteSet)
 	})
@@ -270,37 +310,13 @@ func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *RPCDe
 
 // ---------------------------
 
-type RPCGetShardInfoRequest struct {
-	RPCRequestArgs
-	ShardDir string
-}
-
-type RPCGetShardInfoResponse struct {
-	PointCount int64
-	Size       int64
-}
-
-func (c *ClusterNode) RPCGetShardInfo(args *RPCGetShardInfoRequest, reply *RPCGetShardInfoResponse) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCGetShardInfo")
-	if args.Dest != c.MyHostname {
-		return c.internalRoute("ClusterNode.RPCGetShardInfo", args, reply)
-	}
-	// ---------------------------
-	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
-		si, err := s.Info()
-		reply.PointCount = si.PointCount
-		reply.Size = si.InUse
-		return err
-	})
-}
-
-// ---------------------------
-
 type RPCSearchPointsRequest struct {
 	RPCRequestArgs
-	ShardDir string
-	Vector   []float32
-	Limit    int
+	UserId       string
+	CollectionId string
+	ShardId      string
+	Vector       []float32
+	Limit        int
 }
 
 type RPCSearchPointsResponse struct {
@@ -308,12 +324,13 @@ type RPCSearchPointsResponse struct {
 }
 
 func (c *ClusterNode) RPCSearchPoints(args *RPCSearchPointsRequest, reply *RPCSearchPointsResponse) error {
-	c.logger.Debug().Str("shardDir", args.ShardDir).Interface("route", args.RPCRequestArgs).Msg("RPCSearchPoints")
+	c.logger.Debug().Str("userId", args.UserId).Str("collectionId", args.CollectionId).Str("shardId", args.ShardId).Msg("RPCSearchPoints")
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCSearchPoints", args, reply)
 	}
 	// ---------------------------
-	return c.DoWithShard(args.ShardDir, func(s *shard.Shard) error {
+	shardDir := filepath.Join(config.Cfg.RootDir, args.UserId, args.CollectionId, args.ShardId)
+	return c.DoWithShard(shardDir, func(s *shard.Shard) error {
 		points, err := s.SearchPoints(args.Vector, args.Limit)
 		reply.Points = points
 		return err

@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -97,48 +95,35 @@ func (c *ClusterNode) CreateShard(col models.Collection) (string, error) {
 
 type shardInfo struct {
 	Id         string
-	ShardDir   string
 	Size       int64
 	PointCount int64
 }
 
-func (c *ClusterNode) GetShards(col models.Collection, withSize bool) ([]shardInfo, error) {
+func (c *ClusterNode) GetShardsInfo(col models.Collection) ([]shardInfo, error) {
 	// ---------------------------
-	colDir := filepath.Join(config.Cfg.RootDir, col.UserId, col.Id)
-	shardDirs, err := os.ReadDir(colDir)
-	if err != nil {
-		return nil, fmt.Errorf("could not read collection directory: %w", err)
-	}
-	// ---------------------------
-	shards := make([]shardInfo, 0, len(shardDirs))
-	for _, shardDir := range shardDirs {
-		if !shardDir.IsDir() {
-			continue
+	shards := make([]shardInfo, 0, len(col.ShardIds))
+	for _, shardId := range col.ShardIds {
+		// ---------------------------
+		targetServer := RendezvousHash(shardId, c.Servers, 1)[0]
+		getInfoRequest := RPCGetShardInfoRequest{
+			RPCRequestArgs: RPCRequestArgs{
+				Source: c.MyHostname,
+				Dest:   targetServer,
+			},
+			UserId:       col.UserId,
+			CollectionId: col.Id,
+			ShardId:      shardId,
+		}
+		getInfoResponse := RPCGetShardInfoResponse{}
+		if err := c.RPCGetShardInfo(&getInfoRequest, &getInfoResponse); err != nil {
+			c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", shardId).Msg("could not get shard info")
+			return nil, fmt.Errorf("could not get shard info: %w: %w", ErrShardUnavailable, err)
 		}
 		// ---------------------------
-		fullShardDir := filepath.Join(colDir, shardDir.Name())
 		si := shardInfo{
-			Id:       shardDir.Name(),
-			ShardDir: fullShardDir,
-		}
-		// ---------------------------
-		if withSize {
-			targetServer := RendezvousHash(si.ShardDir, c.Servers, 1)[0]
-			getInfoRequest := RPCGetShardInfoRequest{
-				RPCRequestArgs: RPCRequestArgs{
-					Source: c.MyHostname,
-					Dest:   targetServer,
-				},
-				ShardDir: fullShardDir,
-			}
-			getInfoResponse := RPCGetShardInfoResponse{}
-			if err := c.RPCGetShardInfo(&getInfoRequest, &getInfoResponse); err != nil {
-				c.logger.Error().Err(err).Str("shardDir", shardDir.Name()).Msg("could not get shard info")
-				return nil, fmt.Errorf("could not get shard info: %w: %w", ErrShardUnavailable, err)
-			}
-			// ---------------------------
-			si.Size = getInfoResponse.Size
-			si.PointCount = getInfoResponse.PointCount
+			Id:         shardId,
+			Size:       getInfoResponse.Size,
+			PointCount: getInfoResponse.PointCount,
 		}
 		shards = append(shards, si)
 	}
@@ -149,7 +134,7 @@ func (c *ClusterNode) GetShards(col models.Collection, withSize bool) ([]shardIn
 func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point) ([][2]int, error) {
 	// ---------------------------
 	// This is where shard distribution happens
-	shards, err := c.GetShards(col, true)
+	shards, err := c.GetShardsInfo(col)
 	if err != nil {
 		return nil, fmt.Errorf("could not get shards: %w", err)
 	}
@@ -166,29 +151,31 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 	failedRanges := make([][2]int, 0)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for shardDir, pointRange := range shardAssignments {
+	for shardId, pointRange := range shardAssignments {
 		wg.Add(1)
-		go func(sDir string, pointRange [2]int) {
+		go func(sId string, pRange [2]int) {
 			// ---------------------------
-			targetServer := RendezvousHash(sDir, c.Servers, 1)[0]
-			shardPoints := points[pointRange[0]:pointRange[1]]
+			targetServer := RendezvousHash(sId, c.Servers, 1)[0]
+			shardPoints := points[pRange[0]:pRange[1]]
 			insertReq := RPCInsertPointsRequest{
 				RPCRequestArgs: RPCRequestArgs{
 					Source: c.MyHostname,
 					Dest:   targetServer,
 				},
-				ShardDir: sDir,
-				Points:   shardPoints,
+				UserId:       col.UserId,
+				CollectionId: col.Id,
+				ShardId:      sId,
+				Points:       shardPoints,
 			}
 			insertResp := RPCInsertPointsResponse{}
 			if err := c.RPCInsertPoints(&insertReq, &insertResp); err != nil {
-				c.logger.Error().Err(err).Str("shardDir", sDir).Msg("could not insert points")
+				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", sId).Msg("could not insert points")
 				mu.Lock()
-				failedRanges = append(failedRanges, pointRange)
+				failedRanges = append(failedRanges, pRange)
 				mu.Unlock()
 			}
 			wg.Done()
-		}(shardDir, pointRange)
+		}(shardId, pointRange)
 	}
 	// ---------------------------
 	// Wait for all insertions to finish
@@ -207,22 +194,17 @@ const poissonApproxB = 10.0
 
 func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit int) ([]shard.SearchPoint, error) {
 	// ---------------------------
-	shards, err := c.GetShards(col, false)
-	if err != nil {
-		return nil, fmt.Errorf("could not get shards: %w", err)
-	}
-	// ---------------------------
 	// Search every shard in parallel. If a shard is unavailable, we will
 	// simply ignore it for now to keep the search request alive.
-	results := make([]shard.SearchPoint, 0, len(shards)*10)
+	results := make([]shard.SearchPoint, 0, len(col.ShardIds)*10)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errCount atomic.Int32
-	for _, shardInfo := range shards {
+	for _, shardId := range col.ShardIds {
 		wg.Add(1)
-		go func(sDir string) {
+		go func(sId string) {
 			defer wg.Done()
-			targetServer := RendezvousHash(sDir, c.Servers, 1)[0]
+			targetServer := RendezvousHash(sId, c.Servers, 1)[0]
 			// ---------------------------
 			// Here we calculate the target limit for each shard. We want to
 			// reduce the number of points discarded. For example, 5 chards with
@@ -239,7 +221,7 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 			// perhaps not 100 points reducing computation required. The inverse
 			// of Poisson CDF doesn't have a closed form, so we use a linear
 			// approximation for our expected operational ranges for lambda.
-			targetLimit := int(float32(limit)*(1/float32(len(shards)))*poissonApproxA + poissonApproxB)
+			targetLimit := int(float32(limit)*(1/float32(len(col.ShardIds)))*poissonApproxA + poissonApproxB)
 			if targetLimit > config.Cfg.MaxSearchLimit {
 				targetLimit = config.Cfg.MaxSearchLimit
 			}
@@ -253,13 +235,15 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 					Source: c.MyHostname,
 					Dest:   targetServer,
 				},
-				ShardDir: sDir,
-				Vector:   query,
-				Limit:    targetLimit,
+				UserId:       col.UserId,
+				CollectionId: col.Id,
+				ShardId:      sId,
+				Vector:       query,
+				Limit:        targetLimit,
 			}
 			searchResp := RPCSearchPointsResponse{}
 			if err := c.RPCSearchPoints(&searchReq, &searchResp); err != nil {
-				c.logger.Error().Err(err).Str("shardDir", sDir).Msg("could not search points")
+				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", sId).Msg("could not search points")
 				errCount.Add(1)
 			} else {
 				// Alternatively we can stream the results into a channel and
@@ -268,14 +252,14 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 				results = append(results, searchResp.Points...)
 				mu.Unlock()
 			}
-		}(shardInfo.ShardDir)
+		}(shardId)
 	}
 	// ---------------------------
 	// Merge results in a single slice. We could instead use a channel to stream
 	// and merge results on the go but that adds more complexity which could be
 	// future work.
 	wg.Wait()
-	if len(shards) > 0 && errCount.Load() == int32(len(shards)) {
+	if len(col.ShardIds) > 0 && errCount.Load() == int32(len(col.ShardIds)) {
 		return nil, fmt.Errorf("could not search any shards")
 	}
 	slices.SortFunc(results, func(a, b shard.SearchPoint) int {
@@ -293,11 +277,6 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 
 func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point) ([]uuid.UUID, error) {
 	// ---------------------------
-	shards, err := c.GetShards(col, false)
-	if err != nil {
-		return nil, fmt.Errorf("could not get shards: %w", err)
-	}
-	// ---------------------------
 	// The update request is similar to the search request except we need to
 	// request every shard to participate. This is because we don't keep a table
 	// of which points map to which shards and that the number of shards can
@@ -309,28 +288,30 @@ func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point)
 	results := make([]uuid.UUID, 0, len(points))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	for _, shardInfo := range shards {
+	for _, shardId := range col.ShardIds {
 		wg.Add(1)
-		go func(sDir string) {
+		go func(sId string) {
 			defer wg.Done()
-			targetServer := RendezvousHash(sDir, c.Servers, 1)[0]
+			targetServer := RendezvousHash(sId, c.Servers, 1)[0]
 			updateReq := RPCUpdatePointsRequest{
 				RPCRequestArgs: RPCRequestArgs{
 					Source: c.MyHostname,
 					Dest:   targetServer,
 				},
-				ShardDir: sDir,
-				Points:   points,
+				UserId:       col.UserId,
+				CollectionId: col.Id,
+				ShardId:      sId,
+				Points:       points,
 			}
 			updateResp := RPCUpdatePointsResponse{}
 			if err := c.RPCUpdatePoints(&updateReq, &updateResp); err != nil {
-				c.logger.Error().Err(err).Str("shardDir", sDir).Msg("could not update points")
+				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", sId).Msg("could not update points")
 			} else {
 				mu.Lock()
 				results = append(results, updateResp.UpdatedIds...)
 				mu.Unlock()
 			}
-		}(shardInfo.ShardDir)
+		}(shardId)
 	}
 	// ---------------------------
 	wg.Wait()
