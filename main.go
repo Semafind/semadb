@@ -44,7 +44,23 @@ func main() {
 	log.Info().Str("hostname", hostname).Msg("Initial parameters")
 	// ---------------------------
 	// Setup cluster state
-	clusterNode, err := cluster.NewNode()
+	// We can refactor this configuration map by embedding the cluster node
+	// configuration into the config map.
+	nodeConfig := cluster.ClusterNodeConfig{
+		RootDir: config.Cfg.RootDir,
+		Servers: config.Cfg.Servers,
+		// ---------------------------
+		RpcHost:    config.Cfg.RpcHost,
+		RpcPort:    config.Cfg.RpcPort,
+		RpcTimeout: config.Cfg.RpcTimeout,
+		RpcRetries: config.Cfg.RpcRetries,
+		// ---------------------------
+		ShardTimeout:       config.Cfg.ShardTimeout,
+		MaxShardSize:       config.Cfg.MaxShardSize,
+		MaxShardPointCount: config.Cfg.MaxShardPointCount,
+		MaxSearchLimit:     config.Cfg.MaxSearchLimit,
+	}
+	clusterNode, err := cluster.NewNode(nodeConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create cluster state")
 	}
@@ -59,7 +75,7 @@ func main() {
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	sig := <-quit
 	log.Info().Str("signal", sig.String()).Msg("Shutting down server...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Error().Err(err).Msg("HTTP server forced to shut")
 	}
