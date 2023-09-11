@@ -20,12 +20,7 @@ func pongHandler(c *gin.Context) {
 
 // ---------------------------
 
-func RunHTTPServer(cnode *cluster.ClusterNode) *http.Server {
-	// ---------------------------
-	if !config.Cfg.Debug {
-		gin.SetMode(gin.ReleaseMode)
-	}
-	// ---------------------------
+func setupRouter(cnode *cluster.ClusterNode) *gin.Engine {
 	router := gin.New()
 	router.Use(ZerologLogger(), gin.Recovery())
 	v1 := router.Group("/v1", AppHeaderMiddleware())
@@ -44,10 +39,18 @@ func RunHTTPServer(cnode *cluster.ClusterNode) *http.Server {
 	colRoutes.PUT("/points", semaDBHandlers.UpdatePoints)
 	colRoutes.DELETE("/points", semaDBHandlers.DeletePoints)
 	colRoutes.POST("/points/search", semaDBHandlers.SearchPoints)
+	return router
+}
+
+func RunHTTPServer(cnode *cluster.ClusterNode) *http.Server {
+	// ---------------------------
+	if !config.Cfg.Debug {
+		gin.SetMode(gin.ReleaseMode)
+	}
 	// ---------------------------
 	server := &http.Server{
 		Addr:    config.Cfg.HttpHost + ":" + strconv.Itoa(config.Cfg.HttpPort),
-		Handler: router,
+		Handler: setupRouter(cnode),
 	}
 	go func() {
 		log.Info().Str("httpAddr", server.Addr).Msg("HTTPAPI.Serve")
