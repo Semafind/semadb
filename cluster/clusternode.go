@@ -20,13 +20,14 @@ var USERCOLSKEY = []byte("userCollections")
 const DBDELIMITER = "/"
 
 type ClusterNodeConfig struct {
-	// RootDir is the root directory for all data
+	// Root directory for all data
 	RootDir string `yaml:"rootDir"`
 	// ---------------------------
-	RpcHost    string `yaml:"rpcHost"`
-	RpcPort    int    `yaml:"rpcPort"`
-	RpcTimeout int    `yaml:"rpcTimeout"`
-	RpcRetries int    `yaml:"rpcRetries"`
+	RpcHost string `yaml:"rpcHost"`
+	RpcPort int    `yaml:"rpcPort"`
+	// Timeout in seconds
+	RpcTimeout int `yaml:"rpcTimeout"`
+	RpcRetries int `yaml:"rpcRetries"`
 	// ---------------------------
 	// Initial set of known servers
 	Servers []string `yaml:"servers"`
