@@ -142,6 +142,54 @@ func (c *ClusterNode) RPCGetCollection(args *RPCGetCollectionRequest, reply *RPC
 
 // ---------------------------
 
+type RPCCreateShardRequest struct {
+	RPCRequestArgs
+	UserId       string
+	CollectionId string
+}
+
+type RPCCreateShardResponse struct {
+	ShardId string
+}
+
+func (c *ClusterNode) RPCCreateShard(args *RPCCreateShardRequest, reply *RPCCreateShardResponse) error {
+	c.logger.Debug().Str("userId", args.UserId).Str("collectionId", args.CollectionId).Msg("RPCCreateShard")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCCreateShard", args, reply)
+	}
+	err := c.nodedb.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(USERCOLSKEY)
+		// ---------------------------
+		key := []byte(args.UserId + DBDELIMITER + args.CollectionId)
+		value := b.Get(key)
+		if value == nil {
+			return fmt.Errorf("collection %s not found", key)
+		}
+		var col models.Collection
+		if err := msgpack.Unmarshal(value, &col); err != nil {
+			return fmt.Errorf("could not unmarshal collection %s: %w", key, err)
+		}
+		// ---------------------------
+		shardId := uuid.New().String()
+		reply.ShardId = shardId
+		col.ShardIds = append(col.ShardIds, shardId)
+		// ---------------------------
+		colBytes, err := msgpack.Marshal(col)
+		if err != nil {
+			return fmt.Errorf("could not marshal collection: %w", err)
+		}
+		// ---------------------------
+		if err := b.Put(key, colBytes); err != nil {
+			return fmt.Errorf("could not put collection: %w", err)
+		}
+		// ---------------------------
+		return nil
+	})
+	return err
+}
+
+// ---------------------------
+
 type RPCInsertPointsRequest struct {
 	RPCRequestArgs
 	ShardDir string

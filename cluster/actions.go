@@ -79,22 +79,20 @@ func (c *ClusterNode) GetCollection(userId string, collectionId string) (models.
 
 func (c *ClusterNode) CreateShard(col models.Collection) (string, error) {
 	// ---------------------------
-	colDir := filepath.Join(config.Cfg.RootDir, col.UserId, col.Id)
-	// ---------------------------
-	// Check if the directory exists?
-	if _, err := os.Stat(colDir); err != nil {
-		return "", ErrNotFound
+	rpcRequest := RPCCreateShardRequest{
+		RPCRequestArgs: RPCRequestArgs{
+			Source: c.MyHostname,
+			Dest:   RendezvousHash(col.UserId, c.Servers, 1)[0],
+		},
+		UserId:       col.UserId,
+		CollectionId: col.Id,
+	}
+	rpcResponse := RPCCreateShardResponse{}
+	if err := c.RPCCreateShard(&rpcRequest, &rpcResponse); err != nil {
+		return "", fmt.Errorf("could not create shard: %w", err)
 	}
 	// ---------------------------
-	// Create shard directory
-	shardId := uuid.New().String()
-	shardDir := filepath.Join(colDir, shardId)
-	if err := os.MkdirAll(shardDir, os.ModePerm); err != nil {
-		return "", fmt.Errorf("could not create shard directory: %w", err)
-	}
-	c.logger.Debug().Str("shardDir", shardDir).Msg("CreateShard")
-	// ---------------------------
-	return shardDir, nil
+	return rpcResponse.ShardId, nil
 }
 
 type shardInfo struct {
