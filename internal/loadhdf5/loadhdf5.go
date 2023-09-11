@@ -122,7 +122,21 @@ func loadRemote(vcol VectorCollection) {
 
 func loadIntoCollection(vcol VectorCollection) {
 	// ---------------------------
-	clusterNode, err := cluster.NewNode()
+	nodeConfig := cluster.ClusterNodeConfig{
+		RootDir: config.Cfg.RootDir,
+		Servers: config.Cfg.Servers,
+		// ---------------------------
+		RpcHost:    config.Cfg.RpcHost,
+		RpcPort:    config.Cfg.RpcPort,
+		RpcTimeout: config.Cfg.RpcTimeout,
+		RpcRetries: config.Cfg.RpcRetries,
+		// ---------------------------
+		ShardTimeout:       config.Cfg.ShardTimeout,
+		MaxShardSize:       config.Cfg.MaxShardSize,
+		MaxShardPointCount: config.Cfg.MaxShardPointCount,
+		MaxSearchLimit:     config.Cfg.MaxSearchLimit,
+	}
+	clusterNode, err := cluster.NewNode(nodeConfig)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create cluster node")
 	}
