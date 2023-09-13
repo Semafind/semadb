@@ -102,3 +102,61 @@ func Test_CreateCollection(t *testing.T) {
 	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody)
 	assert.Equal(t, http.StatusConflict, resp.Code)
 }
+
+func Test_ListCollections(t *testing.T) {
+	router := setupTestRouter(t)
+	// ---------------------------
+	// Initially the user no collections
+	resp := makeRequest(t, router, "GET", "/v1/collections", nil)
+	assert.Equal(t, http.StatusOK, resp.Code)
+	var respBody ListCollectionsResponse
+	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
+	assert.NoError(t, err)
+	assert.Len(t, respBody.Collections, 0)
+	// ---------------------------
+	// Create one collection
+	newColBody := NewCollectionRequest{
+		Id:             "gandalf",
+		VectorSize:     42,
+		DistanceMetric: "cosine",
+	}
+	resp = makeRequest(t, router, "POST", "/v1/collections", newColBody)
+	assert.Equal(t, http.StatusOK, resp.Code)
+	// ---------------------------
+	// List user collections
+	resp = makeRequest(t, router, "GET", "/v1/collections", nil)
+	assert.Equal(t, http.StatusOK, resp.Code)
+	err = json.Unmarshal(resp.Body.Bytes(), &respBody)
+	assert.NoError(t, err)
+	assert.Len(t, respBody.Collections, 1)
+	assert.Equal(t, "gandalf", respBody.Collections[0].Id)
+	assert.EqualValues(t, 42, respBody.Collections[0].VectorSize)
+	assert.Equal(t, "cosine", respBody.Collections[0].DistanceMetric)
+}
+
+func Test_GetCollection(t *testing.T) {
+	router := setupTestRouter(t)
+	// ---------------------------
+	// Unknown collection returns not found
+	resp := makeRequest(t, router, "GET", "/v1/collections/gandalf", nil)
+	assert.Equal(t, http.StatusNotFound, resp.Code)
+	// ---------------------------
+	// Create one collection and get it
+	newColBody := NewCollectionRequest{
+		Id:             "gandalf",
+		VectorSize:     42,
+		DistanceMetric: "cosine",
+	}
+	resp = makeRequest(t, router, "POST", "/v1/collections", newColBody)
+	assert.Equal(t, http.StatusOK, resp.Code)
+	// ---------------------------
+	resp = makeRequest(t, router, "GET", "/v1/collections/gandalf", nil)
+	assert.Equal(t, http.StatusOK, resp.Code)
+	var respBody GetCollectionResponse
+	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
+	assert.NoError(t, err)
+	assert.Equal(t, "gandalf", respBody.Id)
+	assert.Equal(t, "cosine", respBody.DistanceMetric)
+	assert.EqualValues(t, 42, respBody.VectorSize)
+	assert.Len(t, respBody.Shards, 0)
+}

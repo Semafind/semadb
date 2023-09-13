@@ -47,8 +47,8 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig) *gin.Engine {
 	v1.POST("/collections", semaDBHandlers.NewCollection)
 	v1.GET("/collections", semaDBHandlers.ListCollections)
 	colRoutes := v1.Group("/collections/:collectionId", semaDBHandlers.CollectionURIMiddleware())
-	colRoutes.GET("/", semaDBHandlers.GetCollection)
-	colRoutes.DELETE("/", semaDBHandlers.DeleteCollection)
+	colRoutes.GET("", semaDBHandlers.GetCollection)
+	colRoutes.DELETE("", semaDBHandlers.DeleteCollection)
 	// We're batching point requests for peformance reasons. Alternatively we
 	// can provide points/:pointId endpoint in the future.
 	colRoutes.POST("/points", semaDBHandlers.InsertPoints)
