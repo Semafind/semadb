@@ -110,7 +110,8 @@ func (sdbh *SemaDBHandlers) CollectionURIMiddleware() gin.HandlerFunc {
 		appHeaders := c.MustGet("appHeaders").(AppHeaders)
 		collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
 		if err == cluster.ErrNotFound {
-			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "not found"})
+			errMsg := fmt.Sprintf("collection %s not found", uri.CollectionId)
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": errMsg})
 			return
 		}
 		if err != nil {
