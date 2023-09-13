@@ -6,6 +6,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
 )
 
@@ -15,32 +18,45 @@ type loadedShard struct {
 	mu     sync.RWMutex // This locks stops the cleanup goroutine from unloading the shard while it is being used
 }
 
+type ShardManagerConfig struct {
+	// Shard timeout in seconds
+	ShardTimeout int `yaml:"shardTimeout"`
+}
+
+type ShardManager struct {
+	logger zerolog.Logger
+	cfg    ShardManagerConfig
+	// ---------------------------
+	shardStore map[string]*loadedShard
+	shardLock  sync.Mutex
+}
+
+func NewShardManager(config ShardManagerConfig) *ShardManager {
+	logger := log.With().Str("component", "shardManager").Logger()
+	return &ShardManager{
+		logger:     logger,
+		cfg:        config,
+		shardStore: make(map[string]*loadedShard),
+	}
+}
+
 // Load a shard into memory. If the shard is already loaded, the shard is
 // returned from the local cache. The shard is unloaded after a timeout if it is
 // not used.
-func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
-	c.logger.Debug().Str("shardDir", shardDir).Msg("LoadShard")
-	c.shardLock.Lock()
-	defer c.shardLock.Unlock()
-	if ls, ok := c.shardStore[shardDir]; ok {
+func (sm *ShardManager) loadShard(collection models.Collection, shardId string) (*loadedShard, error) {
+	shardDir := filepath.Join("userCollections", collection.UserId, collection.Id, shardId)
+	sm.logger.Debug().Str("shardDir", shardDir).Msg("LoadShard")
+	sm.shardLock.Lock()
+	defer sm.shardLock.Unlock()
+	if ls, ok := sm.shardStore[shardDir]; ok {
 		// We reset the timer here so that the shard is not unloaded prematurely
-		c.logger.Debug().Str("shardDir", shardDir).Msg("Returning cached shard")
+		sm.logger.Debug().Str("shardDir", shardDir).Msg("Returning cached shard")
 		ls.doneCh <- false
 		return ls, nil
 	}
 	// ---------------------------
-	// Load corresponding collection
-	colPath := filepath.Dir(shardDir)
-	collectionId := filepath.Base(colPath)
-	userPath := filepath.Dir(colPath)
-	userId := filepath.Base(userPath)
-	col, err := c.GetCollection(userId, collectionId)
-	if err != nil {
-		return nil, fmt.Errorf("could not load collection: %w", err)
-	}
-	// ---------------------------
 	// Open shard
-	shard, err := shard.NewShard(shardDir, col)
+	shard, err := shard.NewShard(shardDir, collection)
 	if err != nil {
 		return nil, fmt.Errorf("could not open shard: %w", err)
 	}
@@ -48,11 +64,11 @@ func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
 		shard:  shard,
 		doneCh: make(chan bool),
 	}
-	c.shardStore[shardDir] = ls
+	sm.shardStore[shardDir] = ls
 	// ---------------------------
 	// Setup cleanup goroutine
 	go func() {
-		timeoutDuration := time.Duration(c.cfg.ShardTimeout) * time.Second
+		timeoutDuration := time.Duration(sm.cfg.ShardTimeout) * time.Second
 		timer := time.NewTimer(timeoutDuration)
 		for {
 			shutdown := false
@@ -65,7 +81,7 @@ func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
 				if isDone {
 					shutdown = true
 				} else {
-					c.logger.Debug().Str("shardDir", shardDir).Msg("Resetting shard timeout")
+					sm.logger.Debug().Str("shardDir", shardDir).Msg("Resetting shard timeout")
 					// Timer must be stopped or expired before it can be reset
 					timer.Reset(timeoutDuration)
 				}
@@ -73,15 +89,15 @@ func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
 				shutdown = true
 			}
 			if shutdown {
-				c.logger.Debug().Str("shardDir", shardDir).Msg("Unloading shard")
-				c.shardLock.Lock()
-				delete(c.shardStore, shardDir)
-				c.shardLock.Unlock()
+				sm.logger.Debug().Str("shardDir", shardDir).Msg("Unloading shard")
+				sm.shardLock.Lock()
+				delete(sm.shardStore, shardDir)
+				sm.shardLock.Unlock()
 				ls.mu.Lock()
 				if err := ls.shard.Close(); err != nil {
-					c.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to close shard")
+					sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to close shard")
 				} else {
-					c.logger.Debug().Str("shardDir", shardDir).Msg("Closed shard")
+					sm.logger.Debug().Str("shardDir", shardDir).Msg("Closed shard")
 				}
 				ls.mu.Unlock()
 				break
@@ -94,8 +110,8 @@ func (c *ClusterNode) loadShard(shardDir string) (*loadedShard, error) {
 // DoWithShard executes a function with a shard. The shard is loaded if it is
 // not already loaded and prevents the shard from being cleaned up while the
 // function is executing.
-func (c *ClusterNode) DoWithShard(shardDir string, f func(*shard.Shard) error) error {
-	ls, err := c.loadShard(shardDir)
+func (sm *ShardManager) DoWithShard(collection models.Collection, shardId string, f func(*shard.Shard) error) error {
+	ls, err := sm.loadShard(collection, shardId)
 	if err != nil {
 		return fmt.Errorf("could not load shard: %w", err)
 	}

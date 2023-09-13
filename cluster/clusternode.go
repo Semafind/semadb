@@ -55,8 +55,7 @@ type ClusterNode struct {
 	// ---------------------------
 	nodedb *bbolt.DB
 	// ---------------------------
-	shardStore map[string]*loadedShard
-	shardLock  sync.Mutex
+	shardManager *ShardManager
 }
 
 func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
@@ -99,14 +98,18 @@ func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
 		return nil, fmt.Errorf("could not create user collections bucket: %w", err)
 	}
 	// ---------------------------
+	shardManager := NewShardManager(ShardManagerConfig{
+		ShardTimeout: config.ShardTimeout,
+	})
+	// ---------------------------
 	cluster := &ClusterNode{
-		logger:     logger,
-		cfg:        config,
-		Servers:    config.Servers,
-		MyHostname: envHostname,
-		rpcClients: make(map[string]*rpc.Client),
-		nodedb:     nodedb,
-		shardStore: make(map[string]*loadedShard),
+		logger:       logger,
+		cfg:          config,
+		Servers:      config.Servers,
+		MyHostname:   envHostname,
+		rpcClients:   make(map[string]*rpc.Client),
+		nodedb:       nodedb,
+		shardManager: shardManager,
 	}
 	return cluster, nil
 }

@@ -109,9 +109,8 @@ func (c *ClusterNode) GetShardsInfo(col models.Collection) ([]shardInfo, error) 
 				Source: c.MyHostname,
 				Dest:   targetServer,
 			},
-			UserId:       col.UserId,
-			CollectionId: col.Id,
-			ShardId:      shardId,
+			Collection: col,
+			ShardId:    shardId,
 		}
 		getInfoResponse := RPCGetShardInfoResponse{}
 		if err := c.RPCGetShardInfo(&getInfoRequest, &getInfoResponse); err != nil {
@@ -161,10 +160,9 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 					Source: c.MyHostname,
 					Dest:   targetServer,
 				},
-				UserId:       col.UserId,
-				CollectionId: col.Id,
-				ShardId:      sId,
-				Points:       shardPoints,
+				Collection: col,
+				ShardId:    sId,
+				Points:     shardPoints,
 			}
 			insertResp := RPCInsertPointsResponse{}
 			if err := c.RPCInsertPoints(&insertReq, &insertResp); err != nil {
@@ -234,11 +232,10 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 					Source: c.MyHostname,
 					Dest:   targetServer,
 				},
-				UserId:       col.UserId,
-				CollectionId: col.Id,
-				ShardId:      sId,
-				Vector:       query,
-				Limit:        targetLimit,
+				Collection: col,
+				ShardId:    sId,
+				Vector:     query,
+				Limit:      targetLimit,
 			}
 			searchResp := RPCSearchPointsResponse{}
 			if err := c.RPCSearchPoints(&searchReq, &searchResp); err != nil {
@@ -297,10 +294,9 @@ func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point)
 					Source: c.MyHostname,
 					Dest:   targetServer,
 				},
-				UserId:       col.UserId,
-				CollectionId: col.Id,
-				ShardId:      sId,
-				Points:       points,
+				Collection: col,
+				ShardId:    sId,
+				Points:     points,
 			}
 			updateResp := RPCUpdatePointsResponse{}
 			if err := c.RPCUpdatePoints(&updateReq, &updateResp); err != nil {
