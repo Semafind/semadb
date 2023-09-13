@@ -28,7 +28,7 @@ var POINTCOUNTKEY = []byte("pointCount")
 
 func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
 	// ---------------------------
-	db, err := bbolt.Open(filepath.Join(shardDir, "db"), 0666, nil)
+	db, err := bbolt.Open(filepath.Join(shardDir, "sharddb.bbolt"), 0666, &bbolt.Options{Timeout: 1 * time.Minute})
 	if err != nil {
 		return nil, fmt.Errorf("could not open shard db: %w", err)
 	}
