@@ -185,3 +185,30 @@ func Test_GetCollection(t *testing.T) {
 	assert.EqualValues(t, 42, respBody.VectorSize)
 	assert.Len(t, respBody.Shards, 0)
 }
+
+// func Test_DeleteCollection(t *testing.T) {
+// 	nodeS := ClusterNodeState{
+// 		Collections: []CollectionState{
+// 			{
+// 				Collection: models.Collection{
+// 					UserId:     "testy",
+// 					Id:         "gandalf",
+// 					VectorSize: 42,
+// 					DistMetric: "cosine",
+// 				},
+// 			},
+// 		},
+// 	}
+// 	router := setupTestRouter(t, nodeS)
+// 	// ---------------------------
+// 	// Unknown collection returns not found
+// 	resp := makeRequest(t, router, "DELETE", "/v1/collections/boromir", nil)
+// 	assert.Equal(t, http.StatusNotFound, resp.Code)
+// 	// ---------------------------
+// 	resp = makeRequest(t, router, "DELETE", "/v1/collections/gandalf", nil)
+// 	assert.Equal(t, http.StatusOK, resp.Code)
+// 	// ---------------------------
+// 	// Collection no longer exists
+// 	resp = makeRequest(t, router, "GET", "/v1/collections/gandalf", nil)
+// 	assert.Equal(t, http.StatusNotFound, resp.Code)
+// }
