@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -19,6 +20,8 @@ type loadedShard struct {
 }
 
 type ShardManagerConfig struct {
+	// Root directory for all shard data
+	RootDir string `yaml:"rootDir"`
 	// Shard timeout in seconds
 	ShardTimeout int `yaml:"shardTimeout"`
 }
@@ -44,7 +47,7 @@ func NewShardManager(config ShardManagerConfig) *ShardManager {
 // returned from the local cache. The shard is unloaded after a timeout if it is
 // not used.
 func (sm *ShardManager) loadShard(collection models.Collection, shardId string) (*loadedShard, error) {
-	shardDir := filepath.Join("userCollections", collection.UserId, collection.Id, shardId)
+	shardDir := filepath.Join(sm.cfg.RootDir, "userCollections", collection.UserId, collection.Id, shardId)
 	sm.logger.Debug().Str("shardDir", shardDir).Msg("LoadShard")
 	sm.shardLock.Lock()
 	defer sm.shardLock.Unlock()
@@ -55,6 +58,10 @@ func (sm *ShardManager) loadShard(collection models.Collection, shardId string) 
 		return ls, nil
 	}
 	// ---------------------------
+	// Check shard directory exists, create if it doesn't
+	if err := os.MkdirAll(shardDir, 0755); err != nil {
+		return nil, fmt.Errorf("could not create shard directory: %w", err)
+	}
 	// Open shard
 	shard, err := shard.NewShard(shardDir, collection)
 	if err != nil {

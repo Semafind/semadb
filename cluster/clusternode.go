@@ -99,6 +99,7 @@ func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
 	}
 	// ---------------------------
 	shardManager := NewShardManager(ShardManagerConfig{
+		RootDir:      rootDir,
 		ShardTimeout: config.ShardTimeout,
 	})
 	// ---------------------------
