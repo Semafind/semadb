@@ -1,18 +1,14 @@
 #!/bin/bash
 
-export SEMADB_DEBUG=true
-export SEMADB_SERVERS=localhost:11001,localhost:11002,localhost:11003
-export SEMADB_ROOT_DIR=./dump
-echo $SEMADB_SERVERS
 echo "Starting servers..."
-echo "Starting server 1"
-SEMADB_HTTP_PORT=8081 SEMADB_RPC_PORT=11001 go run ./ &
+echo "Starting server A"
+SEMADB_CONFIG=./config/serverA.yaml go run ./ &
 pid[0]=$!
-echo "Starting server 2"
-SEMADB_HTTP_PORT=8082 SEMADB_RPC_PORT=11002 go run ./ &
+echo "Starting server B"
+SEMADB_CONFIG=./config/serverB.yaml go run ./ &
 pid[1]=$!
-echo "Starting server 3"
-SEMADB_HTTP_PORT=8083 SEMADB_RPC_PORT=11003 go run ./ &
+echo "Starting server C"
+SEMADB_CONFIG=./config/serverC.yaml go run ./ &
 pid[2]=$!
 jobs
 trap "kill ${pid[0]} ${pid[1]} ${pid[2]}; exit 1" INT

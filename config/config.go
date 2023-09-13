@@ -2,10 +2,9 @@ package config
 
 import (
 	"os"
-	"path/filepath"
 
-	"github.com/caarlos0/env/v8"
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi"
 	"gopkg.in/yaml.v3"
 )
@@ -13,61 +12,30 @@ import (
 // ---------------------------
 
 type ConfigMap struct {
+	// Global debug flag
 	Debug bool `yaml:"debug"`
-	// Root directory refers to the start of the filesystem where all data is stored
-	RootDir string `yaml:"rootDir"`
-	// Maximum size of shards in bytes
-	MaxShardSize int64 `yaml:"maxShardSize"`
-	// Maximum number of points in a shard
-	MaxShardPointCount int64 `yaml:"maxShardPointCount"`
-	// Maximum number of points to search
-	MaxSearchLimit int `yaml:"maxSearchLimit"`
-	// Shard timeout in seconds
-	ShardTimeout int `yaml:"shardTimeout"`
-	// List of known servers at the beginning
-	Servers []string `yaml:"servers"`
-	// RPC Parameters
-	RpcHost    string `yaml:"rpcHost"`
-	RpcPort    int    `yaml:"rpcPort"`
-	RpcTimeout int    `yaml:"rpcTimeout"`
-	RpcRetries int    `yaml:"rpcRetries"`
+	// Cluster parameters
+	ClusterNodeCfg cluster.ClusterNodeConfig `yaml:"clusterNodeConfig"`
 	// HTTP Parameters
-	HttpHost string `yaml:"httpHost"`
-	HttpPort int    `yaml:"httpPort"`
-	// User plans
-	UserPlans map[string]httpapi.UserPlan `yaml:"userPlans"`
-}
-
-var Cfg ConfigMap
-
-// ---------------------------
-
-func init() {
-	Cfg = LoadConfig()
+	HttpApiCfg httpapi.HttpApiConfig `yaml:"httpApiConfig"`
 }
 
 func LoadConfig() ConfigMap {
 	configMap := ConfigMap{}
-	// First parse yaml file
-	cwd, err := os.Getwd()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to get working directory")
+	// Load the file path from the environment variable
+	cFilePath, ok := os.LookupEnv("SEMADB_CONFIG")
+	if !ok {
+		log.Fatal().Msg("SEMADB_CONFIG environment variable is not set")
 	}
-	cFilePath := filepath.Join(cwd, "config.yaml")
+	// Parse the config file
 	cFile, err := os.Open(cFilePath)
 	if err != nil {
-		log.Error().Err(err).Str("path", cFilePath).Msg("Failed to open config file")
+		log.Fatal().Err(err).Str("path", cFilePath).Msg("Failed to open config file")
 	} else {
 		decoder := yaml.NewDecoder(cFile)
-		err = decoder.Decode(&configMap)
-		if err != nil {
+		if err := decoder.Decode(&configMap); err != nil {
 			log.Fatal().Err(err).Msg("Failed to parse config file")
 		}
-	}
-	// Then parse environment variables
-	opts := env.Options{Prefix: "SEMADB_", UseFieldNameByDefault: true}
-	if err := env.ParseWithOptions(&configMap, opts); err != nil {
-		log.Fatal().Err(err).Msg("Failed to parse env")
 	}
 	return configMap
 }

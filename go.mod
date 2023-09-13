@@ -5,7 +5,6 @@ go 1.21
 toolchain go1.21.0
 
 require (
-	github.com/caarlos0/env/v8 v8.0.0
 	github.com/cespare/xxhash v1.1.0
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/gin-gonic/gin v1.9.1

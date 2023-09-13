@@ -51,17 +51,13 @@
 			},
 			"options": {
 				"env": {
-					"SEMADB_DEBUG": "true",
-					"SEMADB_SERVERS": "localhost:11001",
-					"SEMADB_HTTP_PORT": "8081",
-					"SEMADB_RPC_PORT": "11001",
-					"SEMADB_ROOT_DIR": "./dump/single"
+					"SEMADB_CONFIG": "${workspaceFolder}/config/singleServer.yaml",
 				}
 			}
 		},
 		{
 			"type": "shell",
-			"label": "run-server1",
+			"label": "run-serverA",
 			"command": "go run ./",
 			"presentation": {
 				"echo": true,
@@ -73,17 +69,13 @@
 			},
 			"options": {
 				"env": {
-					"SEMADB_DEBUG": "true",
-					"SEMADB_SERVERS": "localhost:11001,localhost:11002,localhost:11003",
-					"SEMADB_HTTP_PORT": "8081",
-					"SEMADB_RPC_PORT": "11001",
-					"SEMADB_ROOT_DIR": "./dump/server1"
+					"SEMADB_CONFIG": "${workspaceFolder}/config/serverA.yaml",
 				}
 			}
 		},
 		{
 			"type": "shell",
-			"label": "run-server2",
+			"label": "run-serverB",
 			"command": "go run ./",
 			"presentation": {
 				"echo": true,
@@ -95,17 +87,13 @@
 			},
 			"options": {
 				"env": {
-					"SEMADB_DEBUG": "true",
-					"SEMADB_SERVERS": "localhost:11001,localhost:11002,localhost:11003",
-					"SEMADB_HTTP_PORT": "8082",
-					"SEMADB_RPC_PORT": "11002",
-					"SEMADB_ROOT_DIR": "./dump/server2"
+					"SEMADB_CONFIG": "${workspaceFolder}/config/serverB.yaml",
 				}
 			}
 		},
 		{
 			"type": "shell",
-			"label": "run-server3",
+			"label": "run-serverC",
 			"command": "go run ./",
 			"presentation": {
 				"echo": true,
@@ -117,11 +105,7 @@
 			},
 			"options": {
 				"env": {
-					"SEMADB_DEBUG": "true",
-					"SEMADB_SERVERS": "localhost:11001,localhost:11002,localhost:11003",
-					"SEMADB_HTTP_PORT": "8083",
-					"SEMADB_RPC_PORT": "11003",
-					"SEMADB_ROOT_DIR": "./dump/server3"
+					"SEMADB_CONFIG": "${workspaceFolder}/config/serverC.yaml",
 				}
 			}
 		},
@@ -129,9 +113,9 @@
 			"label": "run-cluster",
 			"dependsOrder": "parallel",
 			"dependsOn": [
-				"run-server1",
-				"run-server2",
-				"run-server3"
+				"run-serverA",
+				"run-serverB",
+				"run-serverC"
 			],
 			"problemMatcher": [],
 		}

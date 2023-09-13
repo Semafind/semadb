@@ -1,0 +1,34 @@
+# Configuration for SemaDB
+debug: &GLOBAL_DEBUG true
+clusterNodeConfig:
+  # Root directory refers to the start of the filesystem where all data is stored
+  rootDir: ./dump/serverB
+  # Maximum size of shards in bytes
+  maxShardSize: 268435456 # 2GiB
+  maxShardPointCount: 250000 # 250k
+  # Maximum number of points to search
+  maxSearchLimit: 75
+  # Shard timeout in seconds
+  shardTimeout: 300 # 5 minutes
+  # List of known servers at the beginning
+  servers:
+    - localhost:11001 
+    - localhost:11002 
+    - localhost:11003 
+  # RPC Parameters
+  rpcHost: localhost
+  rpcPort: 11002
+  rpcTimeout: 300 # seconds
+  rpcRetries: 2
+httpApiConfig:
+  debug: *GLOBAL_DEBUG
+  # HTTP Parameters
+  httpHost: localhost
+  httpPort: 8082
+  # User Plans
+  userPlans:
+    BASIC:
+      name: Basic Plan
+      maxCollections: 1
+      maxCollectionSize: 1073741824 # 1GiB
+      maxMetadataSize: 1024 # 1KiB
