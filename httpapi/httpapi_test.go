@@ -10,10 +10,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/semafind/semadb/cluster"
+	"github.com/semafind/semadb/models"
 	"github.com/stretchr/testify/assert"
 )
 
-func setupClusterNode(t *testing.T) *cluster.ClusterNode {
+type CollectionState struct {
+	Collection models.Collection
+	Points     []models.Point
+}
+
+type ClusterNodeState struct {
+	Collections []CollectionState
+}
+
+func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode {
 	cnode, err := cluster.NewNode(cluster.ClusterNodeConfig{
 		RootDir: t.TempDir(),
 		Servers: []string{"localhost:9898"},
@@ -27,13 +37,21 @@ func setupClusterNode(t *testing.T) *cluster.ClusterNode {
 		MaxShardSize:       268435456, // 2GiB
 		MaxShardPointCount: 250000,
 	})
-	if err != nil {
-		t.Fatal(err)
+	assert.NoError(t, err)
+	// Setup state
+	for _, colState := range nodeS.Collections {
+		// ---------------------------
+		err := cnode.CreateCollection(colState.Collection)
+		assert.NoError(t, err)
+		// ---------------------------
+		failedRanges, err := cnode.InsertPoints(colState.Collection, colState.Points)
+		assert.NoError(t, err)
+		assert.Len(t, failedRanges, 0)
 	}
 	return cnode
 }
 
-func setupTestRouter(t *testing.T) *gin.Engine {
+func setupTestRouter(t *testing.T, nodeS ClusterNodeState) *gin.Engine {
 	httpConfig := HttpApiConfig{
 		Debug:    true,
 		HttpHost: "localhost",
@@ -47,7 +65,7 @@ func setupTestRouter(t *testing.T) *gin.Engine {
 			},
 		},
 	}
-	return setupRouter(setupClusterNode(t), httpConfig)
+	return setupRouter(setupClusterNode(t, nodeS), httpConfig)
 }
 
 func makeRequest(t *testing.T, router *gin.Engine, method string, endpoint string, body any) *httptest.ResponseRecorder {
@@ -70,7 +88,7 @@ func makeRequest(t *testing.T, router *gin.Engine, method string, endpoint strin
 }
 
 func Test_pongHandler(t *testing.T) {
-	router := setupTestRouter(t)
+	router := setupTestRouter(t, ClusterNodeState{})
 	req, err := http.NewRequest("GET", "/v1/ping", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +106,7 @@ func Test_pongHandler(t *testing.T) {
 }
 
 func Test_CreateCollection(t *testing.T) {
-	router := setupTestRouter(t)
+	router := setupTestRouter(t, ClusterNodeState{})
 	// ---------------------------
 	reqBody := NewCollectionRequest{
 		Id:             "testy",
@@ -104,9 +122,9 @@ func Test_CreateCollection(t *testing.T) {
 }
 
 func Test_ListCollections(t *testing.T) {
-	router := setupTestRouter(t)
 	// ---------------------------
 	// Initially the user no collections
+	router := setupTestRouter(t, ClusterNodeState{})
 	resp := makeRequest(t, router, "GET", "/v1/collections", nil)
 	assert.Equal(t, http.StatusOK, resp.Code)
 	var respBody ListCollectionsResponse
@@ -114,16 +132,20 @@ func Test_ListCollections(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, respBody.Collections, 0)
 	// ---------------------------
-	// Create one collection
-	newColBody := NewCollectionRequest{
-		Id:             "gandalf",
-		VectorSize:     42,
-		DistanceMetric: "cosine",
-	}
-	resp = makeRequest(t, router, "POST", "/v1/collections", newColBody)
-	assert.Equal(t, http.StatusOK, resp.Code)
-	// ---------------------------
 	// List user collections
+	nodeS := ClusterNodeState{
+		Collections: []CollectionState{
+			{
+				Collection: models.Collection{
+					Id:         "gandalf",
+					UserId:     "testy",
+					VectorSize: 42,
+					DistMetric: "cosine",
+				},
+			},
+		},
+	}
+	router = setupTestRouter(t, nodeS)
 	resp = makeRequest(t, router, "GET", "/v1/collections", nil)
 	assert.Equal(t, http.StatusOK, resp.Code)
 	err = json.Unmarshal(resp.Body.Bytes(), &respBody)
@@ -135,20 +157,23 @@ func Test_ListCollections(t *testing.T) {
 }
 
 func Test_GetCollection(t *testing.T) {
-	router := setupTestRouter(t)
+	nodeS := ClusterNodeState{
+		Collections: []CollectionState{
+			{
+				Collection: models.Collection{
+					UserId:     "testy",
+					Id:         "gandalf",
+					VectorSize: 42,
+					DistMetric: "cosine",
+				},
+			},
+		},
+	}
+	router := setupTestRouter(t, nodeS)
 	// ---------------------------
 	// Unknown collection returns not found
-	resp := makeRequest(t, router, "GET", "/v1/collections/gandalf", nil)
+	resp := makeRequest(t, router, "GET", "/v1/collections/boromir", nil)
 	assert.Equal(t, http.StatusNotFound, resp.Code)
-	// ---------------------------
-	// Create one collection and get it
-	newColBody := NewCollectionRequest{
-		Id:             "gandalf",
-		VectorSize:     42,
-		DistanceMetric: "cosine",
-	}
-	resp = makeRequest(t, router, "POST", "/v1/collections", newColBody)
-	assert.Equal(t, http.StatusOK, resp.Code)
 	// ---------------------------
 	resp = makeRequest(t, router, "GET", "/v1/collections/gandalf", nil)
 	assert.Equal(t, http.StatusOK, resp.Code)
