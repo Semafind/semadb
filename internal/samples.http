@@ -1,0 +1,94 @@
+@package = BASIC
+@baseUrl = http://localhost:8081/v1
+@userId = alice
+@collectionId = abc
+
+###
+
+# CreateCollection
+POST {{baseUrl}}/collections HTTP/1.1
+Content-Type: application/json
+X-User-Id: {{userId}}
+X-Package: {{package}}
+
+{
+    "id": "{{collectionId}}",
+    "vectorSize": 2,
+    "distanceMetric": "euclidean"
+}
+
+###
+
+# ListCollections
+GET {{baseUrl}}/collections HTTP/1.1
+X-User-Id: {{userId}}
+X-Package: {{package}}
+
+###
+
+# GetCollection
+GET {{baseUrl}}/collections/{{collectionId}} HTTP/1.1
+X-User-Id: {{userId}}
+X-Package: {{package}}
+
+###
+
+# DeleteCollection
+DELETE {{baseUrl}}/collections/{{collectionId}} HTTP/1.1
+X-User-Id: {{userId}}
+X-Package: {{package}}
+
+###
+
+# InsertPoints
+POST {{baseUrl}}/collections/{{collectionId}}/points HTTP/1.1
+Content-Type: application/json
+X-User-Id: {{userId}}
+X-Package: {{package}}
+
+{
+    "points": [
+        {
+            "vector": [1, 2],
+            "metadata": {
+                "foo": "bar"
+            }
+        },
+        {
+            "vector": [3, 4]
+        }
+    ]
+}
+
+###
+
+# UpdatePoints
+PUT {{baseUrl}}/collections/{{collectionId}}/points HTTP/1.1
+Content-Type: application/json
+X-User-Id: {{userId}}
+X-Package: {{package}}
+
+{
+    "points": [
+        {
+            "id": "5dba2d5c-1888-484b-949d-86d90bd06204",
+            "vector": [6, 7],
+            "metadata": {
+                "wizard": "gandalf"
+            }
+        }
+    ]
+}
+
+###
+
+# SearchPoints
+POST {{baseUrl}}/collections/{{collectionId}}/points/search HTTP/1.1
+Content-Type: application/json
+X-User-Id: {{userId}}
+X-Package: {{package}}
+
+{
+    "vector": [1, 2],
+    "limit": 10
+}
