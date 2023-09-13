@@ -91,8 +91,6 @@ func (sm *ShardManager) loadShard(collection models.Collection, shardId string) 
 			if shutdown {
 				sm.logger.Debug().Str("shardDir", shardDir).Msg("Unloading shard")
 				sm.shardLock.Lock()
-				delete(sm.shardStore, shardDir)
-				sm.shardLock.Unlock()
 				ls.mu.Lock()
 				if err := ls.shard.Close(); err != nil {
 					sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to close shard")
@@ -100,6 +98,8 @@ func (sm *ShardManager) loadShard(collection models.Collection, shardId string) 
 					sm.logger.Debug().Str("shardDir", shardDir).Msg("Closed shard")
 				}
 				ls.mu.Unlock()
+				delete(sm.shardStore, shardDir)
+				sm.shardLock.Unlock()
 				break
 			}
 		}
