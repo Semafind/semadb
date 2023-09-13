@@ -206,6 +206,9 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 			Id:     uuid.New(),
 			Vector: point.Vector,
 		}
+		if len(point.Id) > 0 {
+			points[i].Id = uuid.MustParse(point.Id)
+		}
 		if point.Metadata != nil {
 			binaryMetadata, err := msgpack.Marshal(point.Metadata)
 			if err != nil {
