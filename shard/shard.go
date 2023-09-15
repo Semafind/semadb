@@ -395,7 +395,11 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uuid.UUID, deleteSet map
 
 // ---------------------------
 
-func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) error {
+func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, error) {
+	// ---------------------------
+	// We don't expect to delete all the points because some may be in other
+	// shards. So we start with a lower capacity for the array.
+	deletedIds := make([]uuid.UUID, 0, len(deleteSet)/2)
 	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
@@ -403,7 +407,6 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) error {
 		// ---------------------------
 		// Collect all the neighbours of the points to be deleted
 		toPrune := make(map[uuid.UUID]struct{}, len(deleteSet))
-		deleteCount := 0
 		for pointId := range deleteSet {
 			point, err := pc.GetPoint(pointId)
 			if err != nil {
@@ -411,8 +414,8 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) error {
 				log.Debug().Err(err).Msg("could not get point for deletion")
 				continue
 			}
-			deleteCount++
 			point.isDeleted = true
+			deletedIds = append(deletedIds, pointId)
 			for _, edgeId := range point.Edges {
 				if _, ok := deleteSet[edgeId]; !ok {
 					toPrune[edgeId] = struct{}{}
@@ -428,7 +431,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) error {
 		}
 		// ---------------------------
 		// Update point count accordingly
-		if err := changePointCount(tx, -int64(deleteCount)); err != nil {
+		if err := changePointCount(tx, -int64(len(deletedIds))); err != nil {
 			log.Debug().Err(err).Msg("could not change point count")
 			return fmt.Errorf("could not change point count for deletion: %w", err)
 		}
@@ -436,9 +439,9 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) error {
 		return pc.Flush()
 	})
 	if err != nil {
-		return fmt.Errorf("could not delete points: %w", err)
+		return nil, fmt.Errorf("could not delete points: %w", err)
 	}
-	return nil
+	return deletedIds, nil
 }
 
 // ---------------------------

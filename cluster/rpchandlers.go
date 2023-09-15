@@ -279,7 +279,7 @@ type RPCDeletePointsRequest struct {
 }
 
 type RPCDeletePointsResponse struct {
-	Count int
+	DeletedIds []uuid.UUID
 }
 
 func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *RPCDeletePointsResponse) error {
@@ -293,8 +293,9 @@ func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *RPCDe
 		deleteSet[id] = struct{}{}
 	}
 	return c.shardManager.DoWithShard(args.Collection, args.ShardId, func(s *shard.Shard) error {
-		reply.Count = len(deleteSet)
-		return s.DeletePoints(deleteSet)
+		delIds, err := s.DeletePoints(deleteSet)
+		reply.DeletedIds = delIds
+		return err
 	})
 }
 

@@ -143,16 +143,21 @@ func TestShard_DeletePoint(t *testing.T) {
 	deleteSet := make(map[uuid.UUID]struct{})
 	deleteSet[points[0].Id] = struct{}{}
 	// delete one point
-	err := shard.DeletePoints(deleteSet)
+	delIds, err := shard.DeletePoints(deleteSet)
 	assert.NoError(t, err)
+	assert.Len(t, delIds, 1)
+	assert.Equal(t, points[0].Id, delIds[0])
 	checkPointCount(t, shard, 1)
 	// Try deleting the same point again
-	err = shard.DeletePoints(deleteSet)
+	delIds, err = shard.DeletePoints(deleteSet)
 	assert.NoError(t, err)
+	assert.Len(t, delIds, 0)
 	checkPointCount(t, shard, 1)
 	// Delete other point too
 	deleteSet[points[1].Id] = struct{}{}
-	err = shard.DeletePoints(deleteSet)
+	delIds, err = shard.DeletePoints(deleteSet)
+	assert.Len(t, delIds, 1)
+	assert.Equal(t, points[1].Id, delIds[0])
 	assert.NoError(t, err)
 	checkPointCount(t, shard, 0)
 	assert.NoError(t, shard.Close())
