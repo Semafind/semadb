@@ -2,6 +2,7 @@
 @baseUrl = http://localhost:8081/v1
 @userId = alice
 @collectionId = abc
+@pointId = faefe2b1-cf85-48db-9621-94b833ee9cc9
 
 ###
 
@@ -49,6 +50,7 @@ X-Package: {{package}}
 {
     "points": [
         {
+            "id": "{{pointId}}",
             "vector": [1, 2],
             "metadata": {
                 "foo": "bar"
@@ -71,7 +73,7 @@ X-Package: {{package}}
 {
     "points": [
         {
-            "id": "5dba2d5c-1888-484b-949d-86d90bd06204",
+            "id": "{{pointId}}",
             "vector": [6, 7],
             "metadata": {
                 "wizard": "gandalf"
@@ -103,6 +105,6 @@ X-Package: {{package}}
 
 {
     "ids": [
-        "d7a20981-b4dc-450e-82c8-b190d91612a1"
+        "{{pointId}}"
     ]
 }
