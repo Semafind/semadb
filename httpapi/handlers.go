@@ -308,8 +308,38 @@ func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 
 // ---------------------------
 
+type DeletePointsRequest struct {
+	Ids []string `json:"ids" binding:"required,max=100,dive,uuid"`
+}
+
 func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
-	c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+	// ---------------------------
+	var req DeletePointsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	// ---------------------------
+	// Convert request ids into uuids
+	pointIds := make([]uuid.UUID, len(req.Ids))
+	for i, id := range req.Ids {
+		pointIds[i] = uuid.MustParse(id)
+	}
+	// ---------------------------
+	// Get corresponding collection
+	collection := c.MustGet("collection").(models.Collection)
+	// ---------------------------
+	failedIds, err := sdbh.clusterNode.DeletePoints(collection, pointIds)
+	if err != nil {
+		c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	message := "success"
+	if len(failedIds) > 0 {
+		message = "partial success"
+	}
+	c.JSON(http.StatusOK, gin.H{"message": message, "failedIds": failedIds})
 }
 
 // ---------------------------

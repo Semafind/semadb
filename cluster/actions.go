@@ -331,3 +331,60 @@ func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point)
 	// ---------------------------
 	return results[successSize:], nil
 }
+
+func (c *ClusterNode) DeletePoints(col models.Collection, pointIds []uuid.UUID) ([]uuid.UUID, error) {
+	// ---------------------------
+	// Deleting points is similar to updating points and we ask every shard to
+	// participate. This is because we don't have a table of point ids to shard
+	// ids, so we need every shard to check if it has the point.
+	//
+	// The shard operation returns which ids succeded and this function returns
+	// which ones failed to notify the client upstream. This is because it is
+	// more efficient to just let shards return what succeeded instead of a long
+	// list of points that failed.
+	// ---------------------------
+	deletedIds := make([]uuid.UUID, 0, len(pointIds))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	for _, shardId := range col.ShardIds {
+		wg.Add(1)
+		go func(sId string) {
+			defer wg.Done()
+			targetServer := RendezvousHash(sId, c.Servers, 1)[0]
+			deleteReq := RPCDeletePointsRequest{
+				RPCRequestArgs: RPCRequestArgs{
+					Source: c.MyHostname,
+					Dest:   targetServer,
+				},
+				Collection: col,
+				ShardId:    sId,
+				Ids:        pointIds,
+			}
+			deleteResp := RPCDeletePointsResponse{}
+			if err := c.RPCDeletePoints(&deleteReq, &deleteResp); err != nil {
+				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", sId).Msg("could not delete points")
+			} else {
+				mu.Lock()
+				deletedIds = append(deletedIds, deleteResp.DeletedIds...)
+				mu.Unlock()
+			}
+		}(shardId)
+	}
+	// ---------------------------
+	wg.Wait()
+	// *** Return which points were NOT deleted. ***
+	slices.SortFunc(deletedIds, func(a, b uuid.UUID) int {
+		return bytes.Compare(a[:], b[:])
+	})
+	successSize := len(deletedIds)
+	for _, pointId := range pointIds {
+		_, found := slices.BinarySearchFunc(deletedIds, pointId, func(a, b uuid.UUID) int {
+			return bytes.Compare(a[:], b[:])
+		})
+		if !found {
+			deletedIds = append(deletedIds, pointId)
+		}
+	}
+	// ---------------------------
+	return deletedIds[successSize:], nil
+}
