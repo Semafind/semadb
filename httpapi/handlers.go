@@ -58,7 +58,8 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 	case cluster.ErrExists:
 		c.JSON(http.StatusConflict, gin.H{"error": "collection exists"})
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		c.Error(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		log.Error().Err(err).Str("id", vamanaCollection.Id).Msg("CreateCollection failed")
 	}
 }
@@ -77,20 +78,18 @@ func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
 	collections, err := sdbh.clusterNode.ListCollections(appHeaders.UserID)
-	switch err {
-	case nil:
-		colItems := make([]ListCollectionItem, len(collections))
-		for i, col := range collections {
-			colItems[i] = ListCollectionItem{Id: col.Id, VectorSize: col.VectorSize, DistanceMetric: col.DistMetric}
-		}
-		resp := ListCollectionsResponse{Collections: colItems}
-		c.JSON(http.StatusOK, resp)
-	case cluster.ErrNotFound:
-		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+	if err != nil {
+		c.Error(err)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		log.Error().Err(err).Msg("ListCollections failed")
+		return
 	}
+	colItems := make([]ListCollectionItem, len(collections))
+	for i, col := range collections {
+		colItems[i] = ListCollectionItem{Id: col.Id, VectorSize: col.VectorSize, DistanceMetric: col.DistMetric}
+	}
+	resp := ListCollectionsResponse{Collections: colItems}
+	c.JSON(http.StatusOK, resp)
 	// ---------------------------
 }
 
@@ -115,11 +114,11 @@ func (sdbh *SemaDBHandlers) CollectionURIMiddleware() gin.HandlerFunc {
 			return
 		}
 		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			c.Error(err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		c.Set("collection", collection)
-		c.Next()
 	}
 }
 
@@ -147,7 +146,8 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+		c.Error(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	// ---------------------------
@@ -227,16 +227,17 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	}
 	// ---------------------------
 	// Insert points returns a range of errors for failed shards
-	errRanges, err := sdbh.clusterNode.InsertPoints(collection, points)
+	failedRanges, err := sdbh.clusterNode.InsertPoints(collection, points)
 	if err != nil {
+		c.Error(err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	if len(errRanges) > 0 {
-		c.AbortWithStatusJSON(http.StatusAccepted, gin.H{"message": "partial success", "failed": errRanges})
-		return
+	message := "success"
+	if len(failedRanges) > 0 {
+		message = "partial success"
 	}
-	c.Status(http.StatusOK)
+	c.JSON(http.StatusOK, gin.H{"message": message, "failedRanges": failedRanges})
 	// ---------------------------
 }
 
@@ -299,11 +300,11 @@ func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	message := "success"
 	if len(failedIds) > 0 {
-		c.AbortWithStatusJSON(http.StatusAccepted, gin.H{"message": "partial success", "failedIds": failedIds})
-		return
+		message = "partial success"
 	}
-	c.Status(http.StatusOK)
+	c.JSON(http.StatusOK, gin.H{"message": message, "failedIds": failedIds})
 }
 
 // ---------------------------
