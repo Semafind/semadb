@@ -210,6 +210,10 @@ func (sm *ShardManager) DeleteCollectionShards(collection models.Collection) ([]
 	if err := os.Remove(collectionDir); err != nil && !strings.Contains(err.Error(), "directory not empty") {
 		sm.logger.Error().Err(err).Str("collectionDir", collectionDir).Msg("Failed to delete collection directory")
 	}
+	userDir := filepath.Dir(collectionDir)
+	if err := os.Remove(userDir); err != nil && !strings.Contains(err.Error(), "directory not empty") {
+		sm.logger.Error().Err(err).Str("userDir", userDir).Msg("Failed to delete user directory")
+	}
 	// ---------------------------
 	return deletedShardIds, nil
 }
