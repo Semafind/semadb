@@ -73,6 +73,31 @@ func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, repl
 
 // ---------------------------
 
+type RPCDeleteCollectionRequest struct {
+	RPCRequestArgs
+	Collection models.Collection
+}
+
+type RPCDeleteCollectionResponse struct {
+}
+
+func (c *ClusterNode) RPCDeleteCollection(args *RPCDeleteCollectionRequest, reply *RPCDeleteCollectionResponse) error {
+	c.logger.Debug().Str("userId", args.Collection.UserId).Str("collectionId", args.Collection.Id).Msg("RPCDeleteCollection")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCDeleteCollection", args, reply)
+	}
+	err := c.nodedb.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(USERCOLSKEY)
+		if err := b.Delete([]byte(args.Collection.UserId + DBDELIMITER + args.Collection.Id)); err != nil {
+			return fmt.Errorf("could not delete collection: %w", err)
+		}
+		return nil
+	})
+	return err
+}
+
+// ---------------------------
+
 type RPCListCollectionsRequest struct {
 	RPCRequestArgs
 	UserId string

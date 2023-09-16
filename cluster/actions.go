@@ -129,6 +129,62 @@ func (c *ClusterNode) GetShardsInfo(col models.Collection) ([]shardInfo, error) 
 	return shards, nil
 }
 
+// ---------------------------
+
+func (c *ClusterNode) DeleteCollection(col models.Collection) ([]string, error) {
+	// ---------------------------
+	// Delete the collection entry first
+	deleteColReq := RPCDeleteCollectionRequest{
+		RPCRequestArgs: RPCRequestArgs{
+			Source: c.MyHostname,
+			Dest:   RendezvousHash(col.UserId, c.Servers, 1)[0],
+		},
+		Collection: col,
+	}
+	if err := c.RPCDeleteCollection(&deleteColReq, &RPCDeleteCollectionResponse{}); err != nil {
+		return nil, fmt.Errorf("could not delete collection: %w", err)
+	}
+	// ---------------------------
+	// Delete all shards as a best effort service
+	targetServers := make([]string, 0, len(col.ShardIds))
+	for _, shardId := range col.ShardIds {
+		targetServers = append(targetServers, RendezvousHash(shardId, c.Servers, 1)[0])
+	}
+	// ---------------------------
+	// Contact all shard servers
+	deletedShardIds := make([]string, 0, len(col.ShardIds))
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	for _, targetServer := range targetServers {
+		wg.Add(1)
+		// ---------------------------
+		go func(tServer string) {
+			deleteShardRequest := RPCDeleteCollectionShardsRequest{
+				RPCRequestArgs: RPCRequestArgs{
+					Source: c.MyHostname,
+					Dest:   tServer,
+				},
+				Collection: col,
+			}
+			deleteShardResponse := RPCDeleteCollectionShardsResponse{}
+			if err := c.RPCDeleteCollectionShards(&deleteShardRequest, &deleteShardResponse); err != nil {
+				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Msg("Could not delete collecion shards")
+			} else {
+				mu.Lock()
+				deletedShardIds = append(deletedShardIds, deleteShardResponse.DeletedShardIds...)
+				mu.Unlock()
+			}
+			wg.Done()
+		}(targetServer)
+		// ---------------------------
+	}
+	wg.Wait()
+	// ---------------------------
+	return deletedShardIds, nil
+}
+
+// ---------------------------
+
 func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point) ([][2]int, error) {
 	// ---------------------------
 	// This is where shard distribution happens
