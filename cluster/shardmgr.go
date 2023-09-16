@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,7 +55,13 @@ func (sm *ShardManager) loadShard(collection models.Collection, shardId string) 
 	if ls, ok := sm.shardStore[shardDir]; ok {
 		// We reset the timer here so that the shard is not unloaded prematurely
 		sm.logger.Debug().Str("shardDir", shardDir).Msg("Returning cached shard")
-		ls.doneCh <- false
+		// We attempt a non-blocking send in case the clean up go routine is
+		// busy unloading the shard. In that case the upstream shard client will
+		// see a nil shard reference.
+		select {
+		case ls.doneCh <- false:
+		default:
+		}
 		return ls, nil
 	}
 	// ---------------------------
@@ -77,8 +84,8 @@ func (sm *ShardManager) loadShard(collection models.Collection, shardId string) 
 	go func() {
 		timeoutDuration := time.Duration(sm.cfg.ShardTimeout) * time.Second
 		timer := time.NewTimer(timeoutDuration)
+		defer sm.logger.Debug().Str("shardDir", shardDir).Msg("Stopping shard cleanup goroutine")
 		for {
-			shutdown := false
 			select {
 			case isDone := <-ls.doneCh:
 				// The following condition comes from the documentation of timer.Stop()
@@ -86,28 +93,35 @@ func (sm *ShardManager) loadShard(collection models.Collection, shardId string) 
 					<-timer.C
 				}
 				if isDone {
-					shutdown = true
+					return // stop cleanup goroutine
 				} else {
 					sm.logger.Debug().Str("shardDir", shardDir).Msg("Resetting shard timeout")
 					// Timer must be stopped or expired before it can be reset
 					timer.Reset(timeoutDuration)
 				}
 			case <-timer.C:
-				shutdown = true
-			}
-			if shutdown {
 				sm.logger.Debug().Str("shardDir", shardDir).Msg("Unloading shard")
 				sm.shardLock.Lock()
 				ls.mu.Lock()
+				if ls.shard == nil {
+					sm.logger.Debug().Str("shardDir", shardDir).Msg("Shard already unloaded")
+					ls.mu.Unlock()
+					sm.shardLock.Unlock()
+					return
+				}
 				if err := ls.shard.Close(); err != nil {
 					sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to close shard")
+					timer.Reset(timeoutDuration) // Try again later
 				} else {
+					// We set the shard to nil so that other goroutines know it
+					// is closed in case they are waiting on the lock
 					sm.logger.Debug().Str("shardDir", shardDir).Msg("Closed shard")
+					ls.shard = nil
+					delete(sm.shardStore, shardDir)
+					ls.mu.Unlock()
+					sm.shardLock.Unlock()
+					return
 				}
-				ls.mu.Unlock()
-				delete(sm.shardStore, shardDir)
-				sm.shardLock.Unlock()
-				break
 			}
 		}
 	}()
@@ -124,5 +138,78 @@ func (sm *ShardManager) DoWithShard(collection models.Collection, shardId string
 	}
 	ls.mu.RLock()
 	defer ls.mu.RUnlock()
+	// This nil check is necessary because the shard may have been unloaded
+	// while we were waiting for lock.
+	if ls.shard == nil {
+		return fmt.Errorf("shard %s is already closed", shardId)
+	}
 	return f(ls.shard)
+}
+
+func (sm *ShardManager) DeleteCollectionShards(collection models.Collection) ([]string, error) {
+	// ---------------------------
+	// We can't let shards be loaded while we are deleting them, this blocks
+	// other shard loading too. In the future we can make this more efficient by
+	// having a lock per collection. We don't expect too many delete collection
+	// requests and this function in general should be fast.
+	sm.shardLock.Lock()
+	defer sm.shardLock.Unlock()
+	// ---------------------------
+	// Shard deletion is a best effort service, we don't return an error if
+	// something goes wrong with the deletion of a shard. This is because the
+	// deletion of the collection makes these shards inaccessible anyway. It is
+	// a cleanup problem if a shard is not deleted.
+	collectionDir := filepath.Join(sm.cfg.RootDir, "userCollections", collection.UserId, collection.Id)
+	// List all shards in the collection directory
+	shardDirs, err := os.ReadDir(collectionDir)
+	if err != nil {
+		return nil, fmt.Errorf("could not list shards: %w", err)
+	}
+	// Delete all shards
+	deletedShardIds := make([]string, 0, len(shardDirs))
+	for _, shardDirEntry := range shardDirs {
+		if !shardDirEntry.IsDir() {
+			continue
+		}
+		shardDir := filepath.Join(collectionDir, shardDirEntry.Name())
+		// Is the shard already loaded?
+		if ls, ok := sm.shardStore[shardDir]; ok {
+			ls.mu.Lock()
+			if ls.shard != nil {
+				// The shard is loaded, we can't delete it before unloading it.
+				// Signal in a non-blocking fashion that the cleanup goroutine
+				// should stop. It may have already triggered the cleanup, in
+				// that case it will see the nil shard reference.
+				select {
+				case ls.doneCh <- true:
+				default:
+				}
+				if err := ls.shard.Close(); err != nil {
+					// Not much we can do here, because we will be purging the shard
+					sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to close shard")
+				}
+				ls.shard = nil
+			}
+			ls.mu.Unlock()
+		}
+		delete(sm.shardStore, shardDir)
+		// The shard is not loaded, since we have exclusive lock on the
+		// shardStore, we can directly delete it
+		if err := os.RemoveAll(shardDir); err != nil {
+			sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to delete shard")
+			// Again, not much we can do here, because the shard can no longer
+			// be used. We assume the collection entry is deleted.
+		}
+		sm.logger.Debug().Str("shardDir", shardDir).Msg("Deleted shard")
+		deletedShardIds = append(deletedShardIds, shardDirEntry.Name())
+	}
+	// ---------------------------
+	// If the collection directory is empty, delete it. There doesn't seem to be
+	// a ErrDirNotEmpty error, so we manually check the string returned by
+	// os.Remove. The directory is not deleted if there are any files in it.
+	if err := os.Remove(collectionDir); err != nil && !strings.Contains(err.Error(), "directory not empty") {
+		sm.logger.Error().Err(err).Str("collectionDir", collectionDir).Msg("Failed to delete collection directory")
+	}
+	// ---------------------------
+	return deletedShardIds, nil
 }

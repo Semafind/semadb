@@ -217,6 +217,27 @@ func (c *ClusterNode) RPCGetShardInfo(args *RPCGetShardInfoRequest, reply *RPCGe
 
 // ---------------------------
 
+type RPCDeleteCollectionShardsRequest struct {
+	RPCRequestArgs
+	Collection models.Collection
+}
+
+type RPCDeleteCollectionShardsResponse struct {
+	DeletedShardIds []string
+}
+
+func (c *ClusterNode) RPCDeleteCollectionShards(args *RPCDeleteCollectionShardsRequest, reply *RPCDeleteCollectionShardsResponse) error {
+	c.logger.Debug().Str("userId", args.Collection.UserId).Str("collectionId", args.Collection.Id).Msg("RPCDeleteCollectionShards")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCDeleteCollectionShards", args, reply)
+	}
+	deletedShardIds, err := c.shardManager.DeleteCollectionShards(args.Collection)
+	reply.DeletedShardIds = deletedShardIds
+	return err
+}
+
+// ---------------------------
+
 type RPCInsertPointsRequest struct {
 	RPCRequestArgs
 	Collection models.Collection
