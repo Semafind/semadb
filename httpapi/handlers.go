@@ -167,8 +167,20 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 // ---------------------------
 
 func (sdbh *SemaDBHandlers) DeleteCollection(c *gin.Context) {
-	// Not implemented
-	c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+	// ---------------------------
+	collection := c.MustGet("collection").(models.Collection)
+	// ---------------------------
+	deletedShardIds, err := sdbh.clusterNode.DeleteCollection(collection)
+	if err != nil {
+		c.Error(err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	status := http.StatusOK
+	if len(deletedShardIds) != len(collection.ShardIds) {
+		status = http.StatusAccepted
+	}
+	c.JSON(status, gin.H{"message": "collection deleted"})
 }
 
 // ---------------------------
