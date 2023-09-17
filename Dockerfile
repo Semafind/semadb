@@ -1,16 +1,16 @@
-FROM golang:1.20
+FROM golang:1.21
 
-WORKDIR /usr/src/app
+WORKDIR /app
 
+# Download go modules
 COPY go.mod go.sum ./
-
 RUN go mod download
 
 COPY . ./
 
-RUN go build -v -o /usr/local/bin/semadb ./server
+RUN go build -v -o /semadb ./
 
-EXPOSE 8080
+EXPOSE 8080 9898
 
-CMD ["go", "run", "./server"]
+CMD ["/semadb"]
 
