@@ -91,7 +91,7 @@ func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
 		if metrics != nil {
 			// Example handler names
 			// github.com/semafind/semadb/httpapi.(*SemaDBHandlers).ListCollections-fm
-			// github.com/semafind/semadb/httpapi.(*SemaDBHandlers).NewCollection-fm
+			// github.com/semafind/semadb/httpapi.(*SemaDBHandlers).CreateCollection-fm
 			fullHName := c.HandlerName()
 			parts := strings.Split(fullHName, ".")
 			hname := parts[len(parts)-1][:len(parts[len(parts)-1])-3]

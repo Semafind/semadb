@@ -65,7 +65,7 @@ func setupTestRouter(t *testing.T, nodeS ClusterNodeState) *gin.Engine {
 			},
 		},
 	}
-	return setupRouter(setupClusterNode(t, nodeS), httpConfig)
+	return setupRouter(setupClusterNode(t, nodeS), httpConfig, nil)
 }
 
 func makeRequest(t *testing.T, router *gin.Engine, method string, endpoint string, body any) *httptest.ResponseRecorder {
@@ -108,7 +108,7 @@ func Test_pongHandler(t *testing.T) {
 func Test_CreateCollection(t *testing.T) {
 	router := setupTestRouter(t, ClusterNodeState{})
 	// ---------------------------
-	reqBody := NewCollectionRequest{
+	reqBody := CreateCollectionRequest{
 		Id:             "testy",
 		VectorSize:     128,
 		DistanceMetric: "euclidean",

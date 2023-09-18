@@ -24,14 +24,14 @@ func NewSemaDBHandlers(clusterNode *cluster.ClusterNode) *SemaDBHandlers {
 
 // ---------------------------
 
-type NewCollectionRequest struct {
+type CreateCollectionRequest struct {
 	Id             string `json:"id" binding:"required,alphanum,min=3,max=16"`
 	VectorSize     uint   `json:"vectorSize" binding:"required"`
 	DistanceMetric string `json:"distanceMetric" binding:"required,oneof=euclidean cosine"`
 }
 
-func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
-	var req NewCollectionRequest
+func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
+	var req CreateCollectionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -49,7 +49,7 @@ func (sdbh *SemaDBHandlers) NewCollection(c *gin.Context) {
 		CreatedAt:  time.Now().UnixMicro(),
 		Parameters: models.DefaultVamanaParameters(),
 	}
-	log.Debug().Interface("collection", vamanaCollection).Msg("NewCollection")
+	log.Debug().Interface("collection", vamanaCollection).Msg("CreateCollection")
 	// ---------------------------
 	err := sdbh.clusterNode.CreateCollection(vamanaCollection)
 	switch err {

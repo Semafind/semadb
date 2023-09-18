@@ -46,7 +46,7 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.
 	router := gin.New()
 	// ---------------------------
 	var metrics *httpMetrics
-	if cfg.EnableMetrics {
+	if cfg.EnableMetrics && reg != nil {
 		metrics = setupAndListenMetrics(cfg, reg)
 	}
 	// ---------------------------
@@ -63,7 +63,7 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.
 	// ---------------------------
 	// https://stackoverflow.blog/2020/03/02/best-practices-for-rest-api-design/
 	semaDBHandlers := NewSemaDBHandlers(cnode)
-	v1.POST("/collections", semaDBHandlers.NewCollection)
+	v1.POST("/collections", semaDBHandlers.CreateCollection)
 	v1.GET("/collections", semaDBHandlers.ListCollections)
 	colRoutes := v1.Group("/collections/:collectionId", semaDBHandlers.CollectionURIMiddleware())
 	colRoutes.GET("", semaDBHandlers.GetCollection)
