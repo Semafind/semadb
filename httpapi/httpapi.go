@@ -30,6 +30,8 @@ type HttpApiConfig struct {
 	Debug    bool   `yaml:"debug"`
 	HttpHost string `yaml:"httpHost"`
 	HttpPort int    `yaml:"httpPort"`
+	// Whitelist of IP addresses, ["*"] means any IP address
+	WhiteListIPs []string `yaml:"whiteListIPs"`
 	// User plans
 	UserPlans map[string]UserPlan `yaml:"userPlans"`
 }
@@ -39,6 +41,13 @@ type HttpApiConfig struct {
 func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig) *gin.Engine {
 	router := gin.New()
 	router.Use(ZerologLogger(), gin.Recovery())
+	// ---------------------------
+	if cfg.WhiteListIPs == nil || (len(cfg.WhiteListIPs) == 1 && cfg.WhiteListIPs[0] == "*") {
+		log.Warn().Strs("whiteListIPs", cfg.WhiteListIPs).Msg("WhiteListIPMiddleware is disabled")
+	} else {
+		router.Use(WhiteListIPMiddleware(cfg.WhiteListIPs))
+	}
+	// ---------------------------
 	v1 := router.Group("/v1", AppHeaderMiddleware(cfg))
 	v1.GET("/ping", pongHandler)
 	// ---------------------------

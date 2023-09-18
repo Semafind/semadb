@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -84,5 +85,18 @@ func ZerologLogger() gin.HandlerFunc {
 			logEvent = logEvent.Str("package", appHeaders.Package)
 		}
 		logEvent.Msg("HTTPAPI")
+	}
+}
+
+// ---------------------------
+
+func WhiteListIPMiddleware(whitelist []string) gin.HandlerFunc {
+	slices.Sort(whitelist)
+	return func(c *gin.Context) {
+		clientIP := c.ClientIP()
+		_, found := slices.BinarySearch(whitelist, clientIP)
+		if !found {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		}
 	}
 }
