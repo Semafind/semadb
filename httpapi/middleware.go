@@ -3,6 +3,8 @@ package httpapi
 import (
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -39,7 +41,7 @@ func AppHeaderMiddleware(config HttpApiConfig) gin.HandlerFunc {
 
 // ---------------------------
 
-func ZerologLogger() gin.HandlerFunc {
+func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// ---------------------------
 		// Start timer
@@ -85,6 +87,20 @@ func ZerologLogger() gin.HandlerFunc {
 			logEvent = logEvent.Str("package", appHeaders.Package)
 		}
 		logEvent.Msg("HTTPAPI")
+		// ---------------------------
+		if metrics != nil {
+			// Example handler names
+			// github.com/semafind/semadb/httpapi.(*SemaDBHandlers).ListCollections-fm
+			// github.com/semafind/semadb/httpapi.(*SemaDBHandlers).NewCollection-fm
+			fullHName := c.HandlerName()
+			parts := strings.Split(fullHName, ".")
+			hname := parts[len(parts)-1][:len(parts[len(parts)-1])-3]
+			ssCode := strconv.Itoa(statusCode)
+			metrics.requestCount.WithLabelValues(ssCode, method, hname).Inc()
+			metrics.requestDuration.WithLabelValues(ssCode, method, hname).Observe(latency.Seconds())
+			metrics.requestSize.WithLabelValues(ssCode, method, hname).Observe(float64(c.Request.ContentLength))
+			metrics.responseSize.WithLabelValues(ssCode, method, hname).Observe(float64(bodySize))
+		}
 	}
 }
 

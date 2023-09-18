@@ -27,9 +27,12 @@ type UserPlan struct {
 }
 
 type HttpApiConfig struct {
-	Debug    bool   `yaml:"debug"`
-	HttpHost string `yaml:"httpHost"`
-	HttpPort int    `yaml:"httpPort"`
+	Debug           bool   `yaml:"debug"`
+	HttpHost        string `yaml:"httpHost"`
+	HttpPort        int    `yaml:"httpPort"`
+	EnableMetrics   bool   `yaml:"enableMetrics"`
+	MetricsHttpHost string `yaml:"metricsHttpHost"`
+	MetricsHttpPort int    `yaml:"metricsHttpPort"`
 	// Whitelist of IP addresses, ["*"] means any IP address
 	WhiteListIPs []string `yaml:"whiteListIPs"`
 	// User plans
@@ -40,7 +43,13 @@ type HttpApiConfig struct {
 
 func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig) *gin.Engine {
 	router := gin.New()
-	router.Use(ZerologLogger(), gin.Recovery())
+	// ---------------------------
+	var metrics *httpMetrics
+	if cfg.EnableMetrics {
+		metrics = setupAndListenMetrics(cfg)
+	}
+	// ---------------------------
+	router.Use(ZerologLoggerMetrics(metrics), gin.Recovery())
 	// ---------------------------
 	if cfg.WhiteListIPs == nil || (len(cfg.WhiteListIPs) == 1 && cfg.WhiteListIPs[0] == "*") {
 		log.Warn().Strs("whiteListIPs", cfg.WhiteListIPs).Msg("WhiteListIPMiddleware is disabled")
@@ -83,5 +92,6 @@ func RunHTTPServer(cnode *cluster.ClusterNode, cfg HttpApiConfig) *http.Server {
 			log.Fatal().Err(err).Msg("failed to start http server")
 		}
 	}()
+	// ---------------------------
 	return server
 }

@@ -25,6 +25,9 @@ httpApiConfig:
   # HTTP Parameters
   httpHost: localhost
   httpPort: 8083
+  enableMetrics: true
+  metricsHttpHost: localhost
+  metricsHttpPort: 8093
   whiteListIPs:
     - 127.0.0.1
   # User Plans
