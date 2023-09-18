@@ -234,6 +234,12 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 	// Wait for all insertions to finish
 	wg.Wait()
 	// ---------------------------
+	successCount := len(points)
+	for _, pointRange := range failedRanges {
+		successCount -= pointRange[1] - pointRange[0]
+	}
+	c.metrics.pointInsertCount.Add(float64(successCount))
+	// ---------------------------
 	return failedRanges, nil
 }
 
@@ -321,6 +327,7 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 	if len(results) > limit {
 		results = results[:limit]
 	}
+	c.metrics.pointSearchCount.Add(float64(len(results)))
 	// ---------------------------
 	return results, nil
 }
@@ -384,6 +391,7 @@ func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point)
 			results = append(results, point.Id)
 		}
 	}
+	c.metrics.pointUpdateCount.Add(float64(successSize))
 	// ---------------------------
 	return results[successSize:], nil
 }
@@ -441,6 +449,7 @@ func (c *ClusterNode) DeletePoints(col models.Collection, pointIds []uuid.UUID) 
 			deletedIds = append(deletedIds, pointId)
 		}
 	}
+	c.metrics.pointDeleteCount.Add(float64(successSize))
 	// ---------------------------
 	return deletedIds[successSize:], nil
 }
