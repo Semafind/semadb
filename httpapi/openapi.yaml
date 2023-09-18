@@ -1,0 +1,419 @@
+openapi: 3.1.0
+# ---------------------------
+info:
+  title: SemaDB API
+  summary: No fuss vector database for AI
+  description: |
+    This API provides a way to interact with a vector database, which is a type
+    of database that stores data as high-dimensional vectors. Vectors are
+    mathematical representations of features or attributes, and each vector has
+    a certain number of dimensions, which can range from tens to thousands.
+
+    Vector databases are used for a variety of tasks, such as similarity search,
+    recommendation systems, and anomaly detection. They are particularly
+    well-suited for tasks involving unstructured data, such as text, images, and
+    audio.
+  version: 0.1.0
+  termsOfService: https://www.semafind.com/termsofservice
+  contact:
+    name: Semafind
+    url: https://www.semafind.com/contact
+    email: support@semafind.com
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+# ---------------------------
+tags:
+- name: Collection
+  description: |
+    A collection is a group of points that share the same search space. For
+    example, a collection could be a group of images, where each image is
+    represented as a vector. The collection would be the search space for
+    similarity search, and each image would be a point in that search space.
+- name: Point
+  description: A point is a vector with a unique identifier.
+# ---------------------------
+paths:
+  /collections:
+    summary: Endpoint for managing collections
+    description: |
+      This endpoint covers operations for whole collections.
+    post:
+      tags:
+        - Collection
+      summary: Create a new collection
+      description: Creates a new collection if it does not already exist
+      operationId: createCollection
+      requestBody:
+        description: The collection to create
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  $ref: '#/components/schemas/CollectionId'
+                vectorSize:
+                  $ref: '#/components/schemas/VectorSize'
+                distanceMetric:
+                  $ref: '#/components/schemas/DistanceMetric'
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessfulMessageResponse'
+          description: The collection was created
+        '403':
+          $ref: '#/components/responses/ErrorMessageResponse'
+          description: The collection already exists
+    get:
+      tags:
+        - Collection
+      summary: List user collections
+      description: Returns a list of all collections for the current user
+      operationId: listCollection
+      responses:
+        '200':
+          description: The list of collections
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  collections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          $ref: '#/components/schemas/CollectionId'
+                        vectorSize:
+                          $ref: '#/components/schemas/VectorSize'
+                        distanceMetric:
+                          $ref: '#/components/schemas/DistanceMetric'
+# ---------------------------
+  /collections/{collectionId}:
+    summary: Endpoint for managing a specific collection
+    description: |
+      A collection is a group of points that share the same search space. For
+      example, a collection could be a group of images, where each image is
+      represented as a vector. The collection would be the search space for
+      similarity search, and each image would be a point in that search space.
+    parameters:
+      - $ref: '#/components/parameters/CollectionId'
+    get:
+      tags:
+        - Collection
+      summary: Get details of a collection
+      description: This endpoint attempts to also list the shards currently available in the collection.
+      operationId: getCollection
+      responses:
+        '200':
+          description: Collection with available shard details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    $ref: '#/components/schemas/CollectionId'
+                  vectorSize:
+                    $ref: '#/components/schemas/VectorSize'
+                  distanceMetric:
+                    $ref: '#/components/schemas/DistanceMetric'
+                  shards:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        pointCount:
+                          type: integer
+        '503':
+          $ref: '#/components/responses/ErrorMessageResponse'
+          description: Some downstream components may be temporarily unavailable
+    delete:
+      tags:
+        - Collection
+      summary: Delete a collection
+      description: Deletes a collection and all of its points
+      operationId: deleteCollection
+      responses:
+        '200':
+          $ref: '#/components/responses/SuccessfulMessageResponse'
+          description: The collection and all data was deleted
+        '202':
+          $ref: '#/components/responses/SuccessfulMessageResponse'
+          description: The collection was deleted, but some of the data will be deleted in the future
+  /collections/{collectionId}/points:
+    summary: Endpoint for bulk managing points in a collection
+    description: The bulk points endpoint is more efficient
+    parameters:
+      - $ref: '#/components/parameters/CollectionId'
+    post:
+      tags:
+        - Point
+      summary: Insert new points into the collection
+      description: This endpoint assumes all points to be inserted are new points and does not check for duplication.
+      operationId: insertPoint
+      requestBody: 
+        description: Points to insert
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                points:
+                  type: array
+                  minItems: 1
+                  maxItems: 10000
+                  items:
+                    type: object
+                    required: 
+                      - vector
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      vector:
+                        $ref: '#/components/schemas/Vector'
+                      metadata:
+                        $ref: '#/components/schemas/PointMetadata'
+      responses:
+        '200':
+          description: The operation was successful, check failed ranges if some points were not inserted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    examples:
+                      - partial success
+                  failedRanges:
+                    type: array
+                    items:
+                      type: array
+                      minItems: 2
+                      maxItems: 2
+                      items:
+                        type: integer
+                      examples:
+                        - [0, 2]
+        '503':
+          $ref: '#/components/responses/ErrorMessageResponse'
+          description: Some downstream components may be temporarily unavailable
+    put:
+      tags:
+        - Point
+      summary: Update existing points with new data
+      description: This endpoint allows updating point vectors and metadata
+      operationId: updatePoint
+      requestBody:
+        description: Points to update
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                points:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: object
+                    required:
+                      - id
+                      - vector
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      vector:
+                        $ref: '#/components/schemas/Vector'
+                      metadata:
+                        $ref: '#/components/schemas/PointMetadata'
+      responses:
+        '200':
+          description: Updated points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    examples:
+                      - partial success
+                  failedIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+    delete:
+      tags:
+        - Point
+      summary: Delete points by id
+      description: Bulk delete points based on id
+      operationId: deletePoint
+      requestBody:
+        description: Point IDs to delete
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 100
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Deleted points
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    examples:
+                      - partial success
+                  failedIds:
+                    type: array
+                    items:
+                      type: string
+                      format: uuid
+
+  /collections/{collectionId}/points/search:
+    summary: Search points
+    description: Search points in a given collection
+    parameters:
+      - $ref: '#/components/parameters/CollectionId'
+    post:
+      tags:
+        - Point
+      summary: Vector search
+      description: Search points using vector similarity
+      operationId: searchPoint
+      requestBody:
+        description: Vector to similarity search
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                vector:
+                  $ref: '#/components/schemas/Vector'
+                limit:
+                  type: number
+                  description: Maximum number of points to search
+                  minimum: 1
+                  maximum: 75
+                  default: 10
+      responses:
+        '200':
+          description: Point search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        distance:
+                          type: number
+                          examples:
+                            - 4.2
+                        metadata:
+                          $ref: '#/components/schemas/PointMetadata'
+# ---------------------------
+components:
+  parameters:
+    CollectionId:
+      name: collectionId
+      in: path
+      description: The unique identifier of the collection
+      required: true
+      schema:
+        $ref: '#/components/schemas/CollectionId'
+  schemas:
+    CollectionId:
+      type: string
+      title: Collection Id
+      description: The unique identifier of the collection
+      pattern: "^[a-z0-9]{3,16}$"
+      examples:
+        - mycollection
+        - abc
+    
+    VectorSize:
+      type: number
+      description: The size of the vectors in the collection
+      minimum: 1
+      maximum: 2000
+      examples:
+        - 2
+    DistanceMetric:
+      type: string
+      enum:
+        - euclidean
+        - cosine
+    Vector:
+      type: array
+      description: Point vector, aka embedding
+      minItems: 1
+      maxItems: 2000
+      items:
+        type: number
+      examples:
+        - [4.2, 2.4]
+    PointMetadata:
+      type: object
+      description: JSON serialisable point metadata
+      examples:
+        - externalId: 42
+  responses:
+    SuccessfulMessageResponse:
+      description: Operation was successful
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - message
+            properties:
+              message:
+                type: string
+                description: A message indicating the result of the operation
+            examples:
+              - message: Operation successful
+    ErrorMessageResponse:
+      description: Something unexpected happened
+      content:
+        application/json:
+          schema:
+            type: object
+            required:
+              - error
+            properties:
+              error:
+                type: string
+                description: An error message hopefully describing the problem
+            examples:
+              - error: details of the error
