@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
@@ -45,14 +46,18 @@ func main() {
 	}
 	log.Info().Str("hostname", hostname).Msg("Initial parameters")
 	// ---------------------------
+	reg := prometheus.NewRegistry()
+	// reg.MustRegister(collectors.NewGoCollector())
+	// ---------------------------
 	// Setup cluster state
 	clusterNode, err := cluster.NewNode(cfg.ClusterNodeCfg)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create cluster state")
 	}
+	clusterNode.RegisterMetrics(reg)
 	clusterNode.Serve()
 	// ---------------------------
-	httpServer := httpapi.RunHTTPServer(clusterNode, cfg.HttpApiCfg)
+	httpServer := httpapi.RunHTTPServer(clusterNode, cfg.HttpApiCfg, reg)
 	// ---------------------------
 	quit := make(chan os.Signal, 1)
 	// kill (no param) default send syscanll.SIGTERM

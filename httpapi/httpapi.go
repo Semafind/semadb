@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
 )
@@ -41,12 +42,12 @@ type HttpApiConfig struct {
 
 // ---------------------------
 
-func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig) *gin.Engine {
+func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.Registry) *gin.Engine {
 	router := gin.New()
 	// ---------------------------
 	var metrics *httpMetrics
 	if cfg.EnableMetrics {
-		metrics = setupAndListenMetrics(cfg)
+		metrics = setupAndListenMetrics(cfg, reg)
 	}
 	// ---------------------------
 	router.Use(ZerologLoggerMetrics(metrics), gin.Recovery())
@@ -76,7 +77,7 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig) *gin.Engine {
 	return router
 }
 
-func RunHTTPServer(cnode *cluster.ClusterNode, cfg HttpApiConfig) *http.Server {
+func RunHTTPServer(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.Registry) *http.Server {
 	// ---------------------------
 	if !cfg.Debug {
 		gin.SetMode(gin.ReleaseMode)
@@ -84,7 +85,7 @@ func RunHTTPServer(cnode *cluster.ClusterNode, cfg HttpApiConfig) *http.Server {
 	// ---------------------------
 	server := &http.Server{
 		Addr:    cfg.HttpHost + ":" + strconv.Itoa(cfg.HttpPort),
-		Handler: setupRouter(cnode, cfg),
+		Handler: setupRouter(cnode, cfg, reg),
 	}
 	go func() {
 		log.Info().Str("httpAddr", server.Addr).Msg("HTTPAPI.Serve")

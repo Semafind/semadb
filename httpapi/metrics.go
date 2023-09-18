@@ -18,9 +18,7 @@ type httpMetrics struct {
 	// ---------------------------
 }
 
-func setupAndListenMetrics(cfg HttpApiConfig) *httpMetrics {
-	reg := prometheus.NewRegistry()
-	// reg.MustRegister(collectors.NewGoCollector())
+func setupAndListenMetrics(cfg HttpApiConfig, reg *prometheus.Registry) *httpMetrics {
 	// ---------------------------
 	metrics := &httpMetrics{
 		requestCount: prometheus.NewCounterVec(
@@ -63,7 +61,7 @@ func setupAndListenMetrics(cfg HttpApiConfig) *httpMetrics {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{Registry: reg}))
 	metricsServer := &http.Server{
-		Addr:    cfg.HttpHost + ":" + strconv.Itoa(cfg.MetricsHttpPort),
+		Addr:    cfg.MetricsHttpHost + ":" + strconv.Itoa(cfg.MetricsHttpPort),
 		Handler: mux,
 	}
 	// ---------------------------

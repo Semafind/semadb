@@ -40,6 +40,13 @@ func (args RPCRequestArgs) Destination() string {
 func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply interface{}) error {
 	destination := args.Destination()
 	c.logger.Debug().Str("destination", destination).Msg(remoteFn + ": routing")
+	// ---------------------------
+	startTime := time.Now()
+	defer func() {
+		c.metrics.rpcDuration.WithLabelValues(remoteFn).Observe(time.Since(startTime).Seconds())
+		c.metrics.rpcRequestCount.WithLabelValues(remoteFn).Inc()
+	}()
+	// ---------------------------
 	for i := 0; i < c.cfg.RpcRetries; i++ {
 		client, err := c.rpcClient(destination)
 		if err != nil {

@@ -53,6 +53,8 @@ type ClusterNode struct {
 	rpcClientsMu sync.Mutex
 	rpcServer    *http.Server
 	// ---------------------------
+	metrics *clusterNodeMetrics
+	// ---------------------------
 	nodedb *bbolt.DB
 	// ---------------------------
 	shardManager *ShardManager
@@ -109,6 +111,7 @@ func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
 		Servers:      config.Servers,
 		MyHostname:   envHostname,
 		rpcClients:   make(map[string]*rpc.Client),
+		metrics:      newClusterNodeMetrics(),
 		nodedb:       nodedb,
 		shardManager: shardManager,
 	}
