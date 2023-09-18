@@ -142,7 +142,7 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 	// ---------------------------
 	shards, err := sdbh.clusterNode.GetShardsInfo(collection)
 	if errors.Is(err, cluster.ErrShardUnavailable) {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "shard unavailable"})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "one or more shards are unavailable"})
 		return
 	}
 	if err != nil {
@@ -240,6 +240,10 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	// ---------------------------
 	// Insert points returns a range of errors for failed shards
 	failedRanges, err := sdbh.clusterNode.InsertPoints(collection, points)
+	if errors.Is(err, cluster.ErrShardUnavailable) {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "one or more shards are unavailable"})
+		return
+	}
 	if err != nil {
 		c.Error(err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
