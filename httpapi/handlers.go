@@ -39,7 +39,7 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
 	vamanaCollection := models.Collection{
-		UserId:     appHeaders.UserID,
+		UserId:     appHeaders.UserId,
 		Id:         req.Id,
 		VectorSize: req.VectorSize,
 		DistMetric: req.DistanceMetric,
@@ -77,7 +77,7 @@ type ListCollectionsResponse struct {
 func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
 	appHeaders := c.MustGet("appHeaders").(AppHeaders)
 	// ---------------------------
-	collections, err := sdbh.clusterNode.ListCollections(appHeaders.UserID)
+	collections, err := sdbh.clusterNode.ListCollections(appHeaders.UserId)
 	if err != nil {
 		c.Error(err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -107,7 +107,7 @@ func (sdbh *SemaDBHandlers) CollectionURIMiddleware() gin.HandlerFunc {
 			return
 		}
 		appHeaders := c.MustGet("appHeaders").(AppHeaders)
-		collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserID, uri.CollectionId)
+		collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserId, uri.CollectionId)
 		if err == cluster.ErrNotFound {
 			errMsg := fmt.Sprintf("collection %s not found", uri.CollectionId)
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": errMsg})

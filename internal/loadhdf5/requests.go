@@ -27,7 +27,7 @@ func createCollection(name string, vectorSize int, distanceMetric string) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-User-Id", "benchmark")
-	req.Header.Set("X-Package", "benchmark")
+	req.Header.Set("X-Plan-Id", "benchmark")
 	client := &http.Client{Timeout: 5 * time.Minute}
 	res, err := client.Do(req)
 	if err != nil {
@@ -52,7 +52,7 @@ func createPoints(collectionName string, points []NewPointRequest) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-User-Id", "benchmark")
-	req.Header.Set("X-Package", "benchmark")
+	req.Header.Set("X-Plan-Id", "benchmark")
 	client := &http.Client{Timeout: 5 * time.Minute}
 	res, err := client.Do(req)
 	if err != nil {

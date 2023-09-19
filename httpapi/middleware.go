@@ -15,8 +15,8 @@ import (
 // ---------------------------
 /* Common headers */
 type AppHeaders struct {
-	UserID  string `header:"X-User-Id" binding:"required"`
-	Package string `header:"X-Package" binding:"required"`
+	UserId string `header:"X-User-Id" binding:"required"`
+	PlanId string `header:"X-Plan-Id" binding:"required"`
 }
 
 func AppHeaderMiddleware(config HttpApiConfig) gin.HandlerFunc {
@@ -29,7 +29,7 @@ func AppHeaderMiddleware(config HttpApiConfig) gin.HandlerFunc {
 		c.Set("appHeaders", appHeaders)
 		log.Debug().Interface("appHeaders", appHeaders).Msg("AppHeaderMiddleware")
 		// Extract user plan
-		userPlan, ok := config.UserPlans[appHeaders.Package]
+		userPlan, ok := config.UserPlans[appHeaders.PlanId]
 		if !ok {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unknown package"})
 			return
@@ -55,7 +55,6 @@ func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
 		// Stop timer and gather information
 		latency := time.Since(start)
 
-		clientIP := c.ClientIP()
 		method := c.Request.Method
 		statusCode := c.Writer.Status()
 		lastError := c.Errors.ByType(gin.ErrorTypePrivate).Last()
@@ -74,7 +73,8 @@ func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
 		}
 		logEvent.Err(lastError).
 			Dur("latency", latency).
-			Str("clientIP", clientIP).
+			Str("clientIP", c.ClientIP()).
+			Str("remoteIP", c.RemoteIP()).
 			Str("method", method).Str("path", path).
 			Int("statusCode", statusCode).
 			Int("bodySize", bodySize).
@@ -84,7 +84,7 @@ func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
 		if ok {
 			appHeaders := appH.(AppHeaders)
 			// We are not logging the user ID for privacy reasons
-			logEvent = logEvent.Str("package", appHeaders.Package)
+			logEvent = logEvent.Str("planId", appHeaders.PlanId)
 		}
 		logEvent.Msg("HTTPAPI")
 		// ---------------------------
@@ -109,8 +109,8 @@ func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
 func WhiteListIPMiddleware(whitelist []string) gin.HandlerFunc {
 	slices.Sort(whitelist)
 	return func(c *gin.Context) {
-		clientIP := c.ClientIP()
-		_, found := slices.BinarySearch(whitelist, clientIP)
+		remoteIP := c.RemoteIP()
+		_, found := slices.BinarySearch(whitelist, remoteIP)
 		if !found {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 		}

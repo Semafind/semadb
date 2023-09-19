@@ -80,7 +80,7 @@ func makeRequest(t *testing.T, router *gin.Engine, method string, endpoint strin
 	assert.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-User-Id", "testy")
-	req.Header.Set("X-Package", "BASIC")
+	req.Header.Set("X-Plan-Id", "BASIC")
 	// ---------------------------
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, req)
@@ -98,7 +98,7 @@ func Test_pongHandler(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	// With App Headers
 	req.Header.Set("X-User-Id", "testy")
-	req.Header.Set("X-Package", "BASIC")
+	req.Header.Set("X-Plan-Id", "BASIC")
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
