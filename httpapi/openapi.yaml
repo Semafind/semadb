@@ -70,7 +70,7 @@ paths:
                 description: A sample collection to create with id mycollection, vector size 2 and euclidean distance.
                 value:
                   id: mycollection
-                  vectorSize: 4
+                  vectorSize: 2
                   distanceMetric: euclidean
       responses:
         '200':
@@ -116,7 +116,7 @@ paths:
                   value:
                     collections:
                       - id: mycollection
-                        vectorSize: 4
+                        vectorSize: 2
                         distanceMetric: euclidean
 # ---------------------------
   /collections/{collectionId}:
@@ -165,7 +165,7 @@ paths:
                   description: A sample collection with shard information
                   value:
                     id: mycollection
-                    vectorSize: 4
+                    vectorSize: 2
                     distanceMetric: euclidean
                     shards:
                       - id: fff3a226-b9f8-4375-8dbd-1a240e000705
