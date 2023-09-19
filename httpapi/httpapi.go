@@ -34,6 +34,9 @@ type HttpApiConfig struct {
 	EnableMetrics   bool   `yaml:"enableMetrics"`
 	MetricsHttpHost string `yaml:"metricsHttpHost"`
 	MetricsHttpPort int    `yaml:"metricsHttpPort"`
+	// Proxy secret can be used to restrict access to the API with the
+	// X-Proxy-Secret header
+	ProxySecret string `yaml:"proxySecret"`
 	// Whitelist of IP addresses, ["*"] means any IP address
 	WhiteListIPs []string `yaml:"whiteListIPs"`
 	// User plans
@@ -52,6 +55,10 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.
 	// ---------------------------
 	router.Use(ZerologLoggerMetrics(metrics), gin.Recovery())
 	// ---------------------------
+	if len(cfg.ProxySecret) > 0 {
+		log.Info().Msg("ProxySecretMiddleware is enabled")
+		router.Use(ProxySecretMiddleware(cfg.ProxySecret))
+	}
 	if cfg.WhiteListIPs == nil || (len(cfg.WhiteListIPs) == 1 && cfg.WhiteListIPs[0] == "*") {
 		log.Warn().Strs("whiteListIPs", cfg.WhiteListIPs).Msg("WhiteListIPMiddleware is disabled")
 	} else {

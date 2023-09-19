@@ -28,6 +28,7 @@ httpApiConfig:
   enableMetrics: true
   metricsHttpHost: localhost
   metricsHttpPort: 8092
+  proxySecret: ""
   whiteListIPs:
     - 127.0.0.1
   # User Plans

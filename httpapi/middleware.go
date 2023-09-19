@@ -106,6 +106,15 @@ func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
 
 // ---------------------------
 
+func ProxySecretMiddleware(secret string) gin.HandlerFunc {
+	log.Debug().Str("proxySecret", secret).Msg("ProxySecretMiddleware")
+	return func(c *gin.Context) {
+		if c.GetHeader("X-Proxy-Secret") != secret {
+			c.AbortWithStatusJSON(http.StatusProxyAuthRequired, gin.H{"error": "forbidden"})
+		}
+	}
+}
+
 func WhiteListIPMiddleware(whitelist []string) gin.HandlerFunc {
 	slices.Sort(whitelist)
 	return func(c *gin.Context) {
