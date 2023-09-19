@@ -3,7 +3,7 @@ openapi: 3.1.0
 info:
   title: SemaDB API
   summary: No fuss vector database for AI
-  description: |
+  description: >-
     This API provides a way to interact with a vector database, which is a type
     of database that stores data as high-dimensional vectors. Vectors are
     mathematical representations of features or attributes, and each vector has
@@ -25,25 +25,31 @@ info:
 # ---------------------------
 tags:
 - name: Collection
-  description: |
+  description: >-
     A collection is a group of points that share the same search space. For
     example, a collection could be a group of images, where each image is
     represented as a vector. The collection would be the search space for
     similarity search, and each image would be a point in that search space.
 - name: Point
-  description: A point is a vector with a unique identifier.
+  description: >-
+    A point is a vector with a unique identifier. It can also contain any JSON
+    serialisable metadata such as an external ID, document title or image URL.
 # ---------------------------
 paths:
   /collections:
     summary: Endpoint for managing collections
-    description: |
-      This endpoint covers operations for whole collections.
+    description: >-
+      This endpoint covers operations for collections as a whole, such as
+      creating a new collection or listing all collections.
     post:
       tags:
         - Collection
       summary: Create a new collection
-      description: Creates a new collection if it does not already exist
-      operationId: createCollection
+      description: >-
+        Creates a new collection if it does not already exist. The maximum
+        number of collections per user is restricted based on the plan. Before
+        you can insert and search points, you must create a collection.
+      operationId: CreateCollection
       requestBody:
         description: The collection to create
         required: true
@@ -58,10 +64,21 @@ paths:
                   $ref: '#/components/schemas/VectorSize'
                 distanceMetric:
                   $ref: '#/components/schemas/DistanceMetric'
+            examples:
+              SampleCreateCollection:
+                summary: Sample create collection
+                description: A sample collection to create with id mycollection, vector size 2 and euclidean distance.
+                value:
+                  id: mycollection
+                  vectorSize: 4
+                  distanceMetric: euclidean
       responses:
         '200':
           $ref: '#/components/responses/SuccessfulMessageResponse'
           description: The collection was created
+        '400':
+          $ref: '#/components/responses/ErrorMessageResponse'
+          description: The collection was invalid or maximum number of collections reached
         '403':
           $ref: '#/components/responses/ErrorMessageResponse'
           description: The collection already exists
@@ -69,8 +86,10 @@ paths:
       tags:
         - Collection
       summary: List user collections
-      description: Returns a list of all collections for the current user
-      operationId: listCollection
+      description: >-
+        Returns a list of all collections for the current user. The list is not
+        sorted by any value and the order may change between requests.
+      operationId: ListCollection
       responses:
         '200':
           description: The list of collections
@@ -90,22 +109,32 @@ paths:
                           $ref: '#/components/schemas/VectorSize'
                         distanceMetric:
                           $ref: '#/components/schemas/DistanceMetric'
+              examples:
+                SampleCollectionList:
+                  summary: Sample collection list
+                  description: A sample collection list with one collection
+                  value:
+                    collections:
+                      - id: mycollection
+                        vectorSize: 4
+                        distanceMetric: euclidean
 # ---------------------------
   /collections/{collectionId}:
     summary: Endpoint for managing a specific collection
-    description: |
-      A collection is a group of points that share the same search space. For
-      example, a collection could be a group of images, where each image is
-      represented as a vector. The collection would be the search space for
-      similarity search, and each image would be a point in that search space.
+    description: >-
+      These endpoints interact with a single collection. The collection must
+      exist before you can use these endpoints.
     parameters:
       - $ref: '#/components/parameters/CollectionId'
     get:
       tags:
         - Collection
-      summary: Get details of a collection
-      description: This endpoint attempts to also list the shards currently available in the collection.
-      operationId: getCollection
+      summary: Get the details of a collection
+      description: >-
+        This endpoint attempts to also list the shards currently available in
+        the collection. Some shards may be temporarily unavailable. In that
+        case, you can retry at a future time.
+      operationId: GetCollection
       responses:
         '200':
           description: Collection with available shard details
@@ -130,6 +159,17 @@ paths:
                           format: uuid
                         pointCount:
                           type: integer
+              examples:
+                SampleCollection:
+                  summary: Sample collection
+                  description: A sample collection with shard information
+                  value:
+                    id: mycollection
+                    vectorSize: 4
+                    distanceMetric: euclidean
+                    shards:
+                      - id: fff3a226-b9f8-4375-8dbd-1a240e000705
+                        pointCount: 1000
         '503':
           $ref: '#/components/responses/ErrorMessageResponse'
           description: Some downstream components may be temporarily unavailable
@@ -137,26 +177,40 @@ paths:
       tags:
         - Collection
       summary: Delete a collection
-      description: Deletes a collection and all of its points
-      operationId: deleteCollection
+      description: >-
+        Deletes a collection and all of its points. This operation is
+        irreversible. If you want to delete only some points, use the bulk
+        delete endpoint. If some shards are temporarily unavailable, the
+        operation will still succeed, but some of the data will be deleted in
+        the future.
+      operationId: DeleteCollection
       responses:
         '200':
           $ref: '#/components/responses/SuccessfulMessageResponse'
-          description: The collection and all data was deleted
+          description: The collection and all of its data was deleted
         '202':
           $ref: '#/components/responses/SuccessfulMessageResponse'
           description: The collection was deleted, but some of the data will be deleted in the future
+# ---------------------------
   /collections/{collectionId}/points:
     summary: Endpoint for bulk managing points in a collection
-    description: The bulk points endpoint is more efficient
+    description: >-
+      The bulk points endpoint is more efficient and operates on multiple points
+      at once. It is recommended to use this endpoint for inserting, updating
+      and deleting points.
     parameters:
       - $ref: '#/components/parameters/CollectionId'
     post:
       tags:
         - Point
       summary: Insert new points into the collection
-      description: This endpoint assumes all points to be inserted are new points and does not check for duplication.
-      operationId: insertPoint
+      description: >-
+        This endpoint assumes all points to be inserted are new points and does
+        not check for duplication. It is important to ensure consistency of the
+        database you do not insert duplicate points. If you are unsure if a
+        point exists, you can leave the id field blank and the database will
+        assign a new id.
+      operationId: InsertPoint
       requestBody: 
         description: Points to insert
         required: true
@@ -181,9 +235,28 @@ paths:
                         $ref: '#/components/schemas/Vector'
                       metadata:
                         $ref: '#/components/schemas/PointMetadata'
+            examples:
+              SampleInsertPoints:
+                summary: Sample insert points
+                description: A sample list of points to insert
+                value:
+                  points:
+                    - vector: [4.2, 2.4]
+                    - vector: [1.2, 3.4]
+                      metadata:
+                        externalId: 42
+                    - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      vector: [3.4, 2.4]
+                      metadata:
+                        externalId: 43
       responses:
         '200':
-          description: The operation was successful, check failed ranges if some points were not inserted
+          description: >-
+            The operation was successful but you must check the failedRanges to
+            ensure all the points were inserted. If some points were not
+            inserted, you can retry the operation by using the failedRanges. For
+            example, if the failedRanges is [[0, 2]], you can retry the
+            operation by sending the first two points again.
           content:
             application/json:
               schema:
@@ -195,6 +268,13 @@ paths:
                       - partial success
                   failedRanges:
                     type: array
+                    description: >-
+                      A list of ranges of points that failed to insert. Each
+                      range is a list of two integers, where the first integer
+                      is the start index and the second integer is the end
+                      index. The end index is exclusive. For example, if the
+                      failedRanges is [[0, 2]], the first two points failed to
+                      insert.
                     items:
                       type: array
                       minItems: 2
@@ -203,6 +283,20 @@ paths:
                         type: integer
                       examples:
                         - [0, 2]
+              examples:
+                SuccessfulInsertPointsResponse:
+                  summary: Fully successful insert points response
+                  description: A sample response indicating full success
+                  value:
+                    message: success
+                    failedRanges: []
+                SamplePartialInsertPointsResponse:
+                  summary: Sample insert points response
+                  description: A sample response indicating partial success
+                  value:
+                    message: partial success
+                    failedRanges:
+                      - [0, 2]
         '503':
           $ref: '#/components/responses/ErrorMessageResponse'
           description: Some downstream components may be temporarily unavailable
@@ -210,8 +304,13 @@ paths:
       tags:
         - Point
       summary: Update existing points with new data
-      description: This endpoint allows updating point vectors and metadata
-      operationId: updatePoint
+      description: >-
+        This endpoint allows updating point vectors and metadata. It does not
+        allow updating the point id. If you want to update the id, you must
+        delete the point and insert a new point. The points are required to
+        exist before you can update them. You can check the failedIds to see
+        which points failed to update.
+      operationId: UpdatePoint
       requestBody:
         description: Points to update
         required: true
@@ -237,6 +336,18 @@ paths:
                         $ref: '#/components/schemas/Vector'
                       metadata:
                         $ref: '#/components/schemas/PointMetadata'
+            examples:
+              SampleUpdatePoints:
+                summary: Sample update points
+                description: A sample list of points to update
+                value:
+                  points:
+                    - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      vector: [4.2, 2.4]
+                    - id: 3fa85f64-5717-4562-b3fc-2c963f66afa7
+                      vector: [1.2, 3.4]
+                      metadata:
+                        externalId: 42
       responses:
         '200':
           description: Updated points
@@ -254,12 +365,29 @@ paths:
                     items:
                       type: string
                       format: uuid
+              examples:
+                SuccessfulUpdatePointsResponse:
+                  summary: Successful update points response
+                  description: A sample response indicating full success
+                  value:
+                    message: success
+                    failedIds: []
+                SamplePartialUpdatePointsResponse:
+                  summary: Partial update points response
+                  description: A sample response indicating partial success
+                  value:
+                    message: partial success
+                    failedIds:
+                      - 3fa85f64-5717-4562-b3fc-2c963f66afa6
     delete:
       tags:
         - Point
       summary: Delete points by id
-      description: Bulk delete points based on id
-      operationId: deletePoint
+      description: >-
+        Bulk delete points based on id. This endpoint does not check if the
+        points exist. If you attempt to delete a point that does not exist, it
+        will be ignored and included in the failedIds list.
+      operationId: DeletePoint
       requestBody:
         description: Point IDs to delete
         required: true
@@ -275,6 +403,14 @@ paths:
                   items:
                     type: string
                     format: uuid
+            examples:
+              SampleDeletePoints:
+                summary: Sample delete points
+                description: A sample list of point ids to delete
+                value:
+                  ids:
+                    - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    - 3fa85f64-5717-4562-b3fc-2c963f66afa7
       responses:
         '200':
           description: Deleted points
@@ -292,18 +428,38 @@ paths:
                     items:
                       type: string
                       format: uuid
-
+              examples:
+                SuccessfulDeletePointsResponse:
+                  summary: Successful delete points response
+                  description: A sample response indicating full success
+                  value:
+                    message: success
+                    failedIds: []
+                SamplePartialDeletePointsResponse:
+                  summary: Partial delete points response
+                  description: A sample response indicating partial success
+                  value:
+                    message: partial success
+                    failedIds:
+                      - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+# ---------------------------
   /collections/{collectionId}/points/search:
     summary: Search points
-    description: Search points in a given collection
+    description: >-
+      This endpoint allows searching for points in a collection.
     parameters:
       - $ref: '#/components/parameters/CollectionId'
     post:
       tags:
         - Point
       summary: Vector search
-      description: Search points using vector similarity
-      operationId: searchPoint
+      description: >-
+        Perform similarity search on points in a collection. The search is
+        performed using a vector, which is a mathematical representation of the
+        point. The vector must have the same number of dimensions as the vectors
+        in the collection. The search returns the most similar points to the
+        vector, along with the distance between the vector and the points.
+      operationId: SearchPoint
       requestBody:
         description: Vector to similarity search
         required: true
@@ -320,9 +476,21 @@ paths:
                   minimum: 1
                   maximum: 75
                   default: 10
+            examples:
+              SampleSearchPoint:
+                summary: Sample search point
+                description: A sample vector to search with default limit
+                value:
+                  vector: [4.2, 2.4]
+              SampleSearchPointWithLimit:
+                summary: Sample search point with limit
+                description: A sample vector to search with limit 10
+                value:
+                  vector: [4.2, 2.4]
+                  limit: 10
       responses:
         '200':
-          description: Point search results
+          description: Point search results sorted by distance
           content:
             application/json:
               schema:
@@ -338,10 +506,24 @@ paths:
                           format: uuid
                         distance:
                           type: number
+                          description: Distance between the vector and the point
                           examples:
                             - 4.2
                         metadata:
                           $ref: '#/components/schemas/PointMetadata'
+              examples:
+                SampleSearchPointResponse:
+                  summary: Sample search point response
+                  description: A sample response with two points
+                  value:
+                    points:
+                      - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        distance: 4.2
+                        metadata:
+                          externalId: 42
+                      - id: 3fa85f64-5717-4562-b3fc-2c963f66afa7
+                        distance: 4.3
+                        metadata: null
 # ---------------------------
 components:
   parameters:
@@ -361,7 +543,6 @@ components:
       examples:
         - mycollection
         - abc
-    
     VectorSize:
       type: number
       description: The size of the vectors in the collection
@@ -403,6 +584,12 @@ components:
                 description: A message indicating the result of the operation
             examples:
               - message: Operation successful
+          examples:
+            Success:
+              summary: A successful response
+              description: The operation was successful
+              value:
+                - message: success
     ErrorMessageResponse:
       description: Something unexpected happened
       content:
@@ -415,5 +602,9 @@ components:
               error:
                 type: string
                 description: An error message hopefully describing the problem
-            examples:
-              - error: details of the error
+          examples:
+            GeneralError:
+              summary: General error
+              description: Something unexpected happened
+              value:
+                - error: Something went wrong
