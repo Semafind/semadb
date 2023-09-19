@@ -209,7 +209,8 @@ paths:
         not check for duplication. It is important to ensure consistency of the
         database you do not insert duplicate points. If you are unsure if a
         point exists, you can leave the id field blank and the database will
-        assign a new id.
+        assign a new id. *For cosine distance, you must normalise the vectors
+        prior to inserting them.*
       operationId: InsertPoint
       requestBody: 
         description: Points to insert
@@ -218,6 +219,8 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+                - points
               properties:
                 points:
                   type: array
@@ -318,6 +321,8 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+                - points
               properties:
                 points:
                   type: array
@@ -395,6 +400,8 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+                - ids
               properties:
                 ids:
                   type: array
@@ -467,6 +474,8 @@ paths:
           application/json:
             schema:
               type: object
+              required:
+                - vector
               properties:
                 vector:
                   $ref: '#/components/schemas/Vector'
