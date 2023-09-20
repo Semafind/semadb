@@ -13,7 +13,7 @@ import (
 	"github.com/semafind/semadb/shard"
 )
 
-func (c *ClusterNode) CreateCollection(collection models.Collection) error {
+func (c *ClusterNode) CreateCollection(collection models.Collection, quota int) error {
 	// ---------------------------
 	// The collection information is stored in the user cluster node. We
 	// construct the appropiate request and route it.
@@ -23,6 +23,7 @@ func (c *ClusterNode) CreateCollection(collection models.Collection) error {
 			Dest:   RendezvousHash(collection.UserId, c.Servers, 1)[0],
 		},
 		Collection: collection,
+		Quota:      quota,
 	}
 	rpcResp := RPCCreateCollectionResponse{}
 	if err := c.RPCCreateCollection(&rpcReq, &rpcResp); err != nil {
@@ -30,6 +31,9 @@ func (c *ClusterNode) CreateCollection(collection models.Collection) error {
 	}
 	if rpcResp.AlreadyExists {
 		return ErrExists
+	}
+	if rpcResp.QuotaReached {
+		return ErrQuotaReached
 	}
 	// ---------------------------
 	return nil

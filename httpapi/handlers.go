@@ -51,10 +51,13 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 	}
 	log.Debug().Interface("collection", vamanaCollection).Msg("CreateCollection")
 	// ---------------------------
-	err := sdbh.clusterNode.CreateCollection(vamanaCollection)
+	userPlan := c.MustGet("userPlan").(UserPlan)
+	err := sdbh.clusterNode.CreateCollection(vamanaCollection, userPlan.MaxCollections)
 	switch err {
 	case nil:
 		c.JSON(http.StatusOK, gin.H{"message": "collection created"})
+	case cluster.ErrQuotaReached:
+		c.JSON(http.StatusForbidden, gin.H{"error": "quota reached"})
 	case cluster.ErrExists:
 		c.JSON(http.StatusConflict, gin.H{"error": "collection exists"})
 	default:

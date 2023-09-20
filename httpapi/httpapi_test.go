@@ -41,7 +41,7 @@ func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode
 	// Setup state
 	for _, colState := range nodeS.Collections {
 		// ---------------------------
-		err := cnode.CreateCollection(colState.Collection)
+		err := cnode.CreateCollection(colState.Collection, 999)
 		assert.NoError(t, err)
 		// ---------------------------
 		failedRanges, err := cnode.InsertPoints(colState.Collection, colState.Points)
@@ -119,6 +119,11 @@ func Test_CreateCollection(t *testing.T) {
 	// Duplicate request conflicts
 	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody)
 	assert.Equal(t, http.StatusConflict, resp.Code)
+	// ---------------------------
+	// Extra request trigger quota limit
+	reqBody.Id = "testy2"
+	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody)
+	assert.Equal(t, http.StatusForbidden, resp.Code)
 }
 
 func Test_ListCollections(t *testing.T) {

@@ -76,10 +76,10 @@ paths:
         '200':
           $ref: '#/components/responses/SuccessfulMessageResponse'
           description: The collection was created
-        '400':
-          $ref: '#/components/responses/ErrorMessageResponse'
-          description: The collection was invalid or maximum number of collections reached
         '403':
+          $ref: '#/components/responses/ErrorMessageResponse'
+          description: The maximum collecton quota may be reached
+        '409':
           $ref: '#/components/responses/ErrorMessageResponse'
           description: The collection already exists
     get:

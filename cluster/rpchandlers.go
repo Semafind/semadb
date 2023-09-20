@@ -36,10 +36,12 @@ import (
 type RPCCreateCollectionRequest struct {
 	RPCRequestArgs
 	Collection models.Collection
+	Quota      int
 }
 
 type RPCCreateCollectionResponse struct {
 	AlreadyExists bool
+	QuotaReached  bool
 }
 
 func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, reply *RPCCreateCollectionResponse) error {
@@ -60,6 +62,18 @@ func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, repl
 		key := []byte(args.Collection.UserId + DBDELIMITER + args.Collection.Id)
 		if b.Get(key) != nil {
 			reply.AlreadyExists = true
+			return nil
+		}
+		// ---------------------------
+		// Check user quota
+		c := b.Cursor()
+		prefix := []byte(args.Collection.UserId + DBDELIMITER)
+		count := 0
+		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+			count++
+		}
+		if count >= args.Quota {
+			reply.QuotaReached = true
 			return nil
 		}
 		// ---------------------------
