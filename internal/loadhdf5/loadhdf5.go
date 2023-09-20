@@ -140,8 +140,7 @@ func loadIntoCollection(vcol VectorCollection) {
 		CreatedAt:  0,
 		Parameters: models.DefaultVamanaParameters(),
 	}
-	clusterNode.CreateCollection(collection)
-	if err := clusterNode.CreateCollection(collection); err != nil {
+	if err := clusterNode.CreateCollection(collection, 1); err != nil {
 		log.Fatal().Err(err).Msg("failed to create collection")
 	}
 	// ---------------------------
@@ -204,7 +203,7 @@ func loadIntoShard(vcol VectorCollection) {
 	}
 	// ---------------------------
 	clusterNode := &cluster.ClusterNode{}
-	if err := clusterNode.CreateCollection(collection); err != nil {
+	if err := clusterNode.CreateCollection(collection, 1); err != nil {
 		log.Fatal().Err(err).Msg("loadHDF5")
 	}
 	// ---------------------------
