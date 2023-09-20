@@ -21,10 +21,10 @@ func pongHandler(c *gin.Context) {
 // ---------------------------
 
 type UserPlan struct {
-	Name              string `yaml:"name"`
-	MaxCollections    int    `yaml:"maxCollections"`
-	MaxCollectionSize int64  `yaml:"maxCollectionSize"`
-	MaxMetadataSize   int    `yaml:"maxMetadataSize"`
+	Name                    string `yaml:"name"`
+	MaxCollections          int    `yaml:"maxCollections"`
+	MaxCollectionPointCount int64  `yaml:"maxCollectionPointCount"`
+	MaxMetadataSize         int    `yaml:"maxMetadataSize"`
 }
 
 type HttpApiConfig struct {

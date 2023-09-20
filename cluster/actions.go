@@ -78,24 +78,6 @@ func (c *ClusterNode) GetCollection(userId string, collectionId string) (models.
 	return rpcResp.Collection, nil
 }
 
-func (c *ClusterNode) CreateShard(col models.Collection) (string, error) {
-	// ---------------------------
-	rpcRequest := RPCCreateShardRequest{
-		RPCRequestArgs: RPCRequestArgs{
-			Source: c.MyHostname,
-			Dest:   RendezvousHash(col.UserId, c.Servers, 1)[0],
-		},
-		UserId:       col.UserId,
-		CollectionId: col.Id,
-	}
-	rpcResponse := RPCCreateShardResponse{}
-	if err := c.RPCCreateShard(&rpcRequest, &rpcResponse); err != nil {
-		return "", fmt.Errorf("could not create shard: %w", err)
-	}
-	// ---------------------------
-	return rpcResponse.ShardId, nil
-}
-
 type shardInfo struct {
 	Id         string
 	Size       int64
@@ -189,7 +171,7 @@ func (c *ClusterNode) DeleteCollection(col models.Collection) ([]string, error) 
 
 // ---------------------------
 
-func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point) ([][2]int, error) {
+func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point, pointQuota int64) ([][2]int, error) {
 	// ---------------------------
 	// This is where shard distribution happens
 	shards, err := c.GetShardsInfo(col)
@@ -197,9 +179,38 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 		return nil, fmt.Errorf("could not get shards: %w", err)
 	}
 	// ---------------------------
+	// Check collecton quota
+	totalPoints := int64(0)
+	for _, shard := range shards {
+		totalPoints += shard.PointCount
+	}
+	if totalPoints+int64(len(points)) > pointQuota {
+		return nil, ErrQuotaReached
+	}
+	// ---------------------------
+	// Sort points based on their ID. This helps with inserting in order to the B+ tree downstream.
+	slices.SortFunc(points, func(a, b models.Point) int {
+		return bytes.Compare(a.Id[:], b.Id[:])
+	})
+	// ---------------------------
 	// Distribute points to shards
 	shardAssignments, err := distributePoints(shards, points, c.cfg.MaxShardSize, c.cfg.MaxShardPointCount, func() (string, error) {
-		return c.CreateShard(col)
+		// ---------------------------
+		// Create new shard for collecion as requested by poins distribution
+		rpcRequest := RPCCreateShardRequest{
+			RPCRequestArgs: RPCRequestArgs{
+				Source: c.MyHostname,
+				Dest:   RendezvousHash(col.UserId, c.Servers, 1)[0],
+			},
+			UserId:       col.UserId,
+			CollectionId: col.Id,
+		}
+		rpcResponse := RPCCreateShardResponse{}
+		if err := c.RPCCreateShard(&rpcRequest, &rpcResponse); err != nil {
+			return "", fmt.Errorf("could not create shard: %w", err)
+		}
+		// ---------------------------
+		return rpcResponse.ShardId, nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("could not distribute points: %w", err)

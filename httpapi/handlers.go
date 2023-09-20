@@ -242,7 +242,11 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	}
 	// ---------------------------
 	// Insert points returns a range of errors for failed shards
-	failedRanges, err := sdbh.clusterNode.InsertPoints(collection, points)
+	failedRanges, err := sdbh.clusterNode.InsertPoints(collection, points, userPlan.MaxCollectionPointCount)
+	if errors.Is(err, cluster.ErrQuotaReached) {
+		c.JSON(http.StatusForbidden, gin.H{"error": "quota reached"})
+		return
+	}
 	if errors.Is(err, cluster.ErrShardUnavailable) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "one or more shards are unavailable"})
 		return

@@ -147,7 +147,7 @@ func (s *Shard) Info() (si shardInfo, err error) {
 		// ---------------------------
 		pStats := tx.Bucket(POINTSKEY).Stats()
 		si.Allocated = int64(pStats.BranchAlloc + pStats.LeafAlloc)
-		si.InUse = int64(pStats.BranchInuse + pStats.LeafInuse)
+		si.InUse = int64(pStats.BranchInuse + pStats.LeafInuse + pStats.InlineBucketInuse)
 		return nil
 	})
 	return

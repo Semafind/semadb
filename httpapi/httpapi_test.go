@@ -44,7 +44,7 @@ func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode
 		err := cnode.CreateCollection(colState.Collection, 999)
 		assert.NoError(t, err)
 		// ---------------------------
-		failedRanges, err := cnode.InsertPoints(colState.Collection, colState.Points)
+		failedRanges, err := cnode.InsertPoints(colState.Collection, colState.Points, 999)
 		assert.NoError(t, err)
 		assert.Len(t, failedRanges, 0)
 	}
@@ -58,10 +58,10 @@ func setupTestRouter(t *testing.T, nodeS ClusterNodeState) *gin.Engine {
 		HttpPort: 8081,
 		UserPlans: map[string]UserPlan{
 			"BASIC": {
-				Name:              "BASIC",
-				MaxCollections:    1,
-				MaxCollectionSize: 1073741824, // 1GiB
-				MaxMetadataSize:   1024,
+				Name:                    "BASIC",
+				MaxCollections:          1,
+				MaxCollectionPointCount: 4,
+				MaxMetadataSize:         1024,
 			},
 		},
 	}

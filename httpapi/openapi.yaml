@@ -300,6 +300,9 @@ paths:
                     message: partial success
                     failedRanges:
                       - [0, 2]
+        '403':
+          $ref: '#/components/responses/ErrorMessageResponse'
+          description: Maximum point quota per collection may be reached
         '503':
           $ref: '#/components/responses/ErrorMessageResponse'
           description: Some downstream components may be temporarily unavailable

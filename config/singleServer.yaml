@@ -38,5 +38,5 @@ httpApiConfig:
     BASIC:
       name: Basic Plan
       maxCollections: 1
-      maxCollectionSize: 1073741824 # 1GiB
+      maxCollectionPointCount: 2000000 # 2M
       maxMetadataSize: 1024 # 1KiB
