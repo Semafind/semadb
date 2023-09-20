@@ -14,6 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+type RequestTest struct {
+	Name    string
+	Payload any
+	Code    int
+}
+
 type CollectionState struct {
 	Collection models.Collection
 	Points     []models.Point
@@ -60,8 +66,8 @@ func setupTestRouter(t *testing.T, nodeS ClusterNodeState) *gin.Engine {
 			"BASIC": {
 				Name:                    "BASIC",
 				MaxCollections:          1,
-				MaxCollectionPointCount: 4,
-				MaxMetadataSize:         1024,
+				MaxCollectionPointCount: 2,
+				MaxMetadataSize:         100,
 			},
 		},
 	}
@@ -217,3 +223,74 @@ func Test_GetCollection(t *testing.T) {
 // 	resp = makeRequest(t, router, "GET", "/v1/collections/gandalf", nil)
 // 	assert.Equal(t, http.StatusNotFound, resp.Code)
 // }
+
+func Test_InsertPoints(t *testing.T) {
+	nodeS := ClusterNodeState{
+		Collections: []CollectionState{
+			{
+				Collection: models.Collection{
+					UserId:     "testy",
+					Id:         "gandalf",
+					VectorSize: 2,
+					DistMetric: "cosine",
+					Parameters: models.DefaultVamanaParameters(),
+				},
+			},
+		},
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	tests := []RequestTest{
+		{
+			Name: "Invalid vector size",
+			Payload: InsertPointsRequest{
+				Points: []InsertSinglePointRequest{
+					{
+						Vector: []float32{1, 2, 3},
+					},
+				},
+			},
+			Code: http.StatusBadRequest,
+		},
+		{
+			Name: "Invalid metadata size",
+			Payload: InsertPointsRequest{
+				Points: []InsertSinglePointRequest{
+					{
+						Vector:   []float32{1, 2},
+						Metadata: []float32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+					},
+				},
+			},
+			Code: http.StatusBadRequest,
+		},
+	}
+	// ---------------------------
+	for _, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", test.Payload)
+			assert.Equal(t, test.Code, resp.Code)
+		})
+	}
+	// ---------------------------
+	// Can insert points
+	reqBody := InsertPointsRequest{
+		Points: []InsertSinglePointRequest{
+			{
+				Vector: []float32{1, 2},
+			},
+			{
+				Vector: []float32{3, 4},
+			},
+		},
+	}
+	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", reqBody)
+	assert.Equal(t, http.StatusOK, resp.Code)
+	var respBody InsertPointsResponse
+	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
+	assert.NoError(t, err)
+	assert.Len(t, respBody.FailedRanges, 0)
+	// Adding more points triggers quota limit
+	resp = makeRequest(t, router, "POST", "/v1/collections/gandalf/points", reqBody)
+	assert.Equal(t, http.StatusForbidden, resp.Code)
+}

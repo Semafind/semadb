@@ -198,6 +198,11 @@ type InsertPointsRequest struct {
 	Points []InsertSinglePointRequest `json:"points" binding:"required,max=10000,dive"`
 }
 
+type InsertPointsResponse struct {
+	Message      string   `json:"message"`
+	FailedRanges [][2]int `json:"failedRanges"`
+}
+
 func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	userPlan := c.MustGet("userPlan").(UserPlan)
 	// ---------------------------
@@ -256,11 +261,11 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	message := "success"
+	resp := InsertPointsResponse{Message: "success", FailedRanges: failedRanges}
 	if len(failedRanges) > 0 {
-		message = "partial success"
+		resp.Message = "partial success"
 	}
-	c.JSON(http.StatusOK, gin.H{"message": message, "failedRanges": failedRanges})
+	c.JSON(http.StatusOK, resp)
 	// ---------------------------
 }
 
