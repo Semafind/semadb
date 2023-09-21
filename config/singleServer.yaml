@@ -26,6 +26,7 @@ clusterNode:
     # Shard timeout in seconds
     shardTimeout: 300 # 5 minutes
     maxShardBackupCount: 2
+    minShardBackupFrequency: 3600 # 1 hour
 # -------------------------------
 httpApi:
   debug: *GLOBAL_DEBUG

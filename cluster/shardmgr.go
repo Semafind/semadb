@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,9 +17,10 @@ import (
 )
 
 type loadedShard struct {
-	shard  *shard.Shard
-	doneCh chan bool
-	mu     sync.RWMutex // This locks stops the cleanup goroutine from unloading the shard while it is being used
+	shardDir string
+	shard    *shard.Shard
+	doneCh   chan bool
+	mu       sync.RWMutex // This locks stops the cleanup goroutine from unloading the shard while it is being used
 }
 
 type ShardManagerConfig struct {
@@ -28,6 +30,9 @@ type ShardManagerConfig struct {
 	ShardTimeout int `yaml:"shardTimeout"`
 	// Maximum shard backup count
 	MaxShardBackupCount int `yaml:"maxShardBackupCount"`
+	// Minimum shard back up frequency in seconds, backups are only created if
+	// at least this much time has passed since the last backup
+	MinShardBackupFrequency int `yaml:"minShardBackupFrequency"`
 }
 
 type ShardManager struct {
@@ -78,14 +83,59 @@ func (sm *ShardManager) loadShard(collection models.Collection, shardId string) 
 		return nil, fmt.Errorf("could not open shard: %w", err)
 	}
 	ls := &loadedShard{
-		shard:  shard,
-		doneCh: make(chan bool),
+		shardDir: shardDir,
+		shard:    shard,
+		doneCh:   make(chan bool),
 	}
 	sm.shardStore[shardDir] = ls
 	// ---------------------------
 	// Setup cleanup goroutine
 	go sm.cleanupRoutine(shardDir, ls)
 	return ls, nil
+}
+
+// Attempt to back up the loaded shard. Assumes the shard lock is held.
+func (sm *ShardManager) BackupShard(ls *loadedShard) {
+	dirContent, err := os.ReadDir(ls.shardDir)
+	if err != nil {
+		return
+	}
+	// Get the last backup file if any
+	currentUnixTime := time.Now().Unix()
+	lastestBackupTime := int64(0)
+	backupFiles := make([]string, 0, len(dirContent)-1)
+	for _, dirEntry := range dirContent {
+		if strings.HasSuffix(dirEntry.Name(), "-sharddb.bbolt.backup") {
+			backupFiles = append(backupFiles, dirEntry.Name())
+		}
+	}
+	slices.Sort(backupFiles) // in ascending order
+	if len(backupFiles) > 0 {
+		lastBackupName := backupFiles[len(backupFiles)-1]
+		lastestBackupTime, err = strconv.ParseInt(strings.Split(lastBackupName, "-")[0], 10, 64)
+		if err != nil {
+			sm.logger.Error().Err(err).Str("backupFile", lastBackupName).Msg("Failed to parse latest backup file name")
+		}
+	}
+	// Perform backup if the last backup is older than the minimum backup frequency
+	if currentUnixTime-lastestBackupTime > int64(sm.cfg.MinShardBackupFrequency) {
+		backupFile := filepath.Join(ls.shardDir, fmt.Sprintf("%v-sharddb.bbolt.backup", currentUnixTime))
+		if err := ls.shard.Backup(backupFile); err != nil {
+			sm.logger.Error().Err(err).Str("backupFile", backupFile).Msg("Failed to backup shard")
+		} else {
+			sm.logger.Debug().Str("backupFile", backupFile).Msg("Backed up shard")
+			backupFiles = append(backupFiles, backupFile)
+		}
+	}
+	// Clean up old backup files by keeping only the last N backups
+	for i := 0; i < len(backupFiles)-sm.cfg.MaxShardBackupCount; i++ {
+		backupFile := filepath.Join(ls.shardDir, backupFiles[i])
+		if err := os.Remove(backupFile); err != nil {
+			sm.logger.Error().Err(err).Str("backupFile", backupFile).Msg("Failed to delete backup file")
+		} else {
+			sm.logger.Debug().Str("backupFile", backupFile).Msg("Deleted old backup file")
+		}
+	}
 }
 
 func (sm *ShardManager) cleanupRoutine(shardDir string, ls *loadedShard) {
@@ -115,38 +165,15 @@ func (sm *ShardManager) cleanupRoutine(shardDir string, ls *loadedShard) {
 				return
 			}
 			// ---------------------------
-			// Attempt to back up the shard before closing it
-			// Create a backup file name with current date and time
-			backupFilename := fmt.Sprintf("%v-sharddb.bbolt.backup", time.Now().Unix())
-			backupFile := filepath.Join(shardDir, backupFilename)
-			if err := ls.shard.Backup(backupFile); err != nil {
-				sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to backup shard")
-			} else {
-				sm.logger.Debug().Str("shardDir", shardDir).Msg("Backed up shard")
-				// Keep only the last N backups
-				dirContent, err := os.ReadDir(shardDir)
-				if err != nil {
-					sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to list shard directory for backup files")
-				} else {
-					// Sort backup files by name
-					backupFiles := make([]string, 0, len(dirContent)-1)
-					for _, dirEntry := range dirContent {
-						if strings.HasSuffix(dirEntry.Name(), "-sharddb.bbolt.backup") {
-							backupFiles = append(backupFiles, dirEntry.Name())
-						}
-					}
-					// Sorting happens in ascending order, so we want to keep the last N files
-					slices.Sort(backupFiles)
-					for i := 0; i < len(backupFiles)-sm.cfg.MaxShardBackupCount; i++ {
-						backupFile := filepath.Join(shardDir, backupFiles[i])
-						if err := os.Remove(backupFile); err != nil {
-							sm.logger.Error().Err(err).Str("shardDir", shardDir).Str("backupFile", backupFile).Msg("Failed to delete backup file")
-						} else {
-							sm.logger.Debug().Str("shardDir", shardDir).Str("backupFile", backupFile).Msg("Deleted backup file")
-						}
-					}
-				}
-			}
+			// We probably should find a better place to backup the shard. The
+			// original idea is that the when the shard is being unloaded it is
+			// no longer busy and we can backup its content. But if a shard is
+			// always busy then we never get a chance to backup its content. We
+			// could backup the shard when it is being loaded, but that would be
+			// a waste of resources if the shard is not used. Perhaps a
+			// heuristic could be used in DoWithShard operation to determine a
+			// backup is needed along side this one.
+			sm.BackupShard(ls)
 			// ---------------------------
 			// Time to say goodbye to the shard
 			if err := ls.shard.Close(); err != nil {
