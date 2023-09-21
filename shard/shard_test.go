@@ -2,6 +2,7 @@ package shard
 
 import (
 	"math/rand"
+	"path/filepath"
 	"testing"
 
 	"github.com/google/uuid"
@@ -60,13 +61,19 @@ func randPoints(size int) []models.Point {
 	return points
 }
 
-func TestShard_CreatePoint(t *testing.T) {
-	shard, err := NewShard(t.TempDir(), sampleCol)
+func tempShard(t *testing.T) *Shard {
+	dbpath := filepath.Join(t.TempDir(), "sharddb.bbolt")
+	shard, err := NewShard(dbpath, sampleCol)
 	assert.NoError(t, err)
+	return shard
+}
+
+func TestShard_CreatePoint(t *testing.T) {
+	shard := tempShard(t)
 	// Check that the shard is empty
 	checkPointCount(t, shard, 0)
 	points := randPoints(2)
-	err = shard.InsertPoints(points)
+	err := shard.InsertPoints(points)
 	assert.NoError(t, err)
 	// Check that the shard has two points
 	checkPointCount(t, shard, 2)
@@ -75,12 +82,13 @@ func TestShard_CreatePoint(t *testing.T) {
 
 func TestShard_Persistence(t *testing.T) {
 	shardDir := t.TempDir()
-	shard, _ := NewShard(shardDir, sampleCol)
+	dbfile := filepath.Join(shardDir, "sharddb.bbolt")
+	shard, _ := NewShard(dbfile, sampleCol)
 	points := randPoints(7)
 	err := shard.InsertPoints(points)
 	assert.NoError(t, err)
 	assert.NoError(t, shard.Close())
-	shard, err = NewShard(shardDir, sampleCol)
+	shard, err = NewShard(dbfile, sampleCol)
 	assert.NoError(t, err)
 	// Does the shard still have the points?
 	checkPointCount(t, shard, 7)
@@ -88,7 +96,7 @@ func TestShard_Persistence(t *testing.T) {
 }
 
 func TestShard_DuplicatePointId(t *testing.T) {
-	shard, _ := NewShard(t.TempDir(), sampleCol)
+	shard := tempShard(t)
 	points := randPoints(2)
 	points[0].Id = points[1].Id
 	err := shard.InsertPoints(points)
@@ -99,7 +107,7 @@ func TestShard_DuplicatePointId(t *testing.T) {
 }
 
 func TestShard_BasicSearch(t *testing.T) {
-	shard, _ := NewShard(t.TempDir(), sampleCol)
+	shard := tempShard(t)
 	points := randPoints(2)
 	points[0].Metadata = []byte("test")
 	shard.InsertPoints(points)
@@ -114,7 +122,7 @@ func TestShard_BasicSearch(t *testing.T) {
 }
 
 func TestShard_SearchMaxLimit(t *testing.T) {
-	shard, _ := NewShard(t.TempDir(), sampleCol)
+	shard := tempShard(t)
 	points := randPoints(2)
 	shard.InsertPoints(points)
 	res, err := shard.SearchPoints(points[0].Vector, 7)
@@ -124,7 +132,7 @@ func TestShard_SearchMaxLimit(t *testing.T) {
 }
 
 func TestShard_UpdatePoint(t *testing.T) {
-	shard, _ := NewShard(t.TempDir(), sampleCol)
+	shard := tempShard(t)
 	points := randPoints(2)
 	err := shard.InsertPoints(points[:1])
 	assert.NoError(t, err)
@@ -137,7 +145,7 @@ func TestShard_UpdatePoint(t *testing.T) {
 }
 
 func TestShard_DeletePoint(t *testing.T) {
-	shard, _ := NewShard(t.TempDir(), sampleCol)
+	shard := tempShard(t)
 	points := randPoints(2)
 	shard.InsertPoints(points)
 	deleteSet := make(map[uuid.UUID]struct{})

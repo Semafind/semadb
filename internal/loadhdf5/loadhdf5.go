@@ -170,7 +170,7 @@ func loadIntoCollection(vcol VectorCollection) {
 		// ---------------------------
 		// Add points to collection
 		log.Debug().Int("i", i).Int("end", end).Msg("loadHDF5 - createPoints")
-		res, err := clusterNode.InsertPoints(collection, points[i:end])
+		res, err := clusterNode.InsertPoints(collection, points[i:end], int64(len(points))+1)
 		if err != nil || len(res) != 0 {
 			log.Fatal().Err(err).Interface("failedRanges", res).Msg("failed to insert points")
 		}
@@ -210,7 +210,7 @@ func loadIntoShard(vcol VectorCollection) {
 	shardId := uuid.New().String()
 	shardDir := filepath.Join("dump", "benchmark", vcol.Name, shardId)
 	os.MkdirAll(shardDir, os.ModePerm)
-	shard, _ := shard.NewShard(shardDir, collection)
+	shard, _ := shard.NewShard(filepath.Join(shardDir, "sharddb.bbolt"), collection)
 	log.Info().Str("shardId", shardId).Str("shardDir", shardDir).Msg("loadHDF5")
 	// ---------------------------
 	batchSize := 100000

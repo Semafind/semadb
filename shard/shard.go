@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"path/filepath"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,9 +25,9 @@ var INTERNALKEY = []byte("internal")
 var STARTIDKEY = []byte("startId")
 var POINTCOUNTKEY = []byte("pointCount")
 
-func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
+func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 	// ---------------------------
-	db, err := bbolt.Open(filepath.Join(shardDir, "sharddb.bbolt"), 0666, &bbolt.Options{Timeout: 1 * time.Minute})
+	db, err := bbolt.Open(dbfile, 0644, &bbolt.Options{Timeout: 1 * time.Minute})
 	if err != nil {
 		return nil, fmt.Errorf("could not open shard db: %w", err)
 	}
@@ -108,6 +107,13 @@ func NewShard(shardDir string, collection models.Collection) (*Shard, error) {
 
 func (s *Shard) Close() error {
 	return s.db.Close()
+}
+
+func (s *Shard) Backup(fpath string) error {
+	err := s.db.View(func(tx *bbolt.Tx) error {
+		return tx.CopyFile(fpath, 0644)
+	})
+	return err
 }
 
 // ---------------------------

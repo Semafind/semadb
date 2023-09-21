@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +26,8 @@ type ShardManagerConfig struct {
 	RootDir string `yaml:"rootDir"`
 	// Shard timeout in seconds
 	ShardTimeout int `yaml:"shardTimeout"`
+	// Maximum shard backup count
+	MaxShardBackupCount int `yaml:"maxShardBackupCount"`
 }
 
 type ShardManager struct {
@@ -70,7 +73,7 @@ func (sm *ShardManager) loadShard(collection models.Collection, shardId string) 
 		return nil, fmt.Errorf("could not create shard directory: %w", err)
 	}
 	// Open shard
-	shard, err := shard.NewShard(shardDir, collection)
+	shard, err := shard.NewShard(filepath.Join(shardDir, "sharddb.bbolt"), collection)
 	if err != nil {
 		return nil, fmt.Errorf("could not open shard: %w", err)
 	}
@@ -81,51 +84,85 @@ func (sm *ShardManager) loadShard(collection models.Collection, shardId string) 
 	sm.shardStore[shardDir] = ls
 	// ---------------------------
 	// Setup cleanup goroutine
-	go func() {
-		timeoutDuration := time.Duration(sm.cfg.ShardTimeout) * time.Second
-		timer := time.NewTimer(timeoutDuration)
-		defer sm.logger.Debug().Str("shardDir", shardDir).Msg("Stopping shard cleanup goroutine")
-		for {
-			select {
-			case isDone := <-ls.doneCh:
-				// The following condition comes from the documentation of timer.Stop()
-				if !timer.Stop() {
-					<-timer.C
-				}
-				if isDone {
-					return // stop cleanup goroutine
+	go sm.cleanupRoutine(shardDir, ls)
+	return ls, nil
+}
+
+func (sm *ShardManager) cleanupRoutine(shardDir string, ls *loadedShard) {
+	timeoutDuration := time.Duration(sm.cfg.ShardTimeout) * time.Second
+	timer := time.NewTimer(timeoutDuration)
+	defer sm.logger.Debug().Str("shardDir", shardDir).Msg("Stopping shard cleanup goroutine")
+	for {
+		select {
+		case isDone := <-ls.doneCh:
+			// The following condition comes from the documentation of timer.Stop()
+			if !timer.Stop() {
+				<-timer.C
+			}
+			if isDone {
+				return // stop cleanup goroutine
+			} else {
+				sm.logger.Debug().Str("shardDir", shardDir).Msg("Resetting shard timeout")
+				// Timer must be stopped or expired before it can be reset
+				timer.Reset(timeoutDuration)
+			}
+		case <-timer.C:
+			sm.logger.Debug().Str("shardDir", shardDir).Msg("Unloading shard")
+			ls.mu.Lock()
+			defer ls.mu.Unlock() // we commit to exiting the cleanup goroutine here
+			if ls.shard == nil {
+				sm.logger.Debug().Str("shardDir", shardDir).Msg("Shard already unloaded")
+				return
+			}
+			// ---------------------------
+			// Attempt to back up the shard before closing it
+			// Create a backup file name with current date and time
+			backupFilename := fmt.Sprintf("%v-sharddb.bbolt.backup", time.Now().Unix())
+			backupFile := filepath.Join(shardDir, backupFilename)
+			if err := ls.shard.Backup(backupFile); err != nil {
+				sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to backup shard")
+			} else {
+				sm.logger.Debug().Str("shardDir", shardDir).Msg("Backed up shard")
+				// Keep only the last N backups
+				dirContent, err := os.ReadDir(shardDir)
+				if err != nil {
+					sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to list shard directory for backup files")
 				} else {
-					sm.logger.Debug().Str("shardDir", shardDir).Msg("Resetting shard timeout")
-					// Timer must be stopped or expired before it can be reset
-					timer.Reset(timeoutDuration)
-				}
-			case <-timer.C:
-				sm.logger.Debug().Str("shardDir", shardDir).Msg("Unloading shard")
-				sm.shardLock.Lock()
-				ls.mu.Lock()
-				if ls.shard == nil {
-					sm.logger.Debug().Str("shardDir", shardDir).Msg("Shard already unloaded")
-					ls.mu.Unlock()
-					sm.shardLock.Unlock()
-					return
-				}
-				if err := ls.shard.Close(); err != nil {
-					sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to close shard")
-					timer.Reset(timeoutDuration) // Try again later
-				} else {
-					// We set the shard to nil so that other goroutines know it
-					// is closed in case they are waiting on the lock
-					sm.logger.Debug().Str("shardDir", shardDir).Msg("Closed shard")
-					ls.shard = nil
-					delete(sm.shardStore, shardDir)
-					ls.mu.Unlock()
-					sm.shardLock.Unlock()
-					return
+					// Sort backup files by name
+					backupFiles := make([]string, 0, len(dirContent)-1)
+					for _, dirEntry := range dirContent {
+						if strings.HasSuffix(dirEntry.Name(), "-sharddb.bbolt.backup") {
+							backupFiles = append(backupFiles, dirEntry.Name())
+						}
+					}
+					// Sorting happens in ascending order, so we want to keep the last N files
+					slices.Sort(backupFiles)
+					for i := 0; i < len(backupFiles)-sm.cfg.MaxShardBackupCount; i++ {
+						backupFile := filepath.Join(shardDir, backupFiles[i])
+						if err := os.Remove(backupFile); err != nil {
+							sm.logger.Error().Err(err).Str("shardDir", shardDir).Str("backupFile", backupFile).Msg("Failed to delete backup file")
+						} else {
+							sm.logger.Debug().Str("shardDir", shardDir).Str("backupFile", backupFile).Msg("Deleted backup file")
+						}
+					}
 				}
 			}
+			// ---------------------------
+			// Time to say goodbye to the shard
+			if err := ls.shard.Close(); err != nil {
+				sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to close shard")
+			}
+			// We set the shard to nil so that other goroutines know it
+			// is closed in case they are waiting on the lock
+			sm.logger.Debug().Str("shardDir", shardDir).Msg("Removing loaded shard")
+			ls.shard = nil
+			sm.shardLock.Lock()
+			delete(sm.shardStore, shardDir)
+			sm.shardLock.Unlock()
+			// ---------------------------
+			return
 		}
-	}()
-	return ls, nil
+	}
 }
 
 // DoWithShard executes a function with a shard. The shard is loaded if it is
