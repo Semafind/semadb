@@ -30,8 +30,9 @@ type ClusterNodeState struct {
 }
 
 func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode {
+	tempDir := t.TempDir()
 	cnode, err := cluster.NewNode(cluster.ClusterNodeConfig{
-		RootDir: t.TempDir(),
+		RootDir: tempDir,
 		Servers: []string{"localhost:9898"},
 		// ---------------------------
 		RpcHost:    "localhost",
@@ -39,9 +40,13 @@ func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode
 		RpcTimeout: 5,
 		RpcRetries: 2,
 		// ---------------------------
-		ShardTimeout:       30,
 		MaxShardSize:       268435456, // 2GiB
 		MaxShardPointCount: 250000,
+		ShardManager: cluster.ShardManagerConfig{
+			RootDir:             tempDir,
+			ShardTimeout:        30,
+			MaxShardBackupCount: 2,
+		},
 	})
 	assert.NoError(t, err)
 	// Setup state

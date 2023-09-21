@@ -31,14 +31,13 @@ type ClusterNodeConfig struct {
 	// ---------------------------
 	// Initial set of known servers
 	Servers []string `yaml:"servers"`
-	// Shard timeout in seconds
-	ShardTimeout int `yaml:"shardTimeout"`
+	// Shard manager configuration
+	ShardManager ShardManagerConfig `yaml:"shardManager"`
+	// ---------------------------
 	// Maximum size of shards in bytes
 	MaxShardSize int64 `yaml:"maxShardSize"`
 	// Maximum number of points in a shard
 	MaxShardPointCount int64 `yaml:"maxShardPointCount"`
-	// Maximum number of shard backups
-	MaxShardBackupCount int `yaml:"maxShardBackupCount"`
 	// Maximum number of points to search
 	MaxSearchLimit int `yaml:"maxSearchLimit"`
 }
@@ -102,10 +101,7 @@ func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
 		return nil, fmt.Errorf("could not create user collections bucket: %w", err)
 	}
 	// ---------------------------
-	shardManager := NewShardManager(ShardManagerConfig{
-		RootDir:      rootDir,
-		ShardTimeout: config.ShardTimeout,
-	})
+	shardManager := NewShardManager(config.ShardManager)
 	// ---------------------------
 	cluster := &ClusterNode{
 		logger:       logger,

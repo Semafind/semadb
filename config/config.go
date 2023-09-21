@@ -15,9 +15,9 @@ type ConfigMap struct {
 	// Global debug flag
 	Debug bool `yaml:"debug"`
 	// Cluster parameters
-	ClusterNodeCfg cluster.ClusterNodeConfig `yaml:"clusterNodeConfig"`
+	ClusterNode cluster.ClusterNodeConfig `yaml:"clusterNode"`
 	// HTTP Parameters
-	HttpApiCfg httpapi.HttpApiConfig `yaml:"httpApiConfig"`
+	HttpApi httpapi.HttpApiConfig `yaml:"httpApi"`
 }
 
 func LoadConfig() ConfigMap {
