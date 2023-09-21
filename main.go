@@ -50,14 +50,14 @@ func main() {
 	// reg.MustRegister(collectors.NewGoCollector())
 	// ---------------------------
 	// Setup cluster state
-	clusterNode, err := cluster.NewNode(cfg.ClusterNodeCfg)
+	clusterNode, err := cluster.NewNode(cfg.ClusterNode)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to create cluster state")
 	}
 	clusterNode.RegisterMetrics(reg)
 	clusterNode.Serve()
 	// ---------------------------
-	httpServer := httpapi.RunHTTPServer(clusterNode, cfg.HttpApiCfg, reg)
+	httpServer := httpapi.RunHTTPServer(clusterNode, cfg.HttpApi, reg)
 	// ---------------------------
 	quit := make(chan os.Signal, 1)
 	// kill (no param) default send syscanll.SIGTERM

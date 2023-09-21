@@ -123,7 +123,7 @@ func loadRemote(vcol VectorCollection) {
 func loadIntoCollection(vcol VectorCollection) {
 	// ---------------------------
 	cfg := config.LoadConfig()
-	clusterNode, err := cluster.NewNode(cfg.ClusterNodeCfg)
+	clusterNode, err := cluster.NewNode(cfg.ClusterNode)
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to create cluster node")
 	}
