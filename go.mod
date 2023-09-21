@@ -15,7 +15,6 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.3.5
 	go.etcd.io/bbolt v1.3.7
 	golang.org/x/sys v0.12.0
-	gonum.org/v1/hdf5 v0.0.0-20210714002203-8c5d23bc6946
 	gopkg.in/yaml.v3 v3.0.1
 )
 
