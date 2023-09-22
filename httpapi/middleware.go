@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -31,7 +32,8 @@ func AppHeaderMiddleware(config HttpApiConfig) gin.HandlerFunc {
 		// Extract user plan
 		userPlan, ok := config.UserPlans[appHeaders.PlanId]
 		if !ok {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unknown package"})
+			errmsg := fmt.Sprintf("unknown user plan %s", appHeaders.PlanId)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errmsg})
 			return
 		}
 		c.Set("userPlan", userPlan)
