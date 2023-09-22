@@ -11,6 +11,8 @@ type Collection struct {
 	CreatedAt  int64
 	ShardIds   []string
 	Parameters VamanaParameters
+	// Active user plan
+	UserPlan UserPlan
 }
 
 type VamanaParameters struct {

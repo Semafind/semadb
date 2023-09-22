@@ -36,7 +36,6 @@ import (
 type RPCCreateCollectionRequest struct {
 	RPCRequestArgs
 	Collection models.Collection
-	Quota      int
 }
 
 type RPCCreateCollectionResponse struct {
@@ -72,7 +71,7 @@ func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, repl
 		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
 			count++
 		}
-		if count >= args.Quota {
+		if count >= args.Collection.UserPlan.MaxCollections {
 			reply.QuotaReached = true
 			return nil
 		}

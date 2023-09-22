@@ -26,11 +26,6 @@ type ShardManagerConfig struct {
 	RootDir string `yaml:"rootDir"`
 	// Shard timeout in seconds
 	ShardTimeout int `yaml:"shardTimeout"`
-	// Maximum shard backup count
-	MaxShardBackupCount int `yaml:"maxShardBackupCount"`
-	// Minimum shard back up frequency in seconds, backups are only created if
-	// at least this much time has passed since the last backup
-	MinShardBackupFrequency int `yaml:"minShardBackupFrequency"`
 }
 
 type ShardManager struct {
@@ -88,11 +83,12 @@ func (sm *ShardManager) loadShard(collection models.Collection, shardId string) 
 	sm.shardStore[shardDir] = ls
 	// ---------------------------
 	// Setup cleanup goroutine
-	go sm.cleanupRoutine(shardDir, ls)
+	go sm.cleanupRoutine(ls, collection.UserPlan.ShardBackupFrequency, collection.UserPlan.ShardBackupCount)
 	return ls, nil
 }
 
-func (sm *ShardManager) cleanupRoutine(shardDir string, ls *loadedShard) {
+func (sm *ShardManager) cleanupRoutine(ls *loadedShard, backupFrequency, backupCount int) {
+	shardDir := ls.shardDir
 	timeoutDuration := time.Duration(sm.cfg.ShardTimeout) * time.Second
 	timer := time.NewTimer(timeoutDuration)
 	defer sm.logger.Debug().Str("shardDir", shardDir).Msg("Stopping shard cleanup goroutine")
@@ -127,8 +123,10 @@ func (sm *ShardManager) cleanupRoutine(shardDir string, ls *loadedShard) {
 			// a waste of resources if the shard is not used. Perhaps a
 			// heuristic could be used in DoWithShard operation to determine a
 			// backup is needed along side this one.
-			if err := ls.shard.Backup(sm.cfg.MinShardBackupFrequency, sm.cfg.MaxShardBackupCount); err != nil {
-				sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to backup shard")
+			if backupFrequency > 0 && backupCount > 0 {
+				if err := ls.shard.Backup(backupFrequency, backupCount); err != nil {
+					sm.logger.Error().Err(err).Str("shardDir", shardDir).Msg("Failed to backup shard")
+				}
 			}
 			// ---------------------------
 			// Time to say goodbye to the shard

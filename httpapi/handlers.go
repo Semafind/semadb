@@ -48,11 +48,11 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 		Timestamp:  time.Now().UnixMicro(),
 		CreatedAt:  time.Now().UnixMicro(),
 		Parameters: models.DefaultVamanaParameters(),
+		UserPlan:   c.MustGet("userPlan").(models.UserPlan),
 	}
 	log.Debug().Interface("collection", vamanaCollection).Msg("CreateCollection")
 	// ---------------------------
-	userPlan := c.MustGet("userPlan").(UserPlan)
-	err := sdbh.clusterNode.CreateCollection(vamanaCollection, userPlan.MaxCollections)
+	err := sdbh.clusterNode.CreateCollection(vamanaCollection)
 	switch err {
 	case nil:
 		c.JSON(http.StatusOK, gin.H{"message": "collection created"})
@@ -121,6 +121,13 @@ func (sdbh *SemaDBHandlers) CollectionURIMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		// ---------------------------
+		// Bind active user plan regardless of what is saved in the collection.
+		// This is because the user plan might change and we want the latest
+		// active one rather than the one saved in the collection. This means
+		// any downstream operation will use the latest user plan.
+		collection.UserPlan = c.MustGet("userPlan").(models.UserPlan)
+		// ---------------------------
 		c.Set("collection", collection)
 	}
 }
@@ -204,7 +211,6 @@ type InsertPointsResponse struct {
 }
 
 func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
-	userPlan := c.MustGet("userPlan").(UserPlan)
 	// ---------------------------
 	var req InsertPointsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -237,8 +243,8 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 				return
 			}
-			if len(binaryMetadata) > userPlan.MaxMetadataSize {
-				errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryMetadata), userPlan.MaxMetadataSize)
+			if len(binaryMetadata) > collection.UserPlan.MaxMetadataSize {
+				errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryMetadata), collection.UserPlan.MaxMetadataSize)
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 				return
 			}
@@ -247,7 +253,7 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	}
 	// ---------------------------
 	// Insert points returns a range of errors for failed shards
-	failedRanges, err := sdbh.clusterNode.InsertPoints(collection, points, userPlan.MaxCollectionPointCount)
+	failedRanges, err := sdbh.clusterNode.InsertPoints(collection, points)
 	if errors.Is(err, cluster.ErrQuotaReached) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "quota reached"})
 		return
@@ -282,7 +288,6 @@ type UpdatePointsRequest struct {
 }
 
 func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
-	userPlan := c.MustGet("userPlan").(UserPlan)
 	// ---------------------------
 	var req UpdatePointsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -312,8 +317,8 @@ func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 				return
 			}
-			if len(binaryMetadata) > userPlan.MaxMetadataSize {
-				errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryMetadata), userPlan.MaxMetadataSize)
+			if len(binaryMetadata) > collection.UserPlan.MaxMetadataSize {
+				errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryMetadata), collection.UserPlan.MaxMetadataSize)
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 				return
 			}

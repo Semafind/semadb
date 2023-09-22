@@ -43,19 +43,26 @@ func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode
 		MaxShardSize:       268435456, // 2GiB
 		MaxShardPointCount: 250000,
 		ShardManager: cluster.ShardManagerConfig{
-			RootDir:             tempDir,
-			ShardTimeout:        30,
-			MaxShardBackupCount: 2,
+			RootDir:      tempDir,
+			ShardTimeout: 30,
 		},
 	})
 	assert.NoError(t, err)
 	// Setup state
 	for _, colState := range nodeS.Collections {
 		// ---------------------------
-		err := cnode.CreateCollection(colState.Collection, 999)
+		colState.Collection.UserPlan = models.UserPlan{
+			Name:                    "BASIC",
+			MaxCollections:          1,
+			MaxCollectionPointCount: 2,
+			MaxMetadataSize:         100,
+			ShardBackupFrequency:    60,
+			ShardBackupCount:        3,
+		}
+		err := cnode.CreateCollection(colState.Collection)
 		assert.NoError(t, err)
 		// ---------------------------
-		failedRanges, err := cnode.InsertPoints(colState.Collection, colState.Points, 999)
+		failedRanges, err := cnode.InsertPoints(colState.Collection, colState.Points)
 		assert.NoError(t, err)
 		assert.Len(t, failedRanges, 0)
 	}
@@ -67,12 +74,14 @@ func setupTestRouter(t *testing.T, nodeS ClusterNodeState) *gin.Engine {
 		Debug:    true,
 		HttpHost: "localhost",
 		HttpPort: 8081,
-		UserPlans: map[string]UserPlan{
+		UserPlans: map[string]models.UserPlan{
 			"BASIC": {
 				Name:                    "BASIC",
 				MaxCollections:          1,
 				MaxCollectionPointCount: 2,
 				MaxMetadataSize:         100,
+				ShardBackupFrequency:    60,
+				ShardBackupCount:        3,
 			},
 		},
 	}

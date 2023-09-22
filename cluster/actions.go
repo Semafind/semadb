@@ -13,7 +13,7 @@ import (
 	"github.com/semafind/semadb/shard"
 )
 
-func (c *ClusterNode) CreateCollection(collection models.Collection, quota int) error {
+func (c *ClusterNode) CreateCollection(collection models.Collection) error {
 	// ---------------------------
 	// The collection information is stored in the user cluster node. We
 	// construct the appropiate request and route it.
@@ -23,7 +23,6 @@ func (c *ClusterNode) CreateCollection(collection models.Collection, quota int) 
 			Dest:   RendezvousHash(collection.UserId, c.Servers, 1)[0],
 		},
 		Collection: collection,
-		Quota:      quota,
 	}
 	rpcResp := RPCCreateCollectionResponse{}
 	if err := c.RPCCreateCollection(&rpcReq, &rpcResp); err != nil {
@@ -171,7 +170,7 @@ func (c *ClusterNode) DeleteCollection(col models.Collection) ([]string, error) 
 
 // ---------------------------
 
-func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point, pointQuota int64) ([][2]int, error) {
+func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point) ([][2]int, error) {
 	// ---------------------------
 	// This is where shard distribution happens
 	shards, err := c.GetShardsInfo(col)
@@ -184,7 +183,7 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point,
 	for _, shard := range shards {
 		totalPoints += shard.PointCount
 	}
-	if totalPoints+int64(len(points)) > pointQuota {
+	if totalPoints+int64(len(points)) > col.UserPlan.MaxCollectionPointCount {
 		return nil, ErrQuotaReached
 	}
 	// ---------------------------

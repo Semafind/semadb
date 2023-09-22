@@ -8,6 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
+	"github.com/semafind/semadb/models"
 )
 
 // ---------------------------
@@ -19,13 +20,6 @@ func pongHandler(c *gin.Context) {
 }
 
 // ---------------------------
-
-type UserPlan struct {
-	Name                    string `yaml:"name"`
-	MaxCollections          int    `yaml:"maxCollections"`
-	MaxCollectionPointCount int64  `yaml:"maxCollectionPointCount"`
-	MaxMetadataSize         int    `yaml:"maxMetadataSize"`
-}
 
 type HttpApiConfig struct {
 	Debug           bool   `yaml:"debug"`
@@ -40,7 +34,7 @@ type HttpApiConfig struct {
 	// Whitelist of IP addresses, ["*"] means any IP address
 	WhiteListIPs []string `yaml:"whiteListIPs"`
 	// User plans
-	UserPlans map[string]UserPlan `yaml:"userPlans"`
+	UserPlans map[string]models.UserPlan `yaml:"userPlans"`
 }
 
 // ---------------------------
