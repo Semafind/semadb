@@ -6,14 +6,13 @@ import (
 	"net/rpc"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/utils"
 	"go.etcd.io/bbolt"
 )
 
@@ -37,9 +36,9 @@ type ClusterNodeConfig struct {
 	ShardManager ShardManagerConfig `yaml:"shardManager"`
 	// ---------------------------
 	// Backup frequency of node database in seconds
-	backupFrequency int `yaml:"backupFrequency"`
+	BackupFrequency int `yaml:"backupFrequency"`
 	// Number of node database backups to keep
-	backupCount int `yaml:"backupCount"`
+	BackupCount int `yaml:"backupCount"`
 	// ---------------------------
 	// Maximum size of shards in bytes
 	MaxShardSize int64 `yaml:"maxShardSize"`
@@ -157,46 +156,20 @@ func (c *ClusterNode) Serve() {
 	}()
 	// ---------------------------
 	// Setup periodic node database backups
-	if c.cfg.backupFrequency <= 0 {
+	if c.cfg.BackupFrequency <= 0 {
 		return
 	}
 	go func() {
-		c.logger.Info().Int("backupFrequency", c.cfg.backupFrequency).Int("backupCount", c.cfg.backupCount).Msg("backupNodeDB")
+		c.logger.Info().Int("backupFrequency", c.cfg.BackupFrequency).Int("backupCount", c.cfg.BackupCount).Msg("backupNodeDB")
 		defer c.logger.Info().Msg("backupNodeDB stopped")
-		ticker := time.NewTicker(time.Duration(c.cfg.backupFrequency) * time.Second)
+		ticker := time.NewTicker(time.Duration(c.cfg.BackupFrequency) * time.Second)
 		for {
 			select {
 			case <-ticker.C:
 				// ---------------------------
-				// Create backup
-				backupPath := fmt.Sprintf("%v-nodedb.bbolt.backup", time.Now().Unix())
-				backupPath = filepath.Join(c.cfg.RootDir, backupPath)
-				err := c.nodedb.View(func(tx *bbolt.Tx) error {
-					return tx.CopyFile(backupPath, 0644)
-				})
+				err := utils.BackupBBolt(c.nodedb, c.cfg.BackupFrequency, c.cfg.BackupCount)
 				if err != nil {
-					log.Error().Err(err).Msg("Failed to create backup")
-				}
-				// ---------------------------
-				if dirContent, err := os.ReadDir(c.cfg.RootDir); err != nil {
-					c.logger.Error().Err(err).Msg("Failed to read backup files")
-				} else {
-					backupFiles := make([]string, 0, len(dirContent)-1)
-					for _, file := range dirContent {
-						if strings.HasSuffix(file.Name(), ".backup") {
-							backupFiles = append(backupFiles, file.Name())
-						}
-					}
-					slices.Sort(backupFiles)
-					// Clean up old backup files by keeping only the last N backups
-					for i := 0; i < len(backupFiles)-c.cfg.backupCount; i++ {
-						backupFile := filepath.Join(c.cfg.RootDir, backupFiles[i])
-						if err := os.Remove(backupFile); err != nil {
-							c.logger.Error().Err(err).Str("backupFile", backupFile).Msg("Failed to delete backup file")
-						} else {
-							c.logger.Debug().Str("backupFile", backupFile).Msg("Deleted old backup file")
-						}
-					}
+					c.logger.Error().Err(err).Msg("Failed to backup node database")
 				}
 				// ---------------------------
 			}

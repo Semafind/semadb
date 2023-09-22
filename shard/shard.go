@@ -10,6 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/utils"
 	"go.etcd.io/bbolt"
 )
 
@@ -109,11 +110,8 @@ func (s *Shard) Close() error {
 	return s.db.Close()
 }
 
-func (s *Shard) Backup(fpath string) error {
-	err := s.db.View(func(tx *bbolt.Tx) error {
-		return tx.CopyFile(fpath, 0644)
-	})
-	return err
+func (s *Shard) Backup(backupFrequency, backupCount int) error {
+	return utils.BackupBBolt(s.db, backupFrequency, backupCount)
 }
 
 // ---------------------------

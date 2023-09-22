@@ -14,6 +14,10 @@ clusterNode:
   rpcTimeout: 300 # seconds
   rpcRetries: 2
   # -------------------------------
+  # Node database parameters
+  backupFrequency: 3600 # 1 hour
+  backupCount: 3
+  # -------------------------------
   # Maximum size of shards in bytes
   maxShardSize: 268435456 # 2GiB
   maxShardPointCount: 250000 # 250k
