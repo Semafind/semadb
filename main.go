@@ -65,13 +65,15 @@ func main() {
 	// kill -9 is syscall. SIGKILL but can"t be catch, so don't need add it
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	sig := <-quit
+	// ---------------------------
 	log.Info().Str("signal", sig.String()).Msg("Shutting down server...")
+	// The default kubernetes grace period is 30 seconds
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Error().Err(err).Msg("HTTP server forced to shut")
 	}
 	cancel()
-	// TODO: Gracefully shutdown cluster
+	// ---------------------------
 	clusterNode.Close()
 	// ---------------------------
 }

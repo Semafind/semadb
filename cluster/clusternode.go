@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/rpc"
@@ -64,6 +65,11 @@ type ClusterNode struct {
 	nodedb *bbolt.DB
 	// ---------------------------
 	shardManager *ShardManager
+	// ---------------------------
+	// The done channel is used to signal goroutines to stop via the Close
+	// method. The close method then waits for them to exit.
+	doneCh      chan struct{}
+	bgWaitGroup sync.WaitGroup
 }
 
 func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
@@ -106,6 +112,7 @@ func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
 		metrics:      newClusterNodeMetrics(),
 		nodedb:       nodedb,
 		shardManager: shardManager,
+		doneCh:       make(chan struct{}),
 	}
 	return cluster, nil
 }
@@ -155,16 +162,33 @@ func (c *ClusterNode) Serve() {
 		}
 	}()
 	// ---------------------------
+	c.bgWaitGroup.Add(1)
+	go func() {
+		<-c.doneCh
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		c.logger.Debug().Msg("rpcServer.Shutdown")
+		if err := rpcServer.Shutdown(ctx); err != nil {
+			log.Error().Err(err).Msg("RPC server forced to shut")
+		}
+		cancel()
+		c.bgWaitGroup.Done()
+	}()
+	// ---------------------------
 	// Setup periodic node database backups
 	if c.cfg.BackupFrequency <= 0 {
 		return
 	}
+	c.bgWaitGroup.Add(1)
 	go func() {
 		c.logger.Info().Int("backupFrequency", c.cfg.BackupFrequency).Int("backupCount", c.cfg.BackupCount).Msg("backupNodeDB")
 		defer c.logger.Info().Msg("backupNodeDB stopped")
 		ticker := time.NewTicker(time.Duration(c.cfg.BackupFrequency) * time.Second)
 		for {
 			select {
+			case <-c.doneCh:
+				ticker.Stop()
+				c.bgWaitGroup.Done()
+				return
 			case <-ticker.C:
 				// ---------------------------
 				err := utils.BackupBBolt(c.nodedb, c.cfg.BackupFrequency, c.cfg.BackupCount)
@@ -178,9 +202,18 @@ func (c *ClusterNode) Serve() {
 }
 
 func (c *ClusterNode) Close() error {
+	// ---------------------------
+	// Signal goroutines to stop
+	close(c.doneCh)
+	// ---------------------------
+	// Wait for goroutines to stop
+	c.bgWaitGroup.Wait()
+	// ---------------------------
+	// Close node database
 	if err := c.nodedb.Close(); err != nil {
 		return fmt.Errorf("could not close node db: %w", err)
 	}
+	// ---------------------------
 	return nil
 }
 
