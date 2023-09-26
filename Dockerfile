@@ -1,16 +1,19 @@
-FROM golang:1.21
+FROM golang:1.21.1-bookworm as build
 
 WORKDIR /app
 
-# Download go modules
-COPY go.mod go.sum ./
-RUN go mod download
+COPY . .
 
-COPY . ./
+# Download go modules
+RUN go mod download && go mod verify
 
 RUN go build -v -o /semadb ./
+
+# FROM gcr.io/distroless/static-debian12
+FROM debian:bookworm-slim
+
+COPY --from=build /semadb /
 
 EXPOSE 8080 9898
 
 CMD ["/semadb"]
-

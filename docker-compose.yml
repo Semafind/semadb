@@ -1,8 +1,0 @@
-version: '3.9'
-services:
-  semadb:
-    build: .
-    environment:
-      - SEMADB_DEBUG=true
-    deploy:
-      replicas: 3
