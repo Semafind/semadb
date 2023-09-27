@@ -40,11 +40,6 @@ func main() {
 	setupLogging(cfg)
 	// ---------------------------
 	log.Info().Str("version", "0.0.1").Msg("Starting semadb")
-	hostname, err := os.Hostname()
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to get hostname")
-	}
-	log.Info().Str("hostname", hostname).Msg("Initial parameters")
 	// ---------------------------
 	reg := prometheus.NewRegistry()
 	// reg.MustRegister(collectors.NewGoCollector())

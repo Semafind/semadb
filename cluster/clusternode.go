@@ -25,8 +25,11 @@ type ClusterNodeConfig struct {
 	// Root directory for all data
 	RootDir string `yaml:"rootDir"`
 	// ---------------------------
-	RpcHost   string `yaml:"rpcHost"`
-	RpcDomain string `yaml:"rpcDomain"` // Append to hostname
+	RpcHost string `yaml:"rpcHost"`
+	// RpcDomain gets appended to the hostname when determining the full
+	// hostname for the node. The full hostname is used to identify the node to
+	// other nodes in the cluster.
+	RpcDomain string `yaml:"rpcDomain"`
 	RpcPort   int    `yaml:"rpcPort"`
 	// Timeout in seconds
 	RpcTimeout int `yaml:"rpcTimeout"`
@@ -87,7 +90,7 @@ func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
 			envHostname = hostname
 		}
 		envHostname = envHostname + config.RpcDomain + ":" + strconv.Itoa(config.RpcPort)
-		log.Info().Str("hostname", envHostname).Msg("hostname")
+		log.Info().Str("hostname", envHostname).Msg("Full hostname")
 	}
 	// ---------------------------
 	logger := log.With().Str("hostname", envHostname).Str("component", "clusterNode").Logger()
@@ -149,14 +152,14 @@ func (c *ClusterNode) Serve() {
 	rpc.Register(c)
 	rpc.HandleHTTP()
 	rpcServer := &http.Server{
-		Addr:         c.MyHostname,
+		Addr:         c.cfg.RpcHost + ":" + strconv.Itoa(c.cfg.RpcPort),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
 	// ---------------------------
 	go func() {
 		// service connections
-		c.logger.Info().Str("rpcHost", c.MyHostname).Msg("rpcServe")
+		c.logger.Info().Str("rpcHost", c.cfg.RpcHost).Msg("rpcServe")
 		defer c.logger.Info().Msg("rpcServe stopped")
 		if err := rpcServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			c.logger.Fatal().Err(err).Msg("Failed to listen and serve RPC")
