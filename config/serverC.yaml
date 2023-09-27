@@ -12,6 +12,7 @@ clusterNode:
   # -------------------------------
   # RPC Parameters
   rpcHost: localhost
+  rpcDomain: ""
   rpcPort: 11003
   rpcTimeout: 300 # seconds
   rpcRetries: 2

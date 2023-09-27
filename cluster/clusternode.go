@@ -25,8 +25,9 @@ type ClusterNodeConfig struct {
 	// Root directory for all data
 	RootDir string `yaml:"rootDir"`
 	// ---------------------------
-	RpcHost string `yaml:"rpcHost"`
-	RpcPort int    `yaml:"rpcPort"`
+	RpcHost   string `yaml:"rpcHost"`
+	RpcDomain string `yaml:"rpcDomain"` // Append to hostname
+	RpcPort   int    `yaml:"rpcPort"`
 	// Timeout in seconds
 	RpcTimeout int `yaml:"rpcTimeout"`
 	RpcRetries int `yaml:"rpcRetries"`
@@ -85,8 +86,8 @@ func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
 			log.Warn().Str("hostname", hostname).Msg("host not set, using hostname")
 			envHostname = hostname
 		}
-		rpcPort := config.RpcPort
-		envHostname = envHostname + ":" + strconv.Itoa(rpcPort)
+		envHostname = envHostname + config.RpcDomain + ":" + strconv.Itoa(config.RpcPort)
+		log.Info().Str("hostname", envHostname).Msg("hostname")
 	}
 	// ---------------------------
 	logger := log.With().Str("hostname", envHostname).Str("component", "clusterNode").Logger()
