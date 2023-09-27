@@ -1,5 +1,6 @@
 # Configuration for SemaDB
 debug: &GLOBAL_DEBUG true
+prettyLogOutput: true
 clusterNode:
   # -------------------------------
   # Root directory refers to the start of the filesystem where all data is stored

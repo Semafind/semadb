@@ -23,8 +23,10 @@ func setupLogging(cfg config.ConfigMap) {
 	// ---------------------------
 	// Default level for this example is info, unless debug flag is present
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	if cfg.Debug {
+	if cfg.PrettyLogOutput {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stdout})
+	}
+	if cfg.Debug {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 		log.Debug().Interface("config", cfg).Msg("Configuration")
 	}

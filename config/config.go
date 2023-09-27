@@ -14,6 +14,8 @@ import (
 type ConfigMap struct {
 	// Global debug flag
 	Debug bool `yaml:"debug"`
+	// Pretty log output
+	PrettyLogOutput bool `yaml:"prettyLogOutput"`
 	// Cluster parameters
 	ClusterNode cluster.ClusterNodeConfig `yaml:"clusterNode"`
 	// HTTP Parameters
