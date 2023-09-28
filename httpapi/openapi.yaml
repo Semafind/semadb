@@ -257,9 +257,10 @@ paths:
           description: >-
             The operation was successful but you must check the failedRanges to
             ensure all the points were inserted. If some points were not
-            inserted, you can retry the operation by using the failedRanges. For
-            example, if the failedRanges is [[0, 2]], you can retry the
-            operation by sending the first two points again.
+            inserted, you can retry the operation by using the failedRanges
+            depending on the error. For example, if the failedRanges is [[0,
+            2]], you can retry the operation by sending the first two points
+            again.
           content:
             application/json:
               schema:
@@ -273,19 +274,21 @@ paths:
                     type: array
                     description: >-
                       A list of ranges of points that failed to insert. Each
-                      range is a list of two integers, where the first integer
-                      is the start index and the second integer is the end
-                      index. The end index is exclusive. For example, if the
-                      failedRanges is [[0, 2]], the first two points failed to
-                      insert.
+                      range has a start and an end index.  The end index is
+                      exclusive. For example, if the range is [0, 2], the first
+                      two points failed to insert.
                     items:
-                      type: array
-                      minItems: 2
-                      maxItems: 2
-                      items:
-                        type: integer
-                      examples:
-                        - [0, 2]
+                      type: object
+                      properties:
+                        shardId:
+                          type: string
+                          format: uuid
+                        start:
+                          type: integer
+                        end:
+                          type: integer
+                        error:
+                          type: string
               examples:
                 SuccessfulInsertPointsResponse:
                   summary: Fully successful insert points response
@@ -294,12 +297,15 @@ paths:
                     message: success
                     failedRanges: []
                 SamplePartialInsertPointsResponse:
-                  summary: Sample insert points response
+                  summary: Partial success insert points response
                   description: A sample response indicating partial success
                   value:
                     message: partial success
                     failedRanges:
-                      - [0, 2]
+                      - shardId: fff3a226-b9f8-4375-8dbd-1a240e000705
+                        start: 0
+                        end: 2
+                        error: point already exists
         '403':
           $ref: '#/components/responses/ErrorMessageResponse'
           description: Maximum point quota per collection may be reached
@@ -601,7 +607,7 @@ components:
               summary: A successful response
               description: The operation was successful
               value:
-                - message: success
+                message: success
     ErrorMessageResponse:
       description: Something unexpected happened
       content:
@@ -619,4 +625,4 @@ components:
               summary: General error
               description: Something unexpected happened
               value:
-                - error: Something went wrong
+                error: Something went wrong

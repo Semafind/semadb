@@ -206,8 +206,8 @@ type InsertPointsRequest struct {
 }
 
 type InsertPointsResponse struct {
-	Message      string   `json:"message"`
-	FailedRanges [][2]int `json:"failedRanges"`
+	Message      string                `json:"message"`
+	FailedRanges []cluster.FailedRange `json:"failedRanges"`
 }
 
 func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {

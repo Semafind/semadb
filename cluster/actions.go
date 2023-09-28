@@ -170,7 +170,14 @@ func (c *ClusterNode) DeleteCollection(col models.Collection) ([]string, error) 
 
 // ---------------------------
 
-func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point) ([][2]int, error) {
+type FailedRange struct {
+	ShardId string `json:"shardId"`
+	Start   int    `json:"start"`
+	End     int    `json:"end"`
+	Err     string `json:"error"`
+}
+
+func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point) ([]FailedRange, error) {
 	// ---------------------------
 	// This is where shard distribution happens
 	shards, err := c.GetShardsInfo(col)
@@ -216,7 +223,7 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 	}
 	// ---------------------------
 	// Insert points
-	failedRanges := make([][2]int, 0)
+	failedRanges := make([]FailedRange, 0)
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for shardId, pointRange := range shardAssignments {
@@ -238,7 +245,12 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 			if err := c.RPCInsertPoints(&insertReq, &insertResp); err != nil {
 				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", sId).Msg("could not insert points")
 				mu.Lock()
-				failedRanges = append(failedRanges, pRange)
+				failedRanges = append(failedRanges, FailedRange{
+					ShardId: sId,
+					Start:   pRange[0],
+					End:     pRange[1],
+					Err:     err.Error(),
+				})
 				mu.Unlock()
 			}
 			wg.Done()
@@ -249,8 +261,8 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 	wg.Wait()
 	// ---------------------------
 	successCount := len(points)
-	for _, pointRange := range failedRanges {
-		successCount -= pointRange[1] - pointRange[0]
+	for _, fr := range failedRanges {
+		successCount -= fr.End - fr.Start
 	}
 	c.metrics.pointInsertCount.Add(float64(successCount))
 	// ---------------------------
