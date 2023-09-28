@@ -326,18 +326,18 @@ func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 		}
 	}
 	// ---------------------------
-	// Update points returns a list of failed point ids
-	failedIds, err := sdbh.clusterNode.UpdatePoints(collection, points)
+	// Update points returns a list of failed points
+	failedPoints, err := sdbh.clusterNode.UpdatePoints(collection, points)
 	if err != nil {
 		c.Error(err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	message := "success"
-	if len(failedIds) > 0 {
+	if len(failedPoints) > 0 {
 		message = "partial success"
 	}
-	c.JSON(http.StatusOK, gin.H{"message": message, "failedIds": failedIds})
+	c.JSON(http.StatusOK, gin.H{"message": message, "failedPoints": failedPoints})
 }
 
 // ---------------------------
@@ -363,17 +363,17 @@ func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
 	// Get corresponding collection
 	collection := c.MustGet("collection").(models.Collection)
 	// ---------------------------
-	failedIds, err := sdbh.clusterNode.DeletePoints(collection, pointIds)
+	failedPoints, err := sdbh.clusterNode.DeletePoints(collection, pointIds)
 	if err != nil {
 		c.Error(err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	message := "success"
-	if len(failedIds) > 0 {
+	if len(failedPoints) > 0 {
 		message = "partial success"
 	}
-	c.JSON(http.StatusOK, gin.H{"message": message, "failedIds": failedIds})
+	c.JSON(http.StatusOK, gin.H{"message": message, "failedPoints": failedPoints})
 }
 
 // ---------------------------

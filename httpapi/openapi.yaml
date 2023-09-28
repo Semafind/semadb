@@ -320,8 +320,8 @@ paths:
         This endpoint allows updating point vectors and metadata. It does not
         allow updating the point id. If you want to update the id, you must
         delete the point and insert a new point. The points are required to
-        exist before you can update them. You can check the failedIds to see
-        which points failed to update.
+        exist before you can update them. You can check the failedPoints to see
+        which points failed to update and potentially why.
       operationId: UpdatePoint
       requestBody:
         description: Points to update
@@ -374,25 +374,31 @@ paths:
                     type: string
                     examples:
                       - partial success
-                  failedIds:
+                  failedPoints:
                     type: array
                     items:
-                      type: string
-                      format: uuid
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        error:
+                          type: string
               examples:
                 SuccessfulUpdatePointsResponse:
                   summary: Successful update points response
                   description: A sample response indicating full success
                   value:
                     message: success
-                    failedIds: []
+                    failedPoints: []
                 SamplePartialUpdatePointsResponse:
                   summary: Partial update points response
                   description: A sample response indicating partial success
                   value:
                     message: partial success
-                    failedIds:
-                      - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    failedPoints:
+                      - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        error: not found
     delete:
       tags:
         - Point
@@ -400,7 +406,7 @@ paths:
       description: >-
         Bulk delete points based on id. This endpoint does not check if the
         points exist. If you attempt to delete a point that does not exist, it
-        will be ignored and included in the failedIds list.
+        will be ignored and included in the failedPoints list.
       operationId: DeletePoint
       requestBody:
         description: Point IDs to delete
@@ -439,25 +445,31 @@ paths:
                     type: string
                     examples:
                       - partial success
-                  failedIds:
+                  failedPoints:
                     type: array
                     items:
-                      type: string
-                      format: uuid
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        error:
+                          type: string
               examples:
                 SuccessfulDeletePointsResponse:
                   summary: Successful delete points response
                   description: A sample response indicating full success
                   value:
                     message: success
-                    failedIds: []
+                    failedPoints: []
                 SamplePartialDeletePointsResponse:
                   summary: Partial delete points response
                   description: A sample response indicating partial success
                   value:
                     message: partial success
-                    failedIds:
-                      - 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    failedPoints:
+                      - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        error: not found
 # ---------------------------
   /collections/{collectionId}/points/search:
     summary: Search points

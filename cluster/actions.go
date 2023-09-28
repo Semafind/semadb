@@ -360,7 +360,12 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 
 // ---------------------------
 
-func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point) ([]uuid.UUID, error) {
+type FailedPoint struct {
+	Id  uuid.UUID `json:"id"`
+	Err string    `json:"error"`
+}
+
+func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point) ([]FailedPoint, error) {
 	// ---------------------------
 	// The update request is similar to the search request except we need to
 	// request every shard to participate. This is because we don't keep a table
@@ -372,6 +377,7 @@ func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point)
 	// shard will have the point.
 	results := make([]uuid.UUID, 0, len(points))
 	var wg sync.WaitGroup
+	successCount := 0
 	var mu sync.Mutex
 	for _, shardId := range col.ShardIds {
 		wg.Add(1)
@@ -393,36 +399,62 @@ func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point)
 			} else {
 				mu.Lock()
 				results = append(results, updateResp.UpdatedIds...)
+				successCount++
 				mu.Unlock()
 			}
 		}(shardId)
 	}
 	// ---------------------------
 	wg.Wait()
+	c.metrics.pointUpdateCount.Add(float64(len(results)))
+	// ---------------------------
 	// *** Return which points were NOT updated. ***
-	// This is because we want to notify clients / user what failed but internally
-	// we communicate what succeeded. Instead of every shard saying what failed,
-	// we can just say more concisely what succeeded to reduce traffic size.
-	slices.SortFunc(results, func(a, b uuid.UUID) int {
+	allIds := make([]uuid.UUID, len(points))
+	for i, point := range points {
+		allIds[i] = point.Id
+	}
+	return curateFailedPoints(allIds, results, successCount == len(col.ShardIds)), nil
+}
+
+func curateFailedPoints(allIds []uuid.UUID, successIds []uuid.UUID, isCompleteResponse bool) []FailedPoint {
+	// ---------------------------
+	slices.SortFunc(successIds, func(a, b uuid.UUID) int {
 		return bytes.Compare(a[:], b[:])
 	})
-	successSize := len(results)
-	for _, point := range points {
-		_, found := slices.BinarySearchFunc(results, point.Id, func(a, b uuid.UUID) int {
+	// ---------------------------
+	// At the moment all failed points share the same error message because it
+	// is an all or nothing operation. Either all shards respond and we know the
+	// point doesn't exist or some shards don't respond and we don't know if the
+	// point exists. In the future, we can have shards return a more specific
+	// error message, e.g. it found the point but failed to update / delete it.
+	errMessage := ErrShardUnavailable.Error()
+	if isCompleteResponse {
+		errMessage = "not found"
+	}
+	// ---------------------------
+	// *** Return which points were NOT processed. ***
+	// This is because we want to notify clients / user what failed but
+	// internally we communicate what succeeded. Instead of every shard saying
+	// what failed, we can just say more concisely what succeeded to hopefully
+	// reduce traffic size.
+	successSize := len(successIds)
+	failedPoints := make([]FailedPoint, 0, len(allIds)-successSize)
+	for _, id := range allIds {
+		_, found := slices.BinarySearchFunc(successIds, id, func(a, b uuid.UUID) int {
 			return bytes.Compare(a[:], b[:])
 		})
 		if !found {
-			// Because results has capacity of len(points), we can just append
-			// and then slice. This re-uses the allocated memory.
-			results = append(results, point.Id)
+			failedPoints = append(failedPoints, FailedPoint{
+				Id:  id,
+				Err: errMessage,
+			})
 		}
 	}
-	c.metrics.pointUpdateCount.Add(float64(successSize))
 	// ---------------------------
-	return results[successSize:], nil
+	return failedPoints
 }
 
-func (c *ClusterNode) DeletePoints(col models.Collection, pointIds []uuid.UUID) ([]uuid.UUID, error) {
+func (c *ClusterNode) DeletePoints(col models.Collection, pointIds []uuid.UUID) ([]FailedPoint, error) {
 	// ---------------------------
 	// Deleting points is similar to updating points and we ask every shard to
 	// participate. This is because we don't have a table of point ids to shard
@@ -434,6 +466,7 @@ func (c *ClusterNode) DeletePoints(col models.Collection, pointIds []uuid.UUID) 
 	// list of points that failed.
 	// ---------------------------
 	deletedIds := make([]uuid.UUID, 0, len(pointIds))
+	successCount := 0
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	for _, shardId := range col.ShardIds {
@@ -456,26 +489,15 @@ func (c *ClusterNode) DeletePoints(col models.Collection, pointIds []uuid.UUID) 
 			} else {
 				mu.Lock()
 				deletedIds = append(deletedIds, deleteResp.DeletedIds...)
+				successCount++
 				mu.Unlock()
 			}
 		}(shardId)
 	}
 	// ---------------------------
 	wg.Wait()
-	// *** Return which points were NOT deleted. ***
-	slices.SortFunc(deletedIds, func(a, b uuid.UUID) int {
-		return bytes.Compare(a[:], b[:])
-	})
-	successSize := len(deletedIds)
-	for _, pointId := range pointIds {
-		_, found := slices.BinarySearchFunc(deletedIds, pointId, func(a, b uuid.UUID) int {
-			return bytes.Compare(a[:], b[:])
-		})
-		if !found {
-			deletedIds = append(deletedIds, pointId)
-		}
-	}
-	c.metrics.pointDeleteCount.Add(float64(successSize))
+	c.metrics.pointDeleteCount.Add(float64(len(deletedIds)))
 	// ---------------------------
-	return deletedIds[successSize:], nil
+	// *** Return which points were NOT deleted. ***
+	return curateFailedPoints(pointIds, deletedIds, successCount == len(col.ShardIds)), nil
 }
