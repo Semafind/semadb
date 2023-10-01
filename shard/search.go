@@ -56,16 +56,14 @@ func (s *Shard) robustPrune(point *CachePoint, candidateSet DistSet, alpha float
 	// Exclude the point itself
 	candidateSet.Remove(point.Id)
 	// ---------------------------
-	point.Edges = point.Edges[:0] // Reset edges
-	point.neighbours = point.neighbours[:0]
+	point.ClearNeighbours() // Reset edges / neighbours
 	// ---------------------------
 	for candidateSet.Len() > 0 {
 		// ---------------------------
 		// Get the closest point
 		closestElem := candidateSet.Pop()
-		point.Edges = append(point.Edges, closestElem.point.Id)
-		point.neighbours = append(point.neighbours, closestElem.point)
-		if len(point.Edges) >= degreeBound {
+		edgeCount := point.AddNeighbour(closestElem.point)
+		if edgeCount >= degreeBound {
 			break
 		}
 		// ---------------------------
@@ -82,6 +80,5 @@ func (s *Shard) robustPrune(point *CachePoint, candidateSet DistSet, alpha float
 			}
 		}
 	}
-	point.isEdgeDirty = true
 	// ---------------------------
 }

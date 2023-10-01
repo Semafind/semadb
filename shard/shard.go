@@ -191,7 +191,7 @@ func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uuid.UUID, shardP
 		} else {
 			// ---------------------------
 			// Add the edge
-			pc.AddNeighbour(n, point)
+			n.AddNeighbour(point)
 		}
 	}
 	// ---------------------------
