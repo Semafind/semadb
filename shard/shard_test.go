@@ -80,6 +80,15 @@ func TestShard_CreatePoint(t *testing.T) {
 	assert.NoError(t, shard.Close())
 }
 
+func TestShard_CreateMorePoints(t *testing.T) {
+	shard := tempShard(t)
+	points := randPoints(256)
+	err := shard.InsertPoints(points)
+	assert.NoError(t, err)
+	checkPointCount(t, shard, 256)
+	assert.NoError(t, shard.Close())
+}
+
 func TestShard_Persistence(t *testing.T) {
 	shardDir := t.TempDir()
 	dbfile := filepath.Join(shardDir, "sharddb.bbolt")
