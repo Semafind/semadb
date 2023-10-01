@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/semafind/semadb/httpapi"
@@ -70,26 +71,27 @@ func makeRequest(method string, path string, body any) {
 
 const ENDPOINT = "http://localhost:8081/v1"
 const VECTORSIZE = 768
-const NUMVECTORS = 10000
+const NUMVECTORS = 100000
+const BATCHSIZE = 10000
 
 func main() {
 	// Create collection first
+	colName := strconv.Itoa(VECTORSIZE) + "d"
 	makeRequest("POST", "/collections", httpapi.CreateCollectionRequest{
-		Id:             "loadrand",
+		Id:             colName,
 		VectorSize:     VECTORSIZE,
 		DistanceMetric: "euclidean",
 	})
 	// Load vectors
-	batchSize := 1000
-	for i := 0; i < NUMVECTORS; i += batchSize {
-		vectors := make([]httpapi.InsertSinglePointRequest, batchSize)
-		for j := 0; j < batchSize; j++ {
+	for i := 0; i < NUMVECTORS; i += BATCHSIZE {
+		vectors := make([]httpapi.InsertSinglePointRequest, BATCHSIZE)
+		for j := 0; j < BATCHSIZE; j++ {
 			vectors[j] = httpapi.InsertSinglePointRequest{
 				Vector:   randVector(VECTORSIZE),
 				Metadata: randString(100),
 			}
 		}
-		makeRequest("POST", "/collections/loadrand/points", httpapi.InsertPointsRequest{
+		makeRequest("POST", "/collections/"+colName+"/points", httpapi.InsertPointsRequest{
 			Points: vectors,
 		})
 	}
