@@ -23,7 +23,7 @@ clusterNode:
   backupCount: 3
   # -------------------------------
   # Maximum size of shards in bytes
-  maxShardSize: 268435456 # 2GiB
+  maxShardSize: 2147483648 # 2GiB
   maxShardPointCount: 250000 # 250k
   # Maximum number of points to search
   maxSearchLimit: 75
