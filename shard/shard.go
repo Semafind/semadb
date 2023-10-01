@@ -1,9 +1,11 @@
 package shard
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -176,13 +178,18 @@ func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uuid.UUID, shardP
 		if err != nil {
 			return fmt.Errorf("could not get neighbour point: %w", err)
 		}
+		// While we are adding the bi-directional edges, we need exclusive
+		// access to ensure other goroutines don't modify the edges while we are
+		// dealing with them.
+		n.mu.Lock()
 		if len(n.Edges)+1 > s.collection.Parameters.DegreeBound {
 			// ---------------------------
-			// We need to prune the neighbour as well to keep the degree bound
 			nn, err := pc.GetPointNeighbours(n)
 			if err != nil {
+				n.mu.Unlock()
 				return fmt.Errorf("could not get neighbour neighbours: %w", err)
 			}
+			// We need to prune the neighbour as well to keep the degree bound
 			candidateSet := NewDistSet(n.Vector, len(n.Edges)+1, s.distFn)
 			candidateSet.AddPoint(nn...)
 			candidateSet.AddPoint(point)
@@ -193,12 +200,15 @@ func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uuid.UUID, shardP
 			// Add the edge
 			n.AddNeighbour(point)
 		}
+		n.mu.Unlock()
 	}
 	// ---------------------------
 	return nil
 }
 
 // ---------------------------
+
+const NUMWORKERS = 4
 
 func (s *Shard) InsertPoints(points []models.Point) error {
 	// ---------------------------
@@ -216,31 +226,57 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
-		// Insert points
-		for i, point := range points {
-			_, err := pc.GetPoint(point.Id)
-			if err == nil {
-				// The point exists, we can't re-insert it. This is actually an
-				// error because the edges will be wrong in the graph. It needs
-				// to be updated instead.
-				log.Debug().Str("id", point.Id.String()).Msg("point already exists")
-				return fmt.Errorf("point already exists: %s", point.Id.String())
-			}
-			if err := s.insertSinglePoint(pc, s.startId, ShardPoint{Point: point}); err != nil {
-				log.Debug().Err(err).Msg("could not insert point")
-				return fmt.Errorf("could not insert point: %w", err)
-			}
-			// bar.Add(1)
-			if i%10000 == 0 && i != 0 {
-				// Print points per second performance
-				log.Debug().Int("i", i).Float64("perf(p/s)", float64(i)/time.Since(startTime).Seconds()).Msg("InsertPoints - Performance")
-			}
+		// Setup parallel insert routine
+		var wg sync.WaitGroup
+		ctx, cancel := context.WithCancelCause(context.Background())
+		jobQueue := make(chan ShardPoint, len(points))
+		// Start the workers and start inserting points.
+		for i := 0; i < NUMWORKERS; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for point := range jobQueue {
+					// Check if we've been cancelled
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+					// If the point exists, we can't re-insert it. This is
+					// actually an error because the edges will be wrong in the
+					// graph. It needs to be updated instead. We can potentially
+					// do it here (do an update instead of insert) but the API
+					// design migh be inconsistent as it will then depend
+					// whether a point is re-assigned to the same shard during
+					// insertion when there are multiple shards. We are
+					// returning an error here to force the user to update the
+					// point instead which handles the multiple shard case.
+					if _, err := pc.GetPoint(point.Id); err == nil {
+						cancel(fmt.Errorf("point already exists: %s", point.Id.String()))
+						return
+					}
+					// Insert the point
+					if err := s.insertSinglePoint(pc, s.startId, point); err != nil {
+						cancel(err)
+						return
+					}
+				}
+			}()
+		}
+		// Submit the jobs
+		for point := range points {
+			jobQueue <- ShardPoint{Point: points[point]}
+		}
+		close(jobQueue)
+		wg.Wait()
+		finalErr := context.Cause(ctx)
+		if finalErr != nil {
+			return finalErr
 		}
 		log.Debug().Int("points", len(points)).Float64("perf(p/s)", float64(len(points))/time.Since(startTime).Seconds()).Msg("InsertPoints Points / Second")
 		// ---------------------------
 		// Update point count accordingly
 		if err := changePointCount(tx, int64(len(points))); err != nil {
-			log.Debug().Err(err).Msg("could not update point count")
 			return fmt.Errorf("could not update point count for insertion: %w", err)
 		}
 		// ---------------------------

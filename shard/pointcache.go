@@ -16,6 +16,21 @@ type CachePoint struct {
 	mu          sync.Mutex
 }
 
+func (cp *CachePoint) ClearNeighbours() {
+	cp.Edges = cp.Edges[:0]
+	cp.neighbours = cp.neighbours[:0]
+	cp.isEdgeDirty = true
+}
+
+func (cp *CachePoint) AddNeighbour(neighbour *CachePoint) int {
+	cp.Edges = append(cp.Edges, neighbour.Id)
+	cp.neighbours = append(cp.neighbours, neighbour)
+	cp.isEdgeDirty = true
+	return len(cp.Edges)
+}
+
+// ---------------------------
+
 type PointCache struct {
 	bucket *bbolt.Bucket
 	points map[uuid.UUID]*CachePoint
@@ -47,8 +62,6 @@ func (pc *PointCache) GetPoint(pointId uuid.UUID) (*CachePoint, error) {
 }
 
 func (pc *PointCache) GetPointNeighbours(point *CachePoint) ([]*CachePoint, error) {
-	point.mu.Lock()
-	defer point.mu.Unlock()
 	if point.neighbours != nil {
 		return point.neighbours, nil
 	}
@@ -72,23 +85,6 @@ func (pc *PointCache) SetPoint(point ShardPoint) *CachePoint {
 	}
 	pc.points[point.Id] = newPoint
 	return newPoint
-}
-
-func (cp *CachePoint) ClearNeighbours() {
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-	cp.Edges = cp.Edges[:0]
-	cp.neighbours = cp.neighbours[:0]
-	cp.isEdgeDirty = true
-}
-
-func (cp *CachePoint) AddNeighbour(neighbour *CachePoint) int {
-	cp.mu.Lock()
-	defer cp.mu.Unlock()
-	cp.Edges = append(cp.Edges, neighbour.Id)
-	cp.neighbours = append(cp.neighbours, neighbour)
-	cp.isEdgeDirty = true
-	return len(cp.Edges)
 }
 
 func (pc *PointCache) Flush() error {

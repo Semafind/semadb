@@ -35,11 +35,21 @@ func (s *Shard) greedySearch(pc *PointCache, startPointId uuid.UUID, query []flo
 			continue
 		}
 		visitedSet.Add(distElem)
+		// ---------------------------
+		// We have to lock the point here because while we are calculating the
+		// distance of its neighbours (edges in the graph) we can't have another
+		// goroutine changing them. The case we aren't covering is after we have
+		// calculated, they may change the search we are doing is not
+		// deterministic. With approximate search this is not a major problem.
+		distElem.point.mu.Lock()
 		neighbours, err := pc.GetPointNeighbours(distElem.point)
 		if err != nil {
+			distElem.point.mu.Unlock()
 			return searchSet, visitedSet, fmt.Errorf("failed to get neighbours: %w", err)
 		}
 		searchSet.AddPoint(neighbours...)
+		distElem.point.mu.Unlock()
+		// ---------------------------
 		searchSet.Sort()
 		if searchSet.Len() > searchSize {
 			searchSet.KeepFirstK(searchSize)
