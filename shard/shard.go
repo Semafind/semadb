@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"runtime"
 	"sync"
 	"time"
 
@@ -208,8 +209,6 @@ func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uuid.UUID, shardP
 
 // ---------------------------
 
-const NUMWORKERS = 4
-
 func (s *Shard) InsertPoints(points []models.Point) error {
 	// ---------------------------
 	// profileFile, _ := os.Create("dump/cpu.prof")
@@ -229,9 +228,11 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		// Setup parallel insert routine
 		var wg sync.WaitGroup
 		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
 		jobQueue := make(chan ShardPoint, len(points))
 		// Start the workers and start inserting points.
-		for i := 0; i < NUMWORKERS; i++ {
+		numWorkers := runtime.NumCPU() * 3 / 4 // We leave some cores for other tasks
+		for i := 0; i < numWorkers; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
