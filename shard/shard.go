@@ -318,12 +318,10 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 			for _, edgeId := range cachedPoint.Edges {
 				updateSet := map[uuid.UUID]struct{}{point.Id: {}}
 				if err := s.pruneDeleteNeighbour(pc, edgeId, updateSet); err != nil {
-					log.Debug().Err(err).Msg("could not prune delete neighbour")
 					return fmt.Errorf("could not prune delete neighbour for update: %w", err)
 				}
 			}
 			if err := s.insertSinglePoint(pc, s.startId, ShardPoint{Point: point}); err != nil {
-				log.Debug().Err(err).Msg("could not re-insert point for update")
 				return fmt.Errorf("could not re-insert point: %w", err)
 			}
 			results = append(results, point.Id)
@@ -466,14 +464,12 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		// ---------------------------
 		for pointId := range toPrune {
 			if err := s.pruneDeleteNeighbour(pc, pointId, deleteSet); err != nil {
-				log.Debug().Err(err).Msg("could not prune delete neighbour")
 				return fmt.Errorf("could not prune delete neighbour: %w", err)
 			}
 		}
 		// ---------------------------
 		// Update point count accordingly
 		if err := changePointCount(tx, -int64(len(deletedIds))); err != nil {
-			log.Debug().Err(err).Msg("could not change point count")
 			return fmt.Errorf("could not change point count for deletion: %w", err)
 		}
 		// ---------------------------
