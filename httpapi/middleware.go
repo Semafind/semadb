@@ -50,6 +50,7 @@ func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
 		start := time.Now()
 		path := c.Request.URL.Path
 		raw := c.Request.URL.RawQuery
+		reqSize := c.Request.ContentLength
 		// ---------------------------
 		// Process request
 		c.Next()
@@ -79,6 +80,7 @@ func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
 			Str("remoteIP", c.RemoteIP()).
 			Str("method", method).Str("path", path).
 			Int("statusCode", statusCode).
+			Int64("requestSize", reqSize).
 			Int("bodySize", bodySize).
 			Str("path", path)
 		// Extract app headers if any
@@ -100,7 +102,7 @@ func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
 			ssCode := strconv.Itoa(statusCode)
 			metrics.requestCount.WithLabelValues(ssCode, method, hname).Inc()
 			metrics.requestDuration.WithLabelValues(ssCode, method, hname).Observe(latency.Seconds())
-			metrics.requestSize.WithLabelValues(ssCode, method, hname).Observe(float64(c.Request.ContentLength))
+			metrics.requestSize.WithLabelValues(ssCode, method, hname).Observe(float64(reqSize))
 			metrics.responseSize.WithLabelValues(ssCode, method, hname).Observe(float64(bodySize))
 		}
 	}
