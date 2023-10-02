@@ -23,6 +23,10 @@ info:
     name: Apache 2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 # ---------------------------
+servers:
+  - url: https://semadb.semafind.com/v1
+    description: Production server
+# ---------------------------
 tags:
 - name: Collection
   description: >-
