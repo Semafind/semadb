@@ -26,8 +26,13 @@ func randDistElems(dists ...float32) []DistSetElem {
 	return elems
 }
 
+func setupDistSet(capacity int) DistSet {
+	distFn, _ := distance.GetDistanceFn("euclidean")
+	return NewDistSet([]float32{1.0, 2.0}, capacity, distFn)
+}
+
 func TestDistSet_Add(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 2, distance.EuclideanDistance)
+	ds := setupDistSet(2)
 	elems := randDistElems(0.5, 1.0, 0.2)
 	ds.Add(elems...)
 	assert.Equal(t, 3, ds.Len())
@@ -44,7 +49,7 @@ func TestDistSet_Add(t *testing.T) {
 }
 
 func TestDistSet_Add_Duplicate(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 3, distance.EuclideanDistance)
+	ds := setupDistSet(3)
 	elems := randDistElems(0.5, 1.0, 0.1)
 	ds.Add(elems...)
 	ds.Add(elems[0])
@@ -57,7 +62,7 @@ func TestDistSet_Add_Duplicate(t *testing.T) {
 }
 
 func TestDistSet_KeepFirstK(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 3, distance.EuclideanDistance)
+	ds := setupDistSet(3)
 	elems := randDistElems(0.5, 1.0, 0.2)
 	ds.Add(elems...)
 	ds.Sort()
@@ -70,7 +75,7 @@ func TestDistSet_KeepFirstK(t *testing.T) {
 }
 
 func TestDistSet_Pop_Remove(t *testing.T) {
-	ds := NewDistSet([]float32{1.0, 2.0}, 3, distance.EuclideanDistance)
+	ds := setupDistSet(3)
 	elems := randDistElems(0.5, 1.0, 0.2)
 	ds.Add(elems...)
 	ds.Sort()
