@@ -96,9 +96,9 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 		return nil, fmt.Errorf("could not initialise shard: %w", err)
 	}
 	// ---------------------------
-	distFn := distance.EuclideanDistance
-	if collection.DistMetric == "cosine" {
-		distFn = distance.CosineDistance
+	distFn, err := distance.GetDistanceFn(collection.DistMetric)
+	if err != nil {
+		return nil, fmt.Errorf("could not get distance function: %w", err)
 	}
 	// ---------------------------
 	return &Shard{

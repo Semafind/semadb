@@ -27,7 +27,7 @@ func NewSemaDBHandlers(clusterNode *cluster.ClusterNode) *SemaDBHandlers {
 type CreateCollectionRequest struct {
 	Id             string `json:"id" binding:"required,alphanum,min=3,max=16"`
 	VectorSize     uint   `json:"vectorSize" binding:"required"`
-	DistanceMetric string `json:"distanceMetric" binding:"required,oneof=euclidean cosine"`
+	DistanceMetric string `json:"distanceMetric" binding:"required,oneof=euclidean cosine dot"`
 }
 
 func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {

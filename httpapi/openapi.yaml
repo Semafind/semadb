@@ -585,6 +585,7 @@ components:
       enum:
         - euclidean
         - cosine
+        - dot
     Vector:
       type: array
       description: Point vector, aka embedding
