@@ -65,14 +65,15 @@ func (pc *PointCache) GetPointNeighbours(point *CachePoint) ([]*CachePoint, erro
 	if point.neighbours != nil {
 		return point.neighbours, nil
 	}
-	point.neighbours = make([]*CachePoint, len(point.Edges))
-	for i, edgeId := range point.Edges {
+	neighbours := make([]*CachePoint, 0, len(point.Edges))
+	for _, edgeId := range point.Edges {
 		edge, err := pc.GetPoint(edgeId)
 		if err != nil {
 			return nil, err
 		}
-		point.neighbours[i] = edge
+		neighbours = append(neighbours, edge)
 	}
+	point.neighbours = neighbours
 	return point.neighbours, nil
 }
 
