@@ -36,6 +36,20 @@ func getPointCount(shard *Shard) (count int64) {
 	return
 }
 
+func getPointEdgeCount(shard *Shard, pointId uuid.UUID) (count int) {
+	shard.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(POINTSKEY)
+		point, err := getPoint(b, pointId)
+		if err != nil {
+			count = -1
+			return err
+		}
+		count = len(point.Edges)
+		return nil
+	})
+	return
+}
+
 func checkPointCount(t *testing.T, shard *Shard, expected int64) {
 	assert.Equal(t, expected, getPointCount(shard))
 	si, err := shard.Info()
@@ -177,5 +191,29 @@ func TestShard_DeletePoint(t *testing.T) {
 	assert.Equal(t, points[1].Id, delIds[0])
 	assert.NoError(t, err)
 	checkPointCount(t, shard, 0)
+	assert.NoError(t, shard.Close())
+}
+
+func TestShard_InsertDeleteSearchInsertPoint(t *testing.T) {
+	shard := tempShard(t)
+	points := randPoints(2)
+	shard.InsertPoints(points)
+	deleteSet := make(map[uuid.UUID]struct{})
+	deleteSet[points[0].Id] = struct{}{}
+	deleteSet[points[1].Id] = struct{}{}
+	// delete all points
+	delIds, err := shard.DeletePoints(deleteSet)
+	assert.NoError(t, err)
+	assert.Len(t, delIds, 2)
+	checkPointCount(t, shard, 0)
+	assert.Equal(t, 0, getPointEdgeCount(shard, shard.startId))
+	// Try searching for the deleted point
+	res, err := shard.SearchPoints(points[0].Vector, 1)
+	assert.NoError(t, err)
+	assert.Len(t, res, 0)
+	// Try inserting the deleted points
+	err = shard.InsertPoints(points)
+	assert.NoError(t, err)
+	checkPointCount(t, shard, 2)
 	assert.NoError(t, shard.Close())
 }

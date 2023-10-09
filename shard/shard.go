@@ -412,15 +412,18 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uuid.UUID, deleteSet map
 	for _, neighbour := range pointNeighbours {
 		if _, ok := deleteSet[neighbour.Id]; ok {
 			// Pull the neighbours of the deleted neighbour, and add them to the candidate set
-			deletedPoint, err := pc.GetPoint(neighbour.Id)
-			if err != nil {
-				return fmt.Errorf("could not get deleted point: %w", err)
-			}
-			deletedPointNeighbours, err := pc.GetPointNeighbours(deletedPoint)
+			deletedPointNeighbours, err := pc.GetPointNeighbours(neighbour)
 			if err != nil {
 				return fmt.Errorf("could not get deleted point neighbours: %w", err)
 			}
-			candidateSet.AddPoint(deletedPointNeighbours...)
+			// Check if those neighbours are in the delete set, if not add them
+			// to the candidate set. We do this check in case our neighbour has
+			// neighbours that are being deleted too.
+			for _, deletedPointNeighbour := range deletedPointNeighbours {
+				if _, ok := deleteSet[deletedPointNeighbour.Id]; !ok {
+					candidateSet.AddPoint(deletedPointNeighbour)
+				}
+			}
 		} else {
 			candidateSet.AddPoint(neighbour)
 		}
