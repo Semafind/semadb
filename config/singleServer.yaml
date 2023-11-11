@@ -35,14 +35,14 @@ clusterNode:
 httpApi:
   debug: *GLOBAL_DEBUG
   # HTTP Parameters
-  httpHost: localhost
+  httpHost: ""
   httpPort: 8081
   enableMetrics: true
-  metricsHttpHost: localhost
+  metricsHttpHost: ""
   metricsHttpPort: 8091
   proxySecret: ""
   whiteListIPs:
-    - 127.0.0.1
+    - '*'
   # User Plans
   userPlans:
     BASIC:
