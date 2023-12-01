@@ -59,8 +59,8 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.
 		router.Use(WhiteListIPMiddleware(cfg.WhiteListIPs))
 	}
 	// ---------------------------
+	router.GET("/v1/ping", pongHandler)
 	v1 := router.Group("/v1", AppHeaderMiddleware(cfg))
-	v1.GET("/ping", pongHandler)
 	// ---------------------------
 	// https://stackoverflow.blog/2020/03/02/best-practices-for-rest-api-design/
 	semaDBHandlers := NewSemaDBHandlers(cnode)
