@@ -115,6 +115,12 @@ func Test_pongHandler(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	// With App Headers
+	req.Header.Set("X-User-Id", "testy")
+	req.Header.Set("X-Plan-Id", "BASIC")
+	w = httptest.NewRecorder()
+	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, "{\"message\":\"pong from semadb\"}", w.Body.String())
 }
