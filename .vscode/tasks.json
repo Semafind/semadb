@@ -16,6 +16,11 @@
 		},
 		{
 			"type": "shell",
+			"label": "go: test race shard",
+			"command": "go clean -testcache && go test -race ./shard",
+		},
+		{
+			"type": "shell",
 			"label": "go: profile",
 			"command": "go",
 			"args": [
