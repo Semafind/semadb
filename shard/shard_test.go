@@ -96,10 +96,10 @@ func TestShard_CreatePoint(t *testing.T) {
 
 func TestShard_CreateMorePoints(t *testing.T) {
 	shard := tempShard(t)
-	points := randPoints(256)
+	points := randPoints(4242)
 	err := shard.InsertPoints(points)
 	assert.NoError(t, err)
-	checkPointCount(t, shard, 256)
+	checkPointCount(t, shard, 4242)
 	assert.NoError(t, shard.Close())
 }
 
@@ -215,5 +215,55 @@ func TestShard_InsertDeleteSearchInsertPoint(t *testing.T) {
 	err = shard.InsertPoints(points)
 	assert.NoError(t, err)
 	checkPointCount(t, shard, 2)
+	assert.NoError(t, shard.Close())
+}
+
+func TestShard_LargeInsertDeleteInsertSearch(t *testing.T) {
+	shard := tempShard(t)
+	initSize := 10000
+	points := randPoints(initSize)
+	shard.InsertPoints(points)
+	deleteSet := make(map[uuid.UUID]struct{})
+	delSize := 5000
+	for i := 0; i < delSize; i++ {
+		deleteSet[points[i].Id] = struct{}{}
+	}
+	// delete all points
+	delIds, err := shard.DeletePoints(deleteSet)
+	assert.NoError(t, err)
+	assert.Len(t, delIds, delSize)
+	checkPointCount(t, shard, int64(initSize-delSize))
+	// Try inserting the deleted points
+	err = shard.InsertPoints(points[:delSize])
+	assert.NoError(t, err)
+	checkPointCount(t, shard, int64(initSize))
+	// Try searching for the deleted point
+	res, err := shard.SearchPoints(points[0].Vector, 1)
+	assert.NoError(t, err)
+	assert.Len(t, res, 1)
+	assert.Equal(t, points[0].Id, res[0].Point.Id)
+	assert.NoError(t, shard.Close())
+}
+
+func TestShard_LargeInsertUpdateSearch(t *testing.T) {
+	shard := tempShard(t)
+	initSize := 10000
+	points := randPoints(initSize)
+	shard.InsertPoints(points)
+	// Update half the points
+	updateSize := initSize / 2
+	updatePoints := randPoints(updateSize)
+	for i := 0; i < updateSize; i++ {
+		updatePoints[i].Id = points[i].Id
+	}
+	updateRes, err := shard.UpdatePoints(updatePoints)
+	assert.NoError(t, err)
+	assert.Len(t, updateRes, updateSize)
+	checkPointCount(t, shard, int64(initSize))
+	// Try searching for the updated point
+	res, err := shard.SearchPoints(updatePoints[0].Vector, 1)
+	assert.NoError(t, err)
+	assert.Len(t, res, 1)
+	assert.Equal(t, points[0].Id, res[0].Point.Id)
 	assert.NoError(t, shard.Close())
 }
