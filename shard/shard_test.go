@@ -267,3 +267,47 @@ func TestShard_LargeInsertUpdateSearch(t *testing.T) {
 	assert.Equal(t, points[0].Id, res[0].Point.Id)
 	assert.NoError(t, shard.Close())
 }
+
+func BenchmarkShard_InsertSinglePoint(b *testing.B) {
+	// ---------------------------
+	vecSize := 1536
+	benchmarkCol := models.Collection{
+		UserId:     "test",
+		Id:         "test",
+		VectorSize: uint(vecSize),
+		DistMetric: "euclidean",
+		Replicas:   1,
+		Algorithm:  "vamana",
+		Parameters: models.DefaultVamanaParameters(),
+	}
+	// ---------------------------
+	dbpath := filepath.Join(b.TempDir(), "sharddb.bbolt")
+	shard, err := NewShard(dbpath, benchmarkCol)
+	assert.NoError(b, err)
+	b.ResetTimer()
+	// ---------------------------
+	err = shard.db.Update(func(tx *bbolt.Tx) error {
+		buc := tx.Bucket(POINTSKEY)
+		pc := NewPointCache(buc)
+		for i := 0; i < b.N; i++ {
+			// Create a random point
+			if i%1000 == 0 {
+				b.Log(i)
+			}
+			randVector := make([]float32, vecSize)
+			for j := 0; j < vecSize; j++ {
+				randVector[j] = rand.Float32()*2 - 1
+			}
+			point := models.Point{
+				Id:       uuid.New(),
+				Vector:   randVector,
+				Metadata: []byte("test"),
+			}
+			shard.insertSinglePoint(pc, shard.startId, ShardPoint{Point: point})
+		}
+		return pc.Flush()
+	})
+	assert.NoError(b, err)
+	// ---------------------------
+	assert.NoError(b, shard.Close())
+}
