@@ -2,10 +2,16 @@ package shard
 
 import (
 	"math/rand"
+	"os"
 	"path/filepath"
+	"runtime/pprof"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
+	"github.com/semafind/semadb/internal/loadhdf5"
 	"github.com/semafind/semadb/models"
 	"github.com/stretchr/testify/assert"
 	"go.etcd.io/bbolt"
@@ -268,46 +274,70 @@ func TestShard_LargeInsertUpdateSearch(t *testing.T) {
 	assert.NoError(t, shard.Close())
 }
 
-func BenchmarkShard_InsertSinglePoint(b *testing.B) {
+func TestShard_InsertSinglePoint(t *testing.T) {
 	// ---------------------------
-	vecSize := 1536
-	benchmarkCol := models.Collection{
-		UserId:     "test",
-		Id:         "test",
-		VectorSize: uint(vecSize),
-		DistMetric: "euclidean",
-		Replicas:   1,
-		Algorithm:  "vamana",
-		Parameters: models.DefaultVamanaParameters(),
+	/* This test is disabled by default because it takes a long time to run. We
+	 * are not setting this as a benchmark because we are interested in the total
+	 * time taken to insert all the points, not the time taken to insert a single
+	 * point. */
+	// Run using go test -v -timeout 2m -run ^TestShard_InsertSinglePoint$ github.com/semafind/semadb/shard
+	t.Skip("Skipping benchmark test")
+	// ---------------------------
+	numPoints := 10000
+	// ---------------------------
+	// Find all dataset files in data folder ending with hdf5
+	datasetFiles, err := filepath.Glob("../data/*.hdf5")
+	assert.NoError(t, err)
+	t.Log("Found", len(datasetFiles), "files:", datasetFiles)
+	// ---------------------------
+	// Disable zerolog
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+	// ---------------------------
+	profileFile, _ := os.Create("../dump/cpu.prof")
+	defer profileFile.Close()
+	pprof.StartCPUProfile(profileFile)
+	defer pprof.StopCPUProfile()
+	// ---------------------------
+	for _, datasetFile := range datasetFiles {
+		t.Run(filepath.Base(datasetFile), func(t *testing.T) {
+			vecCol, err := loadhdf5.LoadHDF5(datasetFile)
+			assert.NoError(t, err)
+			col := models.Collection{
+				UserId:     "test",
+				Id:         strings.Split(filepath.Base(datasetFile), ".")[0],
+				VectorSize: uint(len(vecCol.Vectors[0])),
+				DistMetric: vecCol.DistMetric,
+				Replicas:   1,
+				Algorithm:  "vamana",
+				Parameters: models.DefaultVamanaParameters(),
+			}
+			t.Log("Loaded", len(vecCol.Vectors), "vectors of size", col.VectorSize, "from", datasetFile)
+			// ---------------------------
+			dbpath := filepath.Join(t.TempDir(), "sharddb.bbolt")
+			shard, err := NewShard(dbpath, col)
+			assert.NoError(t, err)
+			// ---------------------------
+			maxPoints := min(numPoints, len(vecCol.Vectors))
+			err = shard.db.Update(func(tx *bbolt.Tx) error {
+				buc := tx.Bucket(POINTSKEY)
+				pc := NewPointCache(buc)
+				startTime := time.Now()
+				for i := 0; i < maxPoints; i++ {
+					// Create a random point
+					point := models.Point{
+						Id:       uuid.New(),
+						Vector:   vecCol.Vectors[i],
+						Metadata: []byte("test"),
+					}
+					shard.insertSinglePoint(pc, shard.startId, ShardPoint{Point: point})
+				}
+				t.Log("Insert took", time.Since(startTime))
+				return pc.Flush()
+			})
+			assert.NoError(t, err)
+			// ---------------------------
+			assert.NoError(t, shard.Close())
+		})
 	}
 	// ---------------------------
-	dbpath := filepath.Join(b.TempDir(), "sharddb.bbolt")
-	shard, err := NewShard(dbpath, benchmarkCol)
-	assert.NoError(b, err)
-	b.ResetTimer()
-	// ---------------------------
-	err = shard.db.Update(func(tx *bbolt.Tx) error {
-		buc := tx.Bucket(POINTSKEY)
-		pc := NewPointCache(buc)
-		for i := 0; i < b.N; i++ {
-			// Create a random point
-			if i%1000 == 0 {
-				b.Log(i)
-			}
-			randVector := make([]float32, vecSize)
-			for j := 0; j < vecSize; j++ {
-				randVector[j] = rand.Float32()*2 - 1
-			}
-			point := models.Point{
-				Id:       uuid.New(),
-				Vector:   randVector,
-				Metadata: []byte("test"),
-			}
-			shard.insertSinglePoint(pc, shard.startId, ShardPoint{Point: point})
-		}
-		return pc.Flush()
-	})
-	assert.NoError(b, err)
-	// ---------------------------
-	assert.NoError(b, shard.Close())
 }
