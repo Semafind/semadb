@@ -27,7 +27,7 @@ var sampleCol models.Collection = models.Collection{
 	Parameters: models.DefaultVamanaParameters(),
 }
 
-func getPointCount(shard *Shard) (count int64) {
+func getPointCount(shard *Shard) (count int) {
 	shard.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
 		b.ForEach(func(k, v []byte) error {
@@ -84,11 +84,11 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	assert.Equal(t, expectedCount, len(visited)-1)
 }
 
-func checkPointCount(t *testing.T, shard *Shard, expected int64) {
+func checkPointCount(t *testing.T, shard *Shard, expected int) {
 	assert.Equal(t, expected, getPointCount(shard))
 	si, err := shard.Info()
 	assert.NoError(t, err)
-	assert.Equal(t, expected, si.PointCount)
+	assert.EqualValues(t, expected, si.PointCount)
 	checkConnectivity(t, shard, int(expected))
 }
 
@@ -324,12 +324,12 @@ func TestShard_LargeInsertDeleteInsertSearch(t *testing.T) {
 	// dumpEdgesToCSV(t, shard, "../dump/edgesAfterDelete.csv")
 	assert.NoError(t, err)
 	assert.Len(t, delIds, delSize)
-	checkPointCount(t, shard, int64(initSize-delSize))
+	checkPointCount(t, shard, initSize-delSize)
 	checkNoReferences(t, shard, delIds...)
 	// Try inserting the deleted points
 	err = shard.InsertPoints(points[:delSize])
 	assert.NoError(t, err)
-	checkPointCount(t, shard, int64(initSize))
+	checkPointCount(t, shard, initSize)
 	// Try searching for the deleted point
 	sp := points[0]
 	res, err := shard.SearchPoints(sp.Vector, 1)
@@ -353,7 +353,7 @@ func TestShard_LargeInsertUpdateSearch(t *testing.T) {
 	updateRes, err := shard.UpdatePoints(updatePoints)
 	assert.NoError(t, err)
 	assert.Len(t, updateRes, updateSize)
-	checkPointCount(t, shard, int64(initSize))
+	checkPointCount(t, shard, initSize)
 	// Try searching for the updated point
 	res, err := shard.SearchPoints(updatePoints[0].Vector, 1)
 	assert.NoError(t, err)
