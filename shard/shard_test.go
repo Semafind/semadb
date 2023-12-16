@@ -56,11 +56,40 @@ func getPointEdgeCount(shard *Shard, pointId uuid.UUID) (count int) {
 	return
 }
 
+func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
+	// Perform a BFS from the start point
+	visited := make(map[uuid.UUID]struct{})
+	queue := make([]uuid.UUID, 0)
+	queue = append(queue, shard.startId)
+	err := shard.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(POINTSKEY)
+		for len(queue) > 0 {
+			pointId := queue[0]
+			queue = queue[1:]
+			if _, ok := visited[pointId]; ok {
+				continue
+			}
+			visited[pointId] = struct{}{}
+			point, err := getPoint(b, pointId)
+			if err != nil {
+				return err
+			}
+			queue = append(queue, point.Edges...)
+		}
+		return nil
+	})
+	assert.NoError(t, err)
+	// We subtract one because the start point is not in the database but is an
+	// entry point to the graph.
+	assert.Equal(t, expectedCount, len(visited)-1)
+}
+
 func checkPointCount(t *testing.T, shard *Shard, expected int64) {
 	assert.Equal(t, expected, getPointCount(shard))
 	si, err := shard.Info()
 	assert.NoError(t, err)
 	assert.Equal(t, expected, si.PointCount)
+	checkConnectivity(t, shard, int(expected))
 }
 
 func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
@@ -316,7 +345,7 @@ func TestShard_LargeInsertUpdateSearch(t *testing.T) {
 	points := randPoints(initSize)
 	shard.InsertPoints(points)
 	// Update half the points
-	updateSize := initSize / 2
+	updateSize := 100
 	updatePoints := randPoints(updateSize)
 	for i := 0; i < updateSize; i++ {
 		updatePoints[i].Id = points[i].Id

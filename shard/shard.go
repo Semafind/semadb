@@ -301,39 +301,70 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("UpdatePoints")
 	// ---------------------------
-	// We don't expect to update all the points because some may be in other shards.
-	results := make([]uuid.UUID, 0, len(points)/2)
+	// Note that some points may not exist, so we need to take care of that
+	// throughout this function
+	updateSet := make(map[uuid.UUID]struct{}, len(points))
+	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
-		// Update points if they exist
+		// First we check if the points exist
 		for _, point := range points {
-			cachedPoint, err := pc.GetPoint(point.Id)
-			if err != nil {
+			if _, err := pc.GetPoint(point.Id); err != nil {
 				// Point does not exist, or we can't access it at the moment
 				continue
 			}
-			// The point already exists, we need to prune it's neighbours before re-inserting
-			for _, edgeId := range cachedPoint.Edges {
-				updateSet := map[uuid.UUID]struct{}{point.Id: {}}
-				if err := s.pruneDeleteNeighbour(pc, edgeId, updateSet); err != nil {
-					return fmt.Errorf("could not prune delete neighbour for update: %w", err)
-				}
+			updateSet[point.Id] = struct{}{}
+		}
+		if len(updateSet) == 0 {
+			// No points to update, we skip the process
+			return nil
+		}
+		// ---------------------------
+		// We assume the updated points have their vectors changed. We can in
+		// the future handle metadata updates specifically so all this
+		// re-indexing doesn't happen.
+		startTime := time.Now()
+		toPrune, err := pc.EdgeScan(updateSet)
+		log.Debug().Str("component", "shard").Int("count", len(toPrune)).Str("duration", time.Since(startTime).String()).Msg("UpdatePoints - EdgeScan")
+		if err != nil {
+			return fmt.Errorf("could not scan edges: %w", err)
+		}
+		// ---------------------------
+		startTime = time.Now()
+		for _, pointId := range toPrune {
+			if err := s.pruneDeleteNeighbour(pc, pointId, updateSet); err != nil {
+				return fmt.Errorf("could not prune delete neighbour: %w", err)
+			}
+		}
+		log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("UpdatePoints - PruneDeleteNeighbour")
+		// ---------------------------
+		// Now the pruning is complete, we can re-insert the points again
+		for _, point := range points {
+			// Check it is in the updateSet
+			if _, ok := updateSet[point.Id]; !ok {
+				continue
 			}
 			if err := s.insertSinglePoint(pc, s.startId, ShardPoint{Point: point}); err != nil {
 				return fmt.Errorf("could not re-insert point: %w", err)
 			}
-			results = append(results, point.Id)
 		}
+		// ---------------------------
 		return pc.Flush()
 	})
 	if err != nil {
-		log.Debug().Err(err).Msg("could not insert points")
+		log.Debug().Err(err).Msg("could not update points")
 		return nil, fmt.Errorf("could not update points: %w", err)
 	}
 	// ---------------------------
-	return results, nil
+	updatedIds := make([]uuid.UUID, len(updateSet))
+	i := 0
+	for pointId := range updateSet {
+		updatedIds[i] = pointId
+		i++
+	}
+	return updatedIds, nil
 }
 
 // ---------------------------
