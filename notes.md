@@ -1,8 +1,18 @@
+# Release Cycle
+
+1. Update `Dockerfile` to use latest Go version matching the test cases.
+2. Create a new release from Github with appropiate tag.
+3. Update staging / prod etc images to the latest version.
+
+# Snippets
+
 To restrict CPU to 0 and 1 run:
 
 ```bash
 taskset -c 0,1 go run ./
 ```
+
+# Misc
 
 Some tools and repos that might be useful:
 
