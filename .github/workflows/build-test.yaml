@@ -17,6 +17,10 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: 1.21.0
+          go-version: 1.21.4
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -qq -y libhdf5-dev
       - name: Test
         run: go test -v ./...
