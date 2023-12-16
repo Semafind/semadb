@@ -325,20 +325,9 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 		// We assume the updated points have their vectors changed. We can in
 		// the future handle metadata updates specifically so all this
 		// re-indexing doesn't happen.
-		startTime := time.Now()
-		toPrune, err := pc.EdgeScan(updateSet)
-		log.Debug().Str("component", "shard").Int("count", len(toPrune)).Str("duration", time.Since(startTime).String()).Msg("UpdatePoints - EdgeScan")
-		if err != nil {
-			return fmt.Errorf("could not scan edges: %w", err)
+		if err := s.removeInboundEdges(pc, updateSet); err != nil {
+			return fmt.Errorf("could not remove inbound edges: %w", err)
 		}
-		// ---------------------------
-		startTime = time.Now()
-		for _, pointId := range toPrune {
-			if err := s.pruneDeleteNeighbour(pc, pointId, updateSet); err != nil {
-				return fmt.Errorf("could not prune delete neighbour: %w", err)
-			}
-		}
-		log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("UpdatePoints - PruneDeleteNeighbour")
 		// ---------------------------
 		// Now the pruning is complete, we can re-insert the points again
 		for _, point := range points {
@@ -474,6 +463,32 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uuid.UUID, deleteSet map
 
 // ---------------------------
 
+// Attempts to remove the edges of the deleted points. This is done by scanning
+// all the edges and removing the ones that point to a deleted point.
+func (s *Shard) removeInboundEdges(pc *PointCache, deleteSet map[uuid.UUID]struct{}) error {
+	// The scanning may not be efficient but it is correct. We can optimise this
+	// in the future.
+	// ---------------------------
+	startTime := time.Now()
+	toPrune, err := pc.EdgeScan(deleteSet)
+	if err != nil {
+		return fmt.Errorf("could not scan edges: %w", err)
+	}
+	log.Debug().Str("component", "shard").Int("deleteSetSize", len(deleteSet)).Str("duration", time.Since(startTime).String()).Msg("EdgeScan")
+	// ---------------------------
+	startTime = time.Now()
+	for _, pointId := range toPrune {
+		if err := s.pruneDeleteNeighbour(pc, pointId, deleteSet); err != nil {
+			return fmt.Errorf("could not prune delete neighbour: %w", err)
+		}
+	}
+	log.Debug().Str("component", "shard").Int("toPruneCount", len(toPrune)).Str("duration", time.Since(startTime).String()).Msg("PruneDeleteNeighbour")
+	// ---------------------------
+	return nil
+}
+
+// ---------------------------
+
 func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, error) {
 	// ---------------------------
 	// We don't expect to delete all the points because some may be in other
@@ -516,20 +531,9 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		   future we can implement 3 by keeping track of the number of deleted
 		   points and only doing a full prune when it reaches a certain
 		   threshold. */
-		startTime := time.Now()
-		toPrune, err := pc.EdgeScan(deleteSet)
-		log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("DeletePoints - EdgeScan")
-		if err != nil {
-			return fmt.Errorf("could not scan edges: %w", err)
+		if err := s.removeInboundEdges(pc, deleteSet); err != nil {
+			return fmt.Errorf("could not remove inbound edges: %w", err)
 		}
-		// ---------------------------
-		startTime = time.Now()
-		for _, pointId := range toPrune {
-			if err := s.pruneDeleteNeighbour(pc, pointId, deleteSet); err != nil {
-				return fmt.Errorf("could not prune delete neighbour: %w", err)
-			}
-		}
-		log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("DeletePoints - PruneDeleteNeighbour")
 		// ---------------------------
 		// Update point count accordingly
 		if err := changePointCount(tx, -int64(len(deletedIds))); err != nil {
