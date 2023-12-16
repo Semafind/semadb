@@ -88,6 +88,10 @@ func (pc *PointCache) SetPoint(point ShardPoint) *CachePoint {
 	return newPoint
 }
 
+func (pc *PointCache) EdgeScan(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, error) {
+	return scanPointEdges(pc.bucket, deleteSet)
+}
+
 func (pc *PointCache) Flush() error {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()

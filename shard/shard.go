@@ -409,6 +409,7 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uuid.UUID, deleteSet map
 	// We are going to build a new candidate list of neighbours and then robust
 	// prune it
 	candidateSet := NewDistSet(point.Vector, len(point.Edges)*2, s.distFn)
+	deletedNothing := true
 	for _, neighbour := range pointNeighbours {
 		if _, ok := deleteSet[neighbour.Id]; ok {
 			// Pull the neighbours of the deleted neighbour, and add them to the candidate set
@@ -424,9 +425,14 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uuid.UUID, deleteSet map
 					candidateSet.AddPoint(deletedPointNeighbour)
 				}
 			}
+			deletedNothing = false
 		} else {
 			candidateSet.AddPoint(neighbour)
 		}
+	}
+	if deletedNothing {
+		// No neighbours are to be deleted, something's up
+		return fmt.Errorf("no neighbours to be deleted for point: %s", point.Id.String())
 	}
 	candidateSet.Sort()
 	// ---------------------------
@@ -447,8 +453,6 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
-		// Collect all the neighbours of the points to be deleted
-		toPrune := make(map[uuid.UUID]struct{}, len(deleteSet))
 		for pointId := range deleteSet {
 			point, err := pc.GetPoint(pointId)
 			if err != nil {
@@ -458,18 +462,43 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 			}
 			point.isDeleted = true
 			deletedIds = append(deletedIds, pointId)
-			for _, edgeId := range point.Edges {
-				if _, ok := deleteSet[edgeId]; !ok {
-					toPrune[edgeId] = struct{}{}
-				}
-			}
+		}
+		if len(deletedIds) == 0 {
+			// No points to delete, we skip scanning
+			return nil
 		}
 		// ---------------------------
-		for pointId := range toPrune {
+		// Collect all the neighbours of the points to be deleted
+		/* Initially we doubled downed on the assumption that more often than not
+		 * there would be bidirectional edges between points. This is, however,
+		 * not the case which leads to active edges to points that do not exist.
+		 * During search that throws an error. There are three approaches:
+			1. Scan all edges and delete the ones that point to a deleted point
+			2. Prune optimistically of the neighbours of the deleted points,
+			then during getPointNeighbours to check if the neighbour exists
+			3. A midway where we mark the deleted points, ignore them
+			during search and only do a full prune when it reaches say 10% of
+			total size.
+		   We are going with 1 for now to achieve correctness. The sharding
+		   process means no single shard will be too large to cause a huge
+		   performance hit. Each shard scan can be done in parallel too.  In the
+		   future we can implement 3 by keeping track of the number of deleted
+		   points and only doing a full prune when it reaches a certain
+		   threshold. */
+		startTime := time.Now()
+		toPrune, err := pc.EdgeScan(deleteSet)
+		log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("DeletePoints - EdgeScan")
+		if err != nil {
+			return fmt.Errorf("could not scan edges: %w", err)
+		}
+		// ---------------------------
+		startTime = time.Now()
+		for _, pointId := range toPrune {
 			if err := s.pruneDeleteNeighbour(pc, pointId, deleteSet); err != nil {
 				return fmt.Errorf("could not prune delete neighbour: %w", err)
 			}
 		}
+		log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("DeletePoints - PruneDeleteNeighbour")
 		// ---------------------------
 		// Update point count accordingly
 		if err := changePointCount(tx, -int64(len(deletedIds))); err != nil {

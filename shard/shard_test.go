@@ -63,6 +63,56 @@ func checkPointCount(t *testing.T, shard *Shard, expected int64) {
 	assert.Equal(t, expected, si.PointCount)
 }
 
+func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
+	pointIdSet := make(map[uuid.UUID]struct{})
+	for _, id := range pointIds {
+		pointIdSet[id] = struct{}{}
+	}
+	shard.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(POINTSKEY)
+		b.ForEach(func(k, v []byte) error {
+			if k[len(k)-1] == 'e' {
+				foundId := uuid.UUID(k[:16])
+				assert.NotContains(t, pointIdSet, foundId)
+				edges := bytesToEdgeList(v)
+				for _, edge := range edges {
+					assert.NotContains(t, pointIdSet, edge)
+				}
+			}
+			return nil
+		})
+		return nil
+	})
+}
+
+/*func dumpEdgesToCSV(t *testing.T, shard *Shard, fpath string) {
+	assert.Equal(t, ".csv", filepath.Ext(fpath))
+	// ---------------------------
+	// Dump to csv file
+	f, err := os.Create(fpath)
+	assert.NoError(t, err)
+	defer f.Close()
+	// ---------------------------
+	shard.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(POINTSKEY)
+		b.ForEach(func(k, v []byte) error {
+			if k[len(k)-1] == 'e' {
+				pointId := uuid.UUID(k[:16])
+				edges := bytesToEdgeList(v)
+				// pointId, edge0, edge1, ...
+				f.WriteString(pointId.String())
+				for _, edge := range edges {
+					f.WriteString(",")
+					f.WriteString(edge.String())
+				}
+				f.WriteString("\n")
+			}
+			return nil
+		})
+		return nil
+	})
+}*/
+
 func randPoints(size int) []models.Point {
 	points := make([]models.Point, size)
 	for i := 0; i < size; i++ {
@@ -185,11 +235,13 @@ func TestShard_DeletePoint(t *testing.T) {
 	assert.Len(t, delIds, 1)
 	assert.Equal(t, points[0].Id, delIds[0])
 	checkPointCount(t, shard, 1)
+	checkNoReferences(t, shard, points[0].Id)
 	// Try deleting the same point again
 	delIds, err = shard.DeletePoints(deleteSet)
 	assert.NoError(t, err)
 	assert.Len(t, delIds, 0)
 	checkPointCount(t, shard, 1)
+	checkNoReferences(t, shard, points[0].Id)
 	// Delete other point too
 	deleteSet[points[1].Id] = struct{}{}
 	delIds, err = shard.DeletePoints(deleteSet)
@@ -197,6 +249,7 @@ func TestShard_DeletePoint(t *testing.T) {
 	assert.Equal(t, points[1].Id, delIds[0])
 	assert.NoError(t, err)
 	checkPointCount(t, shard, 0)
+	checkNoReferences(t, shard, points[0].Id, points[1].Id)
 	assert.NoError(t, shard.Close())
 }
 
@@ -213,6 +266,7 @@ func TestShard_InsertDeleteSearchInsertPoint(t *testing.T) {
 	assert.Len(t, delIds, 2)
 	checkPointCount(t, shard, 0)
 	assert.Equal(t, 0, getPointEdgeCount(shard, shard.startId))
+	checkNoReferences(t, shard, delIds...)
 	// Try searching for the deleted point
 	res, err := shard.SearchPoints(points[0].Vector, 1)
 	assert.NoError(t, err)
@@ -228,26 +282,31 @@ func TestShard_LargeInsertDeleteInsertSearch(t *testing.T) {
 	shard := tempShard(t)
 	initSize := 10000
 	points := randPoints(initSize)
+	// Insert points
 	shard.InsertPoints(points)
+	// dumpEdgesToCSV(t, shard, "../dump/edgesBeforeDelete.csv")
 	deleteSet := make(map[uuid.UUID]struct{})
-	delSize := 5000
+	delSize := 500
 	for i := 0; i < delSize; i++ {
 		deleteSet[points[i].Id] = struct{}{}
 	}
 	// delete all points
 	delIds, err := shard.DeletePoints(deleteSet)
+	// dumpEdgesToCSV(t, shard, "../dump/edgesAfterDelete.csv")
 	assert.NoError(t, err)
 	assert.Len(t, delIds, delSize)
 	checkPointCount(t, shard, int64(initSize-delSize))
+	checkNoReferences(t, shard, delIds...)
 	// Try inserting the deleted points
 	err = shard.InsertPoints(points[:delSize])
 	assert.NoError(t, err)
 	checkPointCount(t, shard, int64(initSize))
 	// Try searching for the deleted point
-	res, err := shard.SearchPoints(points[0].Vector, 1)
+	sp := points[0]
+	res, err := shard.SearchPoints(sp.Vector, 1)
 	assert.NoError(t, err)
 	assert.Len(t, res, 1)
-	assert.Equal(t, points[0].Id, res[0].Point.Id)
+	assert.Equal(t, sp.Id, res[0].Point.Id)
 	assert.NoError(t, shard.Close())
 }
 

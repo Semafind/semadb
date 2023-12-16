@@ -115,3 +115,35 @@ func getPointMetadata(b *bbolt.Bucket, id uuid.UUID) ([]byte, error) {
 	// ---------------------------
 	return metadataVal, nil
 }
+
+// This function is used to check if the edges of a point are valid. It is
+// called after a delete operation to make sure that the edges pointing to the
+// deleted items are removed.
+func scanPointEdges(b *bbolt.Bucket, deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, error) {
+	// ---------------------------
+	// We set capacity to the length of the delete set because we guess there is
+	// at least one node pointing to each deleted node.
+	toPrune := make([]uuid.UUID, 0, len(deleteSet))
+	// ---------------------------
+	// Scan all edges
+	err := b.ForEach(func(k, v []byte) error {
+		if k[len(k)-1] == 'e' {
+			// Check if the point is in the delete set
+			pointId := uuid.UUID(k[:16])
+			if _, ok := deleteSet[pointId]; ok {
+				return nil
+			}
+			// Check if the edges are in the delete set
+			edges := bytesToEdgeList(v)
+			for _, edgeId := range edges {
+				if _, ok := deleteSet[edgeId]; ok {
+					toPrune = append(toPrune, pointId)
+					return nil
+				}
+			}
+		}
+		return nil
+	})
+	// ---------------------------
+	return toPrune, err
+}
