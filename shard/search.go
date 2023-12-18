@@ -63,30 +63,31 @@ func (s *Shard) greedySearch(pc *PointCache, startPointId uuid.UUID, query []flo
 
 func (s *Shard) robustPrune(point *CachePoint, candidateSet DistSet, alpha float32, degreeBound int) {
 	// ---------------------------
-	// Exclude the point itself
-	candidateSet.Remove(point.Id)
-	// ---------------------------
 	point.ClearNeighbours() // Reset edges / neighbours
 	// ---------------------------
-	for candidateSet.Len() > 0 {
+	for i := 0; i < len(candidateSet.items); i++ {
 		// ---------------------------
 		// Get the closest point
-		closestElem := candidateSet.Pop()
+		closestElem := candidateSet.items[i]
+		// Exclude the point itself, this might happen in case we are updating.
+		// It is worth checking if this is the case.
+		if closestElem.pruneRemoved || closestElem.point.Id == point.Id {
+			continue
+		}
 		edgeCount := point.AddNeighbour(closestElem.point)
 		if edgeCount >= degreeBound {
 			break
 		}
 		// ---------------------------
 		// Prune optimistically
-		for _, cand := range candidateSet.items {
-			// We currently do this check because remove doesn't handle
-			// re-ordering for performance purposes
-			if !candidateSet.Contains(cand.point.Id) {
+		for j := i + 1; j < len(candidateSet.items); j++ {
+			nextElem := candidateSet.items[j]
+			if nextElem.pruneRemoved {
 				continue
 			}
 			// ---------------------------
-			if alpha*s.distFn(closestElem.point.Vector, cand.point.Vector) < cand.distance {
-				candidateSet.Remove(cand.point.Id)
+			if alpha*s.distFn(closestElem.point.Vector, nextElem.point.Vector) < nextElem.distance {
+				candidateSet.items[j].pruneRemoved = true
 			}
 		}
 	}

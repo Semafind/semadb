@@ -9,10 +9,17 @@ import (
 )
 
 type DistSetElem struct {
-	point    *CachePoint
-	distance float32
+	point        *CachePoint
+	distance     float32
+	pruneRemoved bool
 }
 
+// This data structure is exclusively used by search and robust pruning.
+// Therefore, we optimise just for those cases and make assumptions about the
+// inner workings of the data structure breaking encapsulation for now. It may
+// not be complete semantically and there are tricks and shortcuts that are
+// taken to make it faster. Please take care when interacting with this data
+// structure.
 type DistSet struct {
 	items       []DistSetElem
 	set         map[uuid.UUID]struct{} // struct{} is a zero byte type, so it takes up no space
@@ -70,23 +77,6 @@ func (ds *DistSet) Contains(id uuid.UUID) bool {
 	return ok
 }
 
-func (ds *DistSet) Pop() DistSetElem {
-	// Find the first element in list that is still in set
-	i := 0
-	var toReturn DistSetElem
-	for ; i < len(ds.items); i++ {
-		item := ds.items[i]
-		// ds.items[i] = nil // avoid memory leak
-		if _, ok := ds.set[item.point.Id]; ok {
-			toReturn = item
-			delete(ds.set, item.point.Id)
-			break
-		}
-	}
-	ds.items = ds.items[(i + 1):]
-	return toReturn
-}
-
 func (ds *DistSet) KeepFirstK(k int) {
 	for i := k; i < len(ds.items); i++ {
 		delete(ds.set, ds.items[i].point.Id)
@@ -95,10 +85,6 @@ func (ds *DistSet) KeepFirstK(k int) {
 	if k < len(ds.items) {
 		ds.items = ds.items[:k]
 	}
-}
-
-func (ds *DistSet) Remove(id uuid.UUID) {
-	delete(ds.set, id)
 }
 
 // ---------------------------

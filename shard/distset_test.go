@@ -73,17 +73,3 @@ func TestDistSet_KeepFirstK(t *testing.T) {
 		assert.Equal(t, elems[wantOrder[i]].point.Id, elem.point.Id)
 	}
 }
-
-func TestDistSet_Pop_Remove(t *testing.T) {
-	ds := setupDistSet(3)
-	elems := randDistElems(0.5, 1.0, 0.2)
-	ds.Add(elems...)
-	ds.Sort()
-	assert.Equal(t, 3, ds.Len())
-	assert.Equal(t, elems[2].point.Id, ds.Pop().point.Id)
-	assert.False(t, ds.Contains(elems[2].point.Id))
-	ds.Remove(elems[0].point.Id)
-	assert.Equal(t, 1, ds.Len())
-	assert.Equal(t, elems[1].point.Id, ds.Pop().point.Id)
-	assert.Equal(t, 0, ds.Len())
-}
