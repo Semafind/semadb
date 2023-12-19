@@ -274,7 +274,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		if finalErr != nil {
 			return finalErr
 		}
-		log.Debug().Int("points", len(points)).Float64("perf(p/s)", float64(len(points))/time.Since(startTime).Seconds()).Msg("InsertPoints Points / Second")
+		log.Debug().Int("points", len(points)).Str("duration", time.Since(startTime).String()).Msg("InsertPoints - Insert")
 		// ---------------------------
 		// Update point count accordingly
 		if err := changePointCount(tx, int64(len(points))); err != nil {
@@ -378,7 +378,6 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 		}
 		// ---------------------------
 		// Clean up results and backfill metadata
-		searchSet.KeepFirstK(k)
 		for _, distElem := range searchSet.items {
 			point := distElem.point.Point
 			// We skip the start point

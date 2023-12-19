@@ -28,13 +28,14 @@ func (s *Shard) greedySearch(pc *PointCache, startPointId uuid.UUID, query []flo
 	// ---------------------------
 	/* This loop looks to curate the closest nodes to the query vector along the
 	 * way. The loop terminates when we visited all the nodes in our search list. */
-	for i := 0; i < searchSet.Len(); {
+	for i := 0; i < min(len(searchSet.items), searchSize); {
 		distElem := searchSet.items[i]
-		if visitedSet.Contains(distElem.point.Id) {
+		if distElem.visited {
 			i++
 			continue
 		}
-		visitedSet.Add(distElem)
+		visitedSet.AddAlreadyUnique(distElem)
+		searchSet.items[i].visited = true
 		// ---------------------------
 		// We have to lock the point here because while we are calculating the
 		// distance of its neighbours (edges in the graph) we can't have another
@@ -51,8 +52,8 @@ func (s *Shard) greedySearch(pc *PointCache, startPointId uuid.UUID, query []flo
 		distElem.point.mu.Unlock()
 		// ---------------------------
 		searchSet.Sort()
-		if searchSet.Len() > searchSize {
-			searchSet.KeepFirstK(searchSize)
+		if len(searchSet.items) > searchSize {
+			searchSet.items = searchSet.items[:searchSize]
 		}
 		i = 0
 	}

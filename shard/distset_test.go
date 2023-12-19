@@ -1,7 +1,6 @@
 package shard
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
@@ -10,18 +9,17 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func randDistElems(dists ...float32) []DistSetElem {
-	elems := make([]DistSetElem, len(dists))
+func randDistElems(queryVector []float32, dists ...float32) []*CachePoint {
+	elems := make([]*CachePoint, len(dists))
 	for i, dist := range dists {
-		rid := uuid.New()
-		cp := &CachePoint{
+		elems[i] = &CachePoint{
 			ShardPoint: ShardPoint{
 				Point: models.Point{
-					Id: rid,
+					Id:     uuid.New(),
+					Vector: []float32{queryVector[0] + dist, queryVector[1] + dist},
 				},
 			},
 		}
-		elems[i] = DistSetElem{distance: dist, point: cp}
 	}
 	return elems
 }
@@ -33,43 +31,29 @@ func setupDistSet(capacity int) DistSet {
 
 func TestDistSet_Add(t *testing.T) {
 	ds := setupDistSet(2)
-	elems := randDistElems(0.5, 1.0, 0.2)
-	ds.Add(elems...)
+	elems := randDistElems(ds.queryVector, 0.5, 1.0, 0.2)
+	ds.AddPoint(elems...)
 	assert.Equal(t, 3, ds.Len())
 	wantOrder := []uint{0, 1, 2}
 	for i, elem := range ds.items {
-		assert.Equal(t, elems[wantOrder[i]].point.Id, elem.point.Id)
+		assert.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
 	}
 	ds.Sort()
-	fmt.Println(ds)
 	wantOrder = []uint{2, 0, 1}
 	for i, elem := range ds.items {
-		assert.Equal(t, elems[wantOrder[i]].point.Id, elem.point.Id)
+		assert.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
 	}
 }
 
 func TestDistSet_Add_Duplicate(t *testing.T) {
 	ds := setupDistSet(3)
-	elems := randDistElems(0.5, 1.0, 0.1)
-	ds.Add(elems...)
-	ds.Add(elems[0])
+	elems := randDistElems(ds.queryVector, 0.5, 1.0, 0.1)
+	ds.AddPoint(elems...)
+	ds.AddPoint(elems[0])
 	assert.Equal(t, 3, ds.Len())
 	ds.Sort()
 	wantOrder := []uint{2, 0, 1}
 	for i, elem := range ds.items {
-		assert.Equal(t, elems[wantOrder[i]].point.Id, elem.point.Id)
-	}
-}
-
-func TestDistSet_KeepFirstK(t *testing.T) {
-	ds := setupDistSet(3)
-	elems := randDistElems(0.5, 1.0, 0.2)
-	ds.Add(elems...)
-	ds.Sort()
-	ds.KeepFirstK(2)
-	assert.Equal(t, 2, ds.Len())
-	wantOrder := []uint{2, 0}
-	for i, elem := range ds.items {
-		assert.Equal(t, elems[wantOrder[i]].point.Id, elem.point.Id)
+		assert.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
 	}
 }

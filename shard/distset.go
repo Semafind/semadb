@@ -11,6 +11,7 @@ import (
 type DistSetElem struct {
 	point        *CachePoint
 	distance     float32
+	visited      bool
 	pruneRemoved bool
 }
 
@@ -56,35 +57,14 @@ func (ds *DistSet) AddPoint(points ...*CachePoint) {
 }
 
 // Add item to distance set if it is not already present
-func (ds *DistSet) Add(items ...DistSetElem) {
-	for _, item := range items {
-		if _, ok := ds.set[item.point.Id]; ok {
-			continue
-		}
-		ds.set[item.point.Id] = struct{}{}
-		ds.items = append(ds.items, item)
-	}
+func (ds *DistSet) AddAlreadyUnique(items ...DistSetElem) {
+	ds.items = append(ds.items, items...)
 }
 
 func (ds *DistSet) Sort() {
 	slices.SortFunc(ds.items, func(a, b DistSetElem) int {
 		return cmp.Compare(a.distance, b.distance)
 	})
-}
-
-func (ds *DistSet) Contains(id uuid.UUID) bool {
-	_, ok := ds.set[id]
-	return ok
-}
-
-func (ds *DistSet) KeepFirstK(k int) {
-	for i := k; i < len(ds.items); i++ {
-		delete(ds.set, ds.items[i].point.Id)
-		// ds.items[i] = nil // avoid memory leak
-	}
-	if k < len(ds.items) {
-		ds.items = ds.items[:k]
-	}
 }
 
 // ---------------------------
