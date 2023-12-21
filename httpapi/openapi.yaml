@@ -566,6 +566,7 @@ components:
       in: path
       description: The unique identifier of the collection
       required: true
+      example: mycollection
       schema:
         $ref: '#/components/schemas/CollectionId'
   schemas:
