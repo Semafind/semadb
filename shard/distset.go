@@ -1,9 +1,7 @@
 package shard
 
 import (
-	"cmp"
 	"fmt"
-	"slices"
 
 	"github.com/google/uuid"
 )
@@ -26,6 +24,7 @@ type DistSet struct {
 	set         map[uuid.UUID]struct{} // struct{} is a zero byte type, so it takes up no space
 	queryVector []float32
 	distFn      func([]float32, []float32) float32
+	sortedUntil int
 }
 
 func NewDistSet(queryVector []float32, capacity int, distFn func([]float32, []float32) float32) DistSet {
@@ -61,10 +60,30 @@ func (ds *DistSet) AddAlreadyUnique(items ...DistSetElem) {
 	ds.items = append(ds.items, items...)
 }
 
+func (ds *DistSet) KeepFirstK(k int) {
+	if len(ds.items) > k {
+		ds.items = ds.items[:k]
+	}
+	if ds.sortedUntil > k {
+		ds.sortedUntil = k
+	}
+}
+
 func (ds *DistSet) Sort() {
-	slices.SortFunc(ds.items, func(a, b DistSetElem) int {
-		return cmp.Compare(a.distance, b.distance)
-	})
+	/* We are using insertion here because we are assuming that the array is
+	 * mostly sorted. As new points are added to the set, they are appended to
+	 * the end of the array. Note that during greedy search, points are appended
+	 * never removed. So we only need to sort the unsorted part of the array.
+	 * Compared to slices.SortFunc, the compiler can inline this operation,
+	 * making it faster. */
+	// Perform insertion sort on the unsorted part of the array, sorting in
+	// ascending order
+	for i := ds.sortedUntil; i < len(ds.items); i++ {
+		for j := i; j > 0 && ds.items[j].distance < ds.items[j-1].distance; j-- {
+			ds.items[j], ds.items[j-1] = ds.items[j-1], ds.items[j]
+		}
+	}
+	ds.sortedUntil = len(ds.items)
 }
 
 // ---------------------------

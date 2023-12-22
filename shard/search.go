@@ -53,7 +53,7 @@ func (s *Shard) greedySearch(pc *PointCache, startPointId uuid.UUID, query []flo
 		// ---------------------------
 		searchSet.Sort()
 		if len(searchSet.items) > searchSize {
-			searchSet.items = searchSet.items[:searchSize]
+			searchSet.KeepFirstK(searchSize)
 		}
 		i = 0
 	}
