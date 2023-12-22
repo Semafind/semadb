@@ -424,6 +424,25 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 			})
 			assert.NoError(t, err)
 			// ---------------------------
+			// Perform search
+			err = shard.db.View(func(tx *bbolt.Tx) error {
+				buc := tx.Bucket(POINTSKEY)
+				pc := NewPointCache(buc)
+				startTime := time.Now()
+				for i := 0; i < maxPoints; i++ {
+					query := vecCol.Vectors[i]
+					k := 10
+					searchSet, _, err := shard.greedySearch(pc, shard.startId, query, k, shard.collection.Parameters.SearchSize)
+					if err != nil {
+						return err
+					}
+					assert.Greater(t, len(searchSet.items), 0)
+				}
+				t.Log("Search took", time.Since(startTime))
+				return nil
+			})
+			assert.NoError(t, err)
+			// ---------------------------
 			assert.NoError(t, shard.Close())
 		})
 	}
