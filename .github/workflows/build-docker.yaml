@@ -52,3 +52,4 @@ jobs:
           package-name: 'semadb'
           package-type: 'container'
           min-versions-to-keep: 3
+          delete-only-untagged-versions: 'true'
