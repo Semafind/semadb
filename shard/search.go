@@ -9,7 +9,7 @@ import (
 func (s *Shard) greedySearch(pc *PointCache, startPointId uuid.UUID, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
 	// ---------------------------
 	// Initialise distance set
-	searchSet := NewDistSet(query, searchSize*2, s.distFn)
+	searchSet := NewDistSet(query, searchSize, s.distFn)
 	visitedSet := NewDistSet(query, searchSize*2, s.distFn)
 	// Check that the search size is greater than k
 	if searchSize < k {
@@ -24,7 +24,7 @@ func (s *Shard) greedySearch(pc *PointCache, startPointId uuid.UUID, query []flo
 	if err != nil {
 		return searchSet, visitedSet, fmt.Errorf("failed to get start point: %w", err)
 	}
-	searchSet.AddPoint(sp)
+	searchSet.AddPointWithLimit(sp)
 	// ---------------------------
 	/* This loop looks to curate the closest nodes to the query vector along the
 	 * way. The loop terminates when we visited all the nodes in our search list. */
@@ -48,13 +48,9 @@ func (s *Shard) greedySearch(pc *PointCache, startPointId uuid.UUID, query []flo
 			distElem.point.mu.Unlock()
 			return searchSet, visitedSet, fmt.Errorf("failed to get neighbours: %w", err)
 		}
-		searchSet.AddPoint(neighbours...)
+		searchSet.AddPointWithLimit(neighbours...)
 		distElem.point.mu.Unlock()
 		// ---------------------------
-		searchSet.Sort()
-		if len(searchSet.items) > searchSize {
-			searchSet.KeepFirstK(searchSize)
-		}
 		i = 0
 	}
 	// ---------------------------

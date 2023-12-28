@@ -34,7 +34,7 @@ func NewDistSet(queryVector []float32, capacity int, distFn func([]float32, []fl
 // ---------------------------
 
 func (ds *DistSet) Len() int {
-	return len(ds.set)
+	return len(ds.items)
 }
 
 func (ds *DistSet) String() string {
@@ -43,7 +43,42 @@ func (ds *DistSet) String() string {
 
 // ---------------------------
 
-// Adding entries only computes distance if needed
+// Add points while respecting the capacity of the array, used in greedy search
+func (ds *DistSet) AddPointWithLimit(points ...*CachePoint) {
+	for _, p := range points {
+		// ---------------------------
+		// First check if we've seen this point before. We we have than it has
+		// been considered and we can skip it.
+		if _, ok := ds.set[p.Id]; ok {
+			continue
+		}
+		ds.set[p.Id] = struct{}{}
+		// ---------------------------
+		// If we haven't seen it before, compute the distance
+		distance := ds.distFn(p.Vector, ds.queryVector)
+		// Is it worth adding? Greedy search is only interested in the k closest
+		// points. If we have already seen k points and this point is further
+		// away than the kth point, then we can skip it.
+		limit := cap(ds.items)
+		if len(ds.items) == limit && distance > ds.items[limit-1].distance {
+			continue
+		}
+		// We are going to add it, so create the new element
+		newElem := DistSetElem{distance: distance, point: p}
+		if len(ds.items) < limit {
+			ds.items = append(ds.items, newElem)
+			ds.sortedUntil++
+		} else {
+			ds.items[len(ds.items)-1] = newElem
+		}
+		// Insert new element into the array in sorted order.
+		for i := len(ds.items) - 1; i > 0 && ds.items[i].distance < ds.items[i-1].distance; i-- {
+			ds.items[i], ds.items[i-1] = ds.items[i-1], ds.items[i]
+		}
+	}
+}
+
+// Add entries and only computes distance if the point is never seen before
 func (ds *DistSet) AddPoint(points ...*CachePoint) {
 	for _, p := range points {
 		if _, ok := ds.set[p.Id]; ok {
@@ -55,18 +90,9 @@ func (ds *DistSet) AddPoint(points ...*CachePoint) {
 	}
 }
 
-// Add item to distance set if it is not already present
+// Add item to distance set without checking for duplicates
 func (ds *DistSet) AddAlreadyUnique(items ...DistSetElem) {
 	ds.items = append(ds.items, items...)
-}
-
-func (ds *DistSet) KeepFirstK(k int) {
-	if len(ds.items) > k {
-		ds.items = ds.items[:k]
-	}
-	if ds.sortedUntil > k {
-		ds.sortedUntil = k
-	}
 }
 
 func (ds *DistSet) Sort() {

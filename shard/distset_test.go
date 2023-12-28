@@ -57,3 +57,14 @@ func TestDistSet_Add_Duplicate(t *testing.T) {
 		assert.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
 	}
 }
+
+func TestDistSet_AddWithLimit(t *testing.T) {
+	ds := setupDistSet(2)
+	elems := randDistElems(ds.queryVector, 0.5, 1.0, 0.1)
+	ds.AddPointWithLimit(elems...)
+	assert.Equal(t, 2, ds.Len())
+	wantOrder := []uint{2, 0}
+	for i, elem := range ds.items {
+		assert.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
+	}
+}
