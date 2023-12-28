@@ -46,3 +46,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+      - name: Remove old packages
+        uses: actions/delete-package-versions@v4
+        with: 
+          package-name: 'semadb'
+          package-type: 'container'
+          min-versions-to-keep: 3
