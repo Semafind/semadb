@@ -26,7 +26,7 @@ func randDistElems(queryVector []float32, dists ...float32) []*CachePoint {
 
 func setupDistSet(capacity int) DistSet {
 	distFn, _ := distance.GetDistanceFn("euclidean")
-	return NewDistSet([]float32{1.0, 2.0}, capacity, distFn)
+	return NewDistSet([]float32{1.0, 2.0}, capacity, true, distFn)
 }
 
 func TestDistSet_Add(t *testing.T) {

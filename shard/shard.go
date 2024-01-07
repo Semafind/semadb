@@ -195,7 +195,7 @@ func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uint64, shardPoin
 				return fmt.Errorf("could not get neighbour neighbours: %w", err)
 			}
 			// We need to prune the neighbour as well to keep the degree bound
-			candidateSet := NewDistSet(n.Vector, len(n.Edges)+1, s.distFn)
+			candidateSet := NewDistSet(n.Vector, len(n.Edges)+1, false, s.distFn)
 			candidateSet.AddPoint(nn...)
 			candidateSet.AddPoint(point)
 			candidateSet.Sort()
@@ -432,7 +432,7 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uint64, deleteSet map[ui
 	// ---------------------------
 	// We are going to build a new candidate list of neighbours and then robust
 	// prune it
-	candidateSet := NewDistSet(point.Vector, len(point.Edges)*2, s.distFn)
+	candidateSet := NewDistSet(point.Vector, len(point.Edges)*2, false, s.distFn)
 	deletedNothing := true
 	for _, neighbour := range pointNeighbours {
 		if _, ok := deleteSet[neighbour.NodeId]; ok {

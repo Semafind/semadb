@@ -2,9 +2,86 @@ package shard
 
 import (
 	"fmt"
+	"sync"
 
-	"github.com/google/uuid"
+	"github.com/bits-and-blooms/bitset"
+	"github.com/semafind/semadb/distance"
 )
+
+var globalSetPool sync.Pool
+
+func init() {
+	globalSetPool = sync.Pool{
+		New: func() any {
+			// This initial size is important. If we set it too low, then we will
+			// have to resize the bitset as we add more points. If we set it too
+			// high, then we will waste memory. We can't set it too too high
+			// because we'll run out of memory. The principle is around the
+			// number of points we expect to see in a shard. In the database,
+			// larger collections are sharded so we set a reasonable upper bound
+			// of 500k. But recall that this is the maximum node id, things can
+			// get ugly if a lot of points are deleted and re-inserted pushing
+			// the node id up without bound. In the future we can look to address
+			// this perhaps by reusing node ids.
+			return bitset.New(500000)
+		},
+	}
+}
+
+// ---------------------------
+
+type visitedSet interface {
+	CheckAndVisit(uint64) bool
+	Release()
+}
+
+// For smaller distsets we use maps because they are cheaper to allocate and
+// deallocate. For larger distsets we use bitsets because they are faster to
+// check and visit. We use a pool to reuse bitsets.
+type VisitedMap struct {
+	set map[uint64]struct{}
+}
+
+func NewVisitedMap(capacity int) *VisitedMap {
+	return &VisitedMap{set: make(map[uint64]struct{}, capacity)}
+}
+
+func (vm *VisitedMap) CheckAndVisit(id uint64) bool {
+	if _, ok := vm.set[id]; ok {
+		return true
+	}
+	vm.set[id] = struct{}{}
+	return false
+}
+
+func (vm *VisitedMap) Release() {
+	vm.set = nil
+}
+
+type VisitedBitSet struct {
+	set *bitset.BitSet
+}
+
+func NewVisitedBitSet() *VisitedBitSet {
+	set := globalSetPool.Get().(*bitset.BitSet)
+	set.ClearAll()
+	return &VisitedBitSet{set: set}
+}
+
+func (vb *VisitedBitSet) CheckAndVisit(id uint64) bool {
+	if vb.set.Test(uint(id)) {
+		return true
+	}
+	vb.set.Set(uint(id))
+	return false
+}
+
+func (vb *VisitedBitSet) Release() {
+	globalSetPool.Put(vb.set)
+	vb.set = nil
+}
+
+// ---------------------------
 
 type DistSetElem struct {
 	point        *CachePoint
@@ -21,14 +98,20 @@ type DistSetElem struct {
 // structure.
 type DistSet struct {
 	items       []DistSetElem
-	set         map[uuid.UUID]struct{} // struct{} is a zero byte type, so it takes up no space
+	set         visitedSet
 	queryVector []float32
-	distFn      func([]float32, []float32) float32
+	distFn      distance.DistFunc
 	sortedUntil int
 }
 
-func NewDistSet(queryVector []float32, capacity int, distFn func([]float32, []float32) float32) DistSet {
-	return DistSet{queryVector: queryVector, items: make([]DistSetElem, 0, capacity), set: make(map[uuid.UUID]struct{}, capacity), distFn: distFn}
+func NewDistSet(queryVector []float32, capacity int, fast bool, distFn distance.DistFunc) DistSet {
+	var set visitedSet
+	if fast {
+		set = NewVisitedBitSet()
+	} else {
+		set = NewVisitedMap(capacity)
+	}
+	return DistSet{queryVector: queryVector, items: make([]DistSetElem, 0, capacity), set: set, distFn: distFn}
 }
 
 // ---------------------------
@@ -38,7 +121,7 @@ func (ds *DistSet) Len() int {
 }
 
 func (ds *DistSet) String() string {
-	return fmt.Sprintf("DistSet{items: %+v, set: %+v}", ds.items, ds.set)
+	return fmt.Sprintf("DistSet{items: %+v}", ds.items)
 }
 
 // ---------------------------
@@ -48,11 +131,13 @@ func (ds *DistSet) AddPointWithLimit(points ...*CachePoint) {
 	for _, p := range points {
 		// ---------------------------
 		// First check if we've seen this point before. We we have than it has
-		// been considered and we can skip it.
-		if _, ok := ds.set[p.Id]; ok {
+		// been considered and we can skip it. We are casting to uint because
+		// we don't expect the shards to grow above couple million points. In
+		// the future we can look to address this with bitsets that use
+		// compression such as roaring.
+		if ds.set.CheckAndVisit(p.NodeId) {
 			continue
 		}
-		ds.set[p.Id] = struct{}{}
 		// ---------------------------
 		// If we haven't seen it before, compute the distance
 		distance := ds.distFn(p.Vector, ds.queryVector)
@@ -81,13 +166,17 @@ func (ds *DistSet) AddPointWithLimit(points ...*CachePoint) {
 // Add entries and only computes distance if the point is never seen before
 func (ds *DistSet) AddPoint(points ...*CachePoint) {
 	for _, p := range points {
-		if _, ok := ds.set[p.Id]; ok {
+		if ds.set.CheckAndVisit(p.NodeId) {
 			continue
 		}
-		ds.set[p.Id] = struct{}{}
 		distance := ds.distFn(p.Vector, ds.queryVector)
 		ds.items = append(ds.items, DistSetElem{distance: distance, point: p})
 	}
+}
+
+func (ds *DistSet) Release() {
+	ds.set.Release()
+	ds.set = nil
 }
 
 // Add item to distance set without checking for duplicates
