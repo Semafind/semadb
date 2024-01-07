@@ -21,7 +21,7 @@ type Shard struct {
 	db         *bbolt.DB
 	collection models.Collection
 	distFn     distance.DistFunc
-	startId    uuid.UUID
+	startId    uint64
 }
 
 var POINTSKEY = []byte("points")
@@ -36,7 +36,7 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 		return nil, fmt.Errorf("could not open shard db: %w", err)
 	}
 	// ---------------------------
-	var startId uuid.UUID
+	var startId uint64
 	err = db.Update(func(tx *bbolt.Tx) error {
 		// ---------------------------
 		// Setup buckets
@@ -67,27 +67,25 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 			}
 			// ---------------------------
 			// Create start point
+			startId, _ = bPoints.NextSequence()
 			randPoint := ShardPoint{
+				NodeId: startId,
 				Point: models.Point{
 					Id:     uuid.New(),
 					Vector: randVector,
 				},
 			}
-			log.Debug().Str("id", randPoint.Id.String()).Msg("creating start point")
+			log.Debug().Uint64("id", startId).Str("UUID", randPoint.Id.String()).Msg("creating start point")
 			if err := setPoint(bPoints, randPoint); err != nil {
 				return fmt.Errorf("could not set start point: %w", err)
 			}
-			if err := bInternal.Put(STARTIDKEY, randPoint.Id[:]); err != nil {
+			if err := bInternal.Put(STARTIDKEY, uint64ToBytes(randPoint.NodeId)); err != nil {
 				return fmt.Errorf("could not set start point id: %w", err)
 			}
-			startId = randPoint.Id
 			// ---------------------------
 		} else {
-			startId, err = uuid.FromBytes(sid)
-			if err != nil {
-				return fmt.Errorf("could not parse start point: %w", err)
-			}
-			log.Debug().Str("id", startId.String()).Msg("found start point")
+			startId = bytesToUint64(sid)
+			log.Debug().Uint64("id", startId).Msg("found start point")
 		}
 		// ---------------------------
 		return nil
@@ -119,18 +117,21 @@ func (s *Shard) Backup(backupFrequency, backupCount int) error {
 
 // ---------------------------
 
-func changePointCount(tx *bbolt.Tx, change int64) error {
+func changePointCount(tx *bbolt.Tx, change int) error {
 	bInternal := tx.Bucket(INTERNALKEY)
 	// ---------------------------
 	countBytes := bInternal.Get(POINTCOUNTKEY)
-	var count int64
+	var count uint64
 	if countBytes != nil {
-		count = bytesToInt64(countBytes)
+		count = bytesToUint64(countBytes)
 	}
 	// ---------------------------
-	count += change
+	newCount := int(count) + change
+	if newCount < 0 {
+		return fmt.Errorf("point count cannot be negative")
+	}
 	// ---------------------------
-	countBytes = int64ToBytes(count)
+	countBytes = uint64ToBytes(uint64(newCount))
 	if err := bInternal.Put(POINTCOUNTKEY, countBytes); err != nil {
 		return fmt.Errorf("could not change point count: %w", err)
 	}
@@ -138,7 +139,7 @@ func changePointCount(tx *bbolt.Tx, change int64) error {
 }
 
 type shardInfo struct {
-	PointCount int64
+	PointCount uint64
 	Allocated  int64 // Bytes allocated for points bucket
 	InUse      int64 // Bytes in use for points bucket
 }
@@ -149,7 +150,7 @@ func (s *Shard) Info() (si shardInfo, err error) {
 		// ---------------------------
 		countBytes := bInternal.Get(POINTCOUNTKEY)
 		if countBytes != nil {
-			si.PointCount = bytesToInt64(countBytes)
+			si.PointCount = bytesToUint64(countBytes)
 		}
 		// ---------------------------
 		pStats := tx.Bucket(POINTSKEY).Stats()
@@ -162,9 +163,12 @@ func (s *Shard) Info() (si shardInfo, err error) {
 
 // ---------------------------
 
-func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uuid.UUID, shardPoint ShardPoint) error {
+func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uint64, shardPoint ShardPoint) error {
 	// ---------------------------
-	point := pc.SetPoint(shardPoint)
+	point, err := pc.SetPoint(shardPoint)
+	if err != nil {
+		return fmt.Errorf("could not set point: %w", err)
+	}
 	// ---------------------------
 	_, visitedSet, err := s.greedySearch(pc, startPointId, point.Vector, 1, s.collection.Parameters.SearchSize)
 	if err != nil {
@@ -211,12 +215,16 @@ func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uuid.UUID, shardP
 
 func (s *Shard) InsertPoints(points []models.Point) error {
 	// ---------------------------
-	// profileFile, _ := os.Create("dump/cpu.prof")
-	// defer profileFile.Close()
-	// pprof.StartCPUProfile(profileFile)
-	// defer pprof.StopCPUProfile()
-	// ---------------------------
 	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("InsertPoints")
+	// ---------------------------
+	// Check for duplicate ids
+	ids := make(map[uuid.UUID]struct{}, len(points))
+	for _, point := range points {
+		if _, ok := ids[point.Id]; ok {
+			return fmt.Errorf("duplicate point id: %s", point.Id.String())
+		}
+		ids[point.Id] = struct{}{}
+	}
 	// ---------------------------
 	// Insert points
 	// bar := progressbar.Default(int64(len(points)))
@@ -252,7 +260,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 					// insertion when there are multiple shards. We are
 					// returning an error here to force the user to update the
 					// point instead which handles the multiple shard case.
-					if _, err := pc.GetPoint(point.Id); err == nil {
+					if _, err := pc.GetPointByUUID(point.Id); err == nil {
 						cancel(fmt.Errorf("point already exists: %s", point.Id.String()))
 						return
 					}
@@ -277,7 +285,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		log.Debug().Int("points", len(points)).Str("duration", time.Since(startTime).String()).Msg("InsertPoints - Insert")
 		// ---------------------------
 		// Update point count accordingly
-		if err := changePointCount(tx, int64(len(points))); err != nil {
+		if err := changePointCount(tx, len(points)); err != nil {
 			return fmt.Errorf("could not update point count for insertion: %w", err)
 		}
 		// ---------------------------
@@ -303,19 +311,26 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 	// ---------------------------
 	// Note that some points may not exist, so we need to take care of that
 	// throughout this function
-	updateSet := make(map[uuid.UUID]struct{}, len(points))
+	updatedIds := make([]uuid.UUID, 0, len(points))
 	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
+		updateSet := make(map[uuid.UUID]*CachePoint, len(points))
+		updateNodeIds := make(map[uint64]struct{}, len(points))
+		// ---------------------------
 		// First we check if the points exist
 		for _, point := range points {
-			if _, err := pc.GetPoint(point.Id); err != nil {
+			if cp, err := pc.GetPointByUUID(point.Id); err != nil {
 				// Point does not exist, or we can't access it at the moment
 				continue
+			} else {
+				updatedIds = append(updatedIds, point.Id)
+				cp.Point = point // Update the point, we will re-insert the cache point later
+				updateSet[point.Id] = cp
+				updateNodeIds[cp.NodeId] = struct{}{}
 			}
-			updateSet[point.Id] = struct{}{}
 		}
 		if len(updateSet) == 0 {
 			// No points to update, we skip the process
@@ -325,17 +340,13 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 		// We assume the updated points have their vectors changed. We can in
 		// the future handle metadata updates specifically so all this
 		// re-indexing doesn't happen.
-		if err := s.removeInboundEdges(pc, updateSet); err != nil {
+		if err := s.removeInboundEdges(pc, updateNodeIds); err != nil {
 			return fmt.Errorf("could not remove inbound edges: %w", err)
 		}
 		// ---------------------------
 		// Now the pruning is complete, we can re-insert the points again
-		for _, point := range points {
-			// Check it is in the updateSet
-			if _, ok := updateSet[point.Id]; !ok {
-				continue
-			}
-			if err := s.insertSinglePoint(pc, s.startId, ShardPoint{Point: point}); err != nil {
+		for _, cp := range updateSet {
+			if err := s.insertSinglePoint(pc, s.startId, cp.ShardPoint); err != nil {
 				return fmt.Errorf("could not re-insert point: %w", err)
 			}
 		}
@@ -347,12 +358,6 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 		return nil, fmt.Errorf("could not update points: %w", err)
 	}
 	// ---------------------------
-	updatedIds := make([]uuid.UUID, len(updateSet))
-	i := 0
-	for pointId := range updateSet {
-		updatedIds[i] = pointId
-		i++
-	}
 	return updatedIds, nil
 }
 
@@ -379,15 +384,15 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 		// ---------------------------
 		// Clean up results and backfill metadata
 		for _, distElem := range searchSet.items {
-			point := distElem.point.Point
+			point := distElem.point
 			// We skip the start point
-			if point.Id == s.startId {
+			if point.NodeId == s.startId {
 				continue
 			}
 			if len(results) >= k {
 				break
 			}
-			mdata, err := getPointMetadata(b, point.Id)
+			mdata, err := getPointMetadata(b, point.NodeId)
 			if err != nil {
 				return fmt.Errorf("could not get point metadata: %w", err)
 			}
@@ -398,7 +403,7 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 				copy(point.Metadata, mdata)
 			}
 			sp := SearchPoint{
-				Point:    point,
+				Point:    point.Point,
 				Distance: distElem.distance}
 			results = append(results, sp)
 		}
@@ -413,7 +418,7 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 
 // ---------------------------
 
-func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uuid.UUID, deleteSet map[uuid.UUID]struct{}) error {
+func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uint64, deleteSet map[uint64]struct{}) error {
 	// ---------------------------
 	point, err := pc.GetPoint(id)
 	if err != nil {
@@ -430,7 +435,7 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uuid.UUID, deleteSet map
 	candidateSet := NewDistSet(point.Vector, len(point.Edges)*2, s.distFn)
 	deletedNothing := true
 	for _, neighbour := range pointNeighbours {
-		if _, ok := deleteSet[neighbour.Id]; ok {
+		if _, ok := deleteSet[neighbour.NodeId]; ok {
 			// Pull the neighbours of the deleted neighbour, and add them to the candidate set
 			deletedPointNeighbours, err := pc.GetPointNeighbours(neighbour)
 			if err != nil {
@@ -440,7 +445,7 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uuid.UUID, deleteSet map
 			// to the candidate set. We do this check in case our neighbour has
 			// neighbours that are being deleted too.
 			for _, deletedPointNeighbour := range deletedPointNeighbours {
-				if _, ok := deleteSet[deletedPointNeighbour.Id]; !ok {
+				if _, ok := deleteSet[deletedPointNeighbour.NodeId]; !ok {
 					candidateSet.AddPoint(deletedPointNeighbour)
 				}
 			}
@@ -464,7 +469,7 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uuid.UUID, deleteSet map
 
 // Attempts to remove the edges of the deleted points. This is done by scanning
 // all the edges and removing the ones that point to a deleted point.
-func (s *Shard) removeInboundEdges(pc *PointCache, deleteSet map[uuid.UUID]struct{}) error {
+func (s *Shard) removeInboundEdges(pc *PointCache, deleteSet map[uint64]struct{}) error {
 	// The scanning may not be efficient but it is correct. We can optimise this
 	// in the future.
 	// ---------------------------
@@ -493,13 +498,14 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 	// We don't expect to delete all the points because some may be in other
 	// shards. So we start with a lower capacity for the array.
 	deletedIds := make([]uuid.UUID, 0, len(deleteSet)/2)
+	deletedNodeIds := make(map[uint64]struct{}, len(deleteSet)/2)
 	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
 		for pointId := range deleteSet {
-			point, err := pc.GetPoint(pointId)
+			point, err := pc.GetPointByUUID(pointId)
 			if err != nil {
 				// If the point doesn't exist, we can skip it
 				log.Debug().Err(err).Msg("could not get point for deletion")
@@ -507,6 +513,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 			}
 			point.isDeleted = true
 			deletedIds = append(deletedIds, pointId)
+			deletedNodeIds[point.NodeId] = struct{}{}
 		}
 		if len(deletedIds) == 0 {
 			// No points to delete, we skip scanning
@@ -530,12 +537,12 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		   future we can implement 3 by keeping track of the number of deleted
 		   points and only doing a full prune when it reaches a certain
 		   threshold. */
-		if err := s.removeInboundEdges(pc, deleteSet); err != nil {
+		if err := s.removeInboundEdges(pc, deletedNodeIds); err != nil {
 			return fmt.Errorf("could not remove inbound edges: %w", err)
 		}
 		// ---------------------------
 		// Update point count accordingly
-		if err := changePointCount(tx, -int64(len(deletedIds))); err != nil {
+		if err := changePointCount(tx, -len(deletedIds)); err != nil {
 			return fmt.Errorf("could not change point count for deletion: %w", err)
 		}
 		// ---------------------------

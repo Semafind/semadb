@@ -27,7 +27,7 @@ var sampleCol models.Collection = models.Collection{
 	Parameters: models.DefaultVamanaParameters(),
 }
 
-func getPointCount(shard *Shard) (count int) {
+func getVectorCount(shard *Shard) (count int) {
 	shard.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
 		b.ForEach(func(k, v []byte) error {
@@ -42,10 +42,10 @@ func getPointCount(shard *Shard) (count int) {
 	return
 }
 
-func getPointEdgeCount(shard *Shard, pointId uuid.UUID) (count int) {
+func getPointEdgeCount(shard *Shard, pointId uint64) (count int) {
 	shard.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
-		point, err := getPoint(b, pointId)
+		point, err := getNode(b, pointId)
 		if err != nil {
 			count = -1
 			return err
@@ -58,8 +58,8 @@ func getPointEdgeCount(shard *Shard, pointId uuid.UUID) (count int) {
 
 func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	// Perform a BFS from the start point
-	visited := make(map[uuid.UUID]struct{})
-	queue := make([]uuid.UUID, 0)
+	visited := make(map[uint64]struct{})
+	queue := make([]uint64, 0)
 	queue = append(queue, shard.startId)
 	err := shard.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
@@ -70,7 +70,7 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 				continue
 			}
 			visited[pointId] = struct{}{}
-			point, err := getPoint(b, pointId)
+			point, err := getNode(b, pointId)
 			if err != nil {
 				return err
 			}
@@ -84,8 +84,39 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	assert.Equal(t, expectedCount, len(visited)-1)
 }
 
+func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
+	nodeCount := 0
+	pointCount := 0
+	shard.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(POINTSKEY)
+		b.ForEach(func(k, v []byte) error {
+			if k[0] == 'n' && k[len(k)-1] == 'i' {
+				pointId := uuid.UUID(v)
+				nodeId := bytesToUint64(k[1 : len(k)-1])
+				reverseId := b.Get(pointKey(pointId, 'i'))
+				assert.Equal(t, nodeId, bytesToUint64(reverseId))
+				nodeCount++
+			}
+			if k[0] == 'p' && k[len(k)-1] == 'i' {
+				pointId := uuid.UUID(k[1 : len(k)-1])
+				nodeId := bytesToUint64(v)
+				reverseId := b.Get(nodeKey(nodeId, 'i'))
+				assert.Equal(t, pointId, uuid.UUID(reverseId))
+				pointCount++
+			}
+			return nil
+		})
+		return nil
+	})
+	// We subtract one because the start point is not in the database but is an
+	// entry point to the graph.
+	assert.Equal(t, expectedCount, nodeCount-1)
+	assert.Equal(t, expectedCount, pointCount-1)
+}
+
 func checkPointCount(t *testing.T, shard *Shard, expected int) {
-	assert.Equal(t, expected, getPointCount(shard))
+	assert.Equal(t, expected, getVectorCount(shard))
+	checkNodeIdPointIdMapping(t, shard, expected)
 	si, err := shard.Info()
 	assert.NoError(t, err)
 	assert.EqualValues(t, expected, si.PointCount)
@@ -93,19 +124,23 @@ func checkPointCount(t *testing.T, shard *Shard, expected int) {
 }
 
 func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
-	pointIdSet := make(map[uuid.UUID]struct{})
-	for _, id := range pointIds {
-		pointIdSet[id] = struct{}{}
-	}
 	shard.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSKEY)
+		// Check that the point ids are not in the database
+		for _, id := range pointIds {
+			nodeIdBytes := b.Get(pointKey(id, 'i'))
+			assert.Nil(t, nodeIdBytes)
+		}
+		// Check all remaining points have valid edges
 		b.ForEach(func(k, v []byte) error {
 			if k[len(k)-1] == 'e' {
-				foundId := uuid.UUID(k[:16])
-				assert.NotContains(t, pointIdSet, foundId)
+				nodeId := bytesToUint64(k[1 : len(k)-1])
 				edges := bytesToEdgeList(v)
+				// Cannot have self edges
+				assert.NotContains(t, edges, nodeId)
 				for _, edge := range edges {
-					assert.NotContains(t, pointIdSet, edge)
+					nodeVal := b.Get(nodeKey(edge, 'v'))
+					assert.NotNil(t, nodeVal)
 				}
 			}
 			return nil
@@ -344,7 +379,7 @@ func TestShard_LargeInsertUpdateSearch(t *testing.T) {
 	initSize := 10000
 	points := randPoints(initSize)
 	shard.InsertPoints(points)
-	// Update half the points
+	// Update some of the points
 	updateSize := 100
 	updatePoints := randPoints(updateSize)
 	for i := 0; i < updateSize; i++ {

@@ -4,15 +4,14 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 )
 
-func Test_int64ToBytes(t *testing.T) {
+func Test_uint64ToBytes(t *testing.T) {
 	for i := 0; i < 10; i++ {
-		randInt := rand.Int63()
-		b := int64ToBytes(randInt)
-		assert.Equal(t, randInt, bytesToInt64(b))
+		randInt := rand.Uint64()
+		b := uint64ToBytes(randInt)
+		assert.Equal(t, randInt, bytesToUint64(b))
 	}
 }
 
@@ -28,7 +27,11 @@ func Test_float32ToBytes(t *testing.T) {
 
 func Test_edgeListToBytes(t *testing.T) {
 	for i := 0; i < 10; i++ {
-		randEdges := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
+		randSize := rand.Intn(10)
+		randEdges := make([]uint64, randSize)
+		for j := 0; j < randSize; j++ {
+			randEdges[j] = rand.Uint64()
+		}
 		b := edgeListToBytes(randEdges)
 		assert.Equal(t, randEdges, bytesToEdgeList(b))
 	}

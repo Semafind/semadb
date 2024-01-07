@@ -1,6 +1,7 @@
 package shard
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/google/uuid"
@@ -23,7 +24,7 @@ func (cp *CachePoint) ClearNeighbours() {
 }
 
 func (cp *CachePoint) AddNeighbour(neighbour *CachePoint) int {
-	cp.Edges = append(cp.Edges, neighbour.Id)
+	cp.Edges = append(cp.Edges, neighbour.NodeId)
 	cp.neighbours = append(cp.neighbours, neighbour)
 	cp.isEdgeDirty = true
 	return len(cp.Edges)
@@ -33,31 +34,47 @@ func (cp *CachePoint) AddNeighbour(neighbour *CachePoint) int {
 
 type PointCache struct {
 	bucket *bbolt.Bucket
-	points map[uuid.UUID]*CachePoint
+	points map[uint64]*CachePoint
 	mu     sync.Mutex
 }
 
 func NewPointCache(bucket *bbolt.Bucket) *PointCache {
 	return &PointCache{
 		bucket: bucket,
-		points: make(map[uuid.UUID]*CachePoint),
+		points: make(map[uint64]*CachePoint),
 	}
 }
 
-func (pc *PointCache) GetPoint(pointId uuid.UUID) (*CachePoint, error) {
+func (pc *PointCache) GetPoint(id uint64) (*CachePoint, error) {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
-	if point, ok := pc.points[pointId]; ok {
+	// ---------------------------
+	if point, ok := pc.points[id]; ok {
 		return point, nil
 	}
-	point, err := getPoint(pc.bucket, pointId)
+	// ---------------------------
+	point, err := getNode(pc.bucket, id)
 	if err != nil {
 		return nil, err
 	}
 	newPoint := &CachePoint{
 		ShardPoint: point,
 	}
-	pc.points[pointId] = newPoint
+	pc.points[id] = newPoint
+	return newPoint, nil
+}
+
+func (pc *PointCache) GetPointByUUID(pointId uuid.UUID) (*CachePoint, error) {
+	pc.mu.Lock()
+	defer pc.mu.Unlock()
+	point, err := getPointByUUID(pc.bucket, pointId)
+	if err != nil {
+		return nil, err
+	}
+	newPoint := &CachePoint{
+		ShardPoint: point,
+	}
+	pc.points[point.NodeId] = newPoint
 	return newPoint, nil
 }
 
@@ -77,18 +94,25 @@ func (pc *PointCache) GetPointNeighbours(point *CachePoint) ([]*CachePoint, erro
 	return point.neighbours, nil
 }
 
-func (pc *PointCache) SetPoint(point ShardPoint) *CachePoint {
+func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 	newPoint := &CachePoint{
 		ShardPoint: point,
 		isDirty:    true,
 	}
-	pc.points[point.Id] = newPoint
-	return newPoint
+	if newPoint.NodeId == 0 {
+		newNodeId, err := pc.bucket.NextSequence()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get next sequence: %w", err)
+		}
+		newPoint.NodeId = newNodeId
+	}
+	pc.points[newPoint.NodeId] = newPoint
+	return newPoint, nil
 }
 
-func (pc *PointCache) EdgeScan(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, error) {
+func (pc *PointCache) EdgeScan(deleteSet map[uint64]struct{}) ([]uint64, error) {
 	return scanPointEdges(pc.bucket, deleteSet)
 }
 
@@ -97,7 +121,7 @@ func (pc *PointCache) Flush() error {
 	defer pc.mu.Unlock()
 	for _, point := range pc.points {
 		if point.isDeleted {
-			if err := deletePoint(pc.bucket, point.Id); err != nil {
+			if err := deletePoint(pc.bucket, point.ShardPoint); err != nil {
 				return err
 			}
 			continue

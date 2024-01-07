@@ -2,11 +2,9 @@ package shard
 
 import (
 	"fmt"
-
-	"github.com/google/uuid"
 )
 
-func (s *Shard) greedySearch(pc *PointCache, startPointId uuid.UUID, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
+func (s *Shard) greedySearch(pc *PointCache, startPointId uint64, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
 	// ---------------------------
 	// Initialise distance set
 	searchSet := NewDistSet(query, searchSize, s.distFn)

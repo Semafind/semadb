@@ -3,18 +3,16 @@ package shard
 import (
 	"encoding/binary"
 	"math"
-
-	"github.com/google/uuid"
 )
 
-func int64ToBytes(i int64) []byte {
+func uint64ToBytes(i uint64) []byte {
 	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, uint64(i))
+	binary.LittleEndian.PutUint64(b, i)
 	return b
 }
 
-func bytesToInt64(b []byte) int64 {
-	return int64(binary.LittleEndian.Uint64(b))
+func bytesToUint64(b []byte) uint64 {
+	return binary.LittleEndian.Uint64(b)
 }
 
 func float32ToBytes(f []float32) []byte {
@@ -33,19 +31,18 @@ func bytesToFloat32(b []byte) []float32 {
 	return f
 }
 
-func edgeListToBytes(edges []uuid.UUID) []byte {
-	b := make([]byte, len(edges)*16)
+func edgeListToBytes(edges []uint64) []byte {
+	b := make([]byte, len(edges)*8)
 	for i, e := range edges {
-		copy(b[i*16:], e[:])
+		binary.LittleEndian.PutUint64(b[i*8:], e)
 	}
 	return b
 }
 
-func bytesToEdgeList(b []byte) []uuid.UUID {
-	edges := make([]uuid.UUID, len(b)/16)
+func bytesToEdgeList(b []byte) []uint64 {
+	edges := make([]uint64, len(b)/8)
 	for i := range edges {
-		edges[i] = uuid.UUID{}
-		copy(edges[i][:], b[i*16:(i+1)*16])
+		edges[i] = binary.LittleEndian.Uint64(b[i*8:])
 	}
 	return edges
 }
