@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/models"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func randPoints(size int) []models.Point {
@@ -66,12 +66,12 @@ func Test_distributePoints(t *testing.T) {
 			}
 			points := randPoints(tc.pointCount)
 			ass, err := distributePoints(shards, points, maxShardSize, maxShardPointCount, createShardFn)
-			assert.NoError(t, err)
-			assert.Len(t, ass, tc.wantAssLen)
+			require.NoError(t, err)
+			require.Len(t, ass, tc.wantAssLen)
 			for _, assRange := range ass {
-				assert.Equal(t, 1, assRange[1]-assRange[0], fmt.Sprintf("Assignment range was %v", assRange))
+				require.Equal(t, 1, assRange[1]-assRange[0], fmt.Sprintf("Assignment range was %v", assRange))
 			}
-			assert.Equal(t, tc.wantCreateCount, createCount, "Create count")
+			require.Equal(t, tc.wantCreateCount, createCount, "Create count")
 		})
 	}
 }

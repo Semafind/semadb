@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func randDistElems(queryVector []float32, dists ...float32) []*CachePoint {
@@ -34,15 +34,15 @@ func TestDistSet_Add(t *testing.T) {
 	ds := setupDistSet(2)
 	elems := randDistElems(ds.queryVector, 0.5, 1.0, 0.2)
 	ds.AddPoint(elems...)
-	assert.Equal(t, 3, ds.Len())
+	require.Equal(t, 3, ds.Len())
 	wantOrder := []uint{0, 1, 2}
 	for i, elem := range ds.items {
-		assert.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
+		require.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
 	}
 	ds.Sort()
 	wantOrder = []uint{2, 0, 1}
 	for i, elem := range ds.items {
-		assert.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
+		require.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
 	}
 }
 
@@ -51,11 +51,11 @@ func TestDistSet_Add_Duplicate(t *testing.T) {
 	elems := randDistElems(ds.queryVector, 0.5, 1.0, 0.1)
 	ds.AddPoint(elems...)
 	ds.AddPoint(elems[0])
-	assert.Equal(t, 3, ds.Len())
+	require.Equal(t, 3, ds.Len())
 	ds.Sort()
 	wantOrder := []uint{2, 0, 1}
 	for i, elem := range ds.items {
-		assert.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
+		require.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
 	}
 }
 
@@ -63,9 +63,9 @@ func TestDistSet_AddWithLimit(t *testing.T) {
 	ds := setupDistSet(2)
 	elems := randDistElems(ds.queryVector, 0.5, 1.0, 0.1)
 	ds.AddPointWithLimit(elems...)
-	assert.Equal(t, 2, ds.Len())
+	require.Equal(t, 2, ds.Len())
 	wantOrder := []uint{2, 0}
 	for i, elem := range ds.items {
-		assert.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
+		require.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
 	}
 }

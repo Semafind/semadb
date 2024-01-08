@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/semafind/semadb/distance/asm"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var vectorTable = []struct {
@@ -27,7 +27,7 @@ func TestPureDotProduct(t *testing.T) {
 	for _, tt := range vectorTable {
 		t.Run(tt.name, func(t *testing.T) {
 			got := dotProductPureGo(tt.x, tt.y)
-			assert.Equal(t, tt.wantDot, got)
+			require.Equal(t, tt.wantDot, got)
 		})
 	}
 }
@@ -36,7 +36,7 @@ func TestASMdotProduct(t *testing.T) {
 	for _, tt := range vectorTable {
 		t.Run(tt.name, func(t *testing.T) {
 			got := asm.Dot(tt.x, tt.y)
-			assert.Equal(t, tt.wantDot, got)
+			require.Equal(t, tt.wantDot, got)
 		})
 	}
 }
@@ -45,7 +45,7 @@ func TestPureSquaredEuclidean(t *testing.T) {
 	for _, tt := range vectorTable {
 		t.Run(tt.name, func(t *testing.T) {
 			got := squaredEuclideanDistancePureGo(tt.x, tt.y)
-			assert.Equal(t, tt.wantEuclidean, got)
+			require.Equal(t, tt.wantEuclidean, got)
 		})
 	}
 }
@@ -55,7 +55,7 @@ func TestASMSquaredEuclidean(t *testing.T) {
 	y := []float32{4, 5, 6}
 	got := asm.SquaredEuclideanDistance(x, y)
 	want := float32(27)
-	assert.Equal(t, want, got)
+	require.Equal(t, want, got)
 }
 
 var benchTable = []struct {

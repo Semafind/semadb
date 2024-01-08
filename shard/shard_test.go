@@ -13,7 +13,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/semafind/semadb/internal/loadhdf5"
 	"github.com/semafind/semadb/models"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
 )
 
@@ -78,10 +78,10 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 		}
 		return nil
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// We subtract one because the start point is not in the database but is an
 	// entry point to the graph.
-	assert.Equal(t, expectedCount, len(visited)-1)
+	require.Equal(t, expectedCount, len(visited)-1)
 }
 
 func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
@@ -94,14 +94,14 @@ func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
 				pointId := uuid.UUID(v)
 				nodeId := bytesToUint64(k[1 : len(k)-1])
 				reverseId := b.Get(pointKey(pointId, 'i'))
-				assert.Equal(t, nodeId, bytesToUint64(reverseId))
+				require.Equal(t, nodeId, bytesToUint64(reverseId))
 				nodeCount++
 			}
 			if k[0] == 'p' && k[len(k)-1] == 'i' {
 				pointId := uuid.UUID(k[1 : len(k)-1])
 				nodeId := bytesToUint64(v)
 				reverseId := b.Get(nodeKey(nodeId, 'i'))
-				assert.Equal(t, pointId, uuid.UUID(reverseId))
+				require.Equal(t, pointId, uuid.UUID(reverseId))
 				pointCount++
 			}
 			return nil
@@ -110,16 +110,16 @@ func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
 	})
 	// We subtract one because the start point is not in the database but is an
 	// entry point to the graph.
-	assert.Equal(t, expectedCount, nodeCount-1)
-	assert.Equal(t, expectedCount, pointCount-1)
+	require.Equal(t, expectedCount, nodeCount-1)
+	require.Equal(t, expectedCount, pointCount-1)
 }
 
 func checkPointCount(t *testing.T, shard *Shard, expected int) {
-	assert.Equal(t, expected, getVectorCount(shard))
+	require.Equal(t, expected, getVectorCount(shard))
 	checkNodeIdPointIdMapping(t, shard, expected)
 	si, err := shard.Info()
-	assert.NoError(t, err)
-	assert.EqualValues(t, expected, si.PointCount)
+	require.NoError(t, err)
+	require.EqualValues(t, expected, si.PointCount)
 	checkConnectivity(t, shard, int(expected))
 }
 
@@ -129,7 +129,7 @@ func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 		// Check that the point ids are not in the database
 		for _, id := range pointIds {
 			nodeIdBytes := b.Get(pointKey(id, 'i'))
-			assert.Nil(t, nodeIdBytes)
+			require.Nil(t, nodeIdBytes)
 		}
 		// Check all remaining points have valid edges
 		b.ForEach(func(k, v []byte) error {
@@ -137,10 +137,10 @@ func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 				nodeId := bytesToUint64(k[1 : len(k)-1])
 				edges := bytesToEdgeList(v)
 				// Cannot have self edges
-				assert.NotContains(t, edges, nodeId)
+				require.NotContains(t, edges, nodeId)
 				for _, edge := range edges {
 					nodeVal := b.Get(nodeKey(edge, 'v'))
-					assert.NotNil(t, nodeVal)
+					require.NotNil(t, nodeVal)
 				}
 			}
 			return nil
@@ -167,15 +167,15 @@ func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
 	// We add one because the start point nodeId starts from 1. For example, if
 	// we are expecting the maxId to be 3 (points), then the maximum Id will be
 	// 4.
-	assert.LessOrEqual(t, maxId, uint64(expected+1))
+	require.LessOrEqual(t, maxId, uint64(expected+1))
 }
 
 /*func dumpEdgesToCSV(t *testing.T, shard *Shard, fpath string) {
-	assert.Equal(t, ".csv", filepath.Ext(fpath))
+	require.Equal(t, ".csv", filepath.Ext(fpath))
 	// ---------------------------
 	// Dump to csv file
 	f, err := os.Create(fpath)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	defer f.Close()
 	// ---------------------------
 	shard.db.View(func(tx *bbolt.Tx) error {
@@ -219,7 +219,7 @@ func randPoints(size int) []models.Point {
 func tempShard(t *testing.T) *Shard {
 	dbpath := filepath.Join(t.TempDir(), "sharddb.bbolt")
 	shard, err := NewShard(dbpath, sampleCol)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	return shard
 }
 
@@ -229,19 +229,19 @@ func TestShard_CreatePoint(t *testing.T) {
 	checkPointCount(t, shard, 0)
 	points := randPoints(2)
 	err := shard.InsertPoints(points)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// Check that the shard has two points
 	checkPointCount(t, shard, 2)
-	assert.NoError(t, shard.Close())
+	require.NoError(t, shard.Close())
 }
 
 func TestShard_CreateMorePoints(t *testing.T) {
 	shard := tempShard(t)
 	points := randPoints(4242)
 	err := shard.InsertPoints(points)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	checkPointCount(t, shard, 4242)
-	assert.NoError(t, shard.Close())
+	require.NoError(t, shard.Close())
 }
 
 func TestShard_Persistence(t *testing.T) {
@@ -250,13 +250,13 @@ func TestShard_Persistence(t *testing.T) {
 	shard, _ := NewShard(dbfile, sampleCol)
 	points := randPoints(7)
 	err := shard.InsertPoints(points)
-	assert.NoError(t, err)
-	assert.NoError(t, shard.Close())
+	require.NoError(t, err)
+	require.NoError(t, shard.Close())
 	shard, err = NewShard(dbfile, sampleCol)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// Does the shard still have the points?
 	checkPointCount(t, shard, 7)
-	assert.NoError(t, shard.Close())
+	require.NoError(t, shard.Close())
 }
 
 func TestShard_DuplicatePointId(t *testing.T) {
@@ -265,9 +265,9 @@ func TestShard_DuplicatePointId(t *testing.T) {
 	points[0].Id = points[1].Id
 	err := shard.InsertPoints(points)
 	// Insert expects unique ids and should fail
-	assert.Error(t, err)
+	require.Error(t, err)
 	checkPointCount(t, shard, 0)
-	assert.NoError(t, shard.Close())
+	require.NoError(t, shard.Close())
 }
 
 func TestShard_BasicSearch(t *testing.T) {
@@ -276,13 +276,13 @@ func TestShard_BasicSearch(t *testing.T) {
 	points[0].Metadata = []byte("test")
 	shard.InsertPoints(points)
 	res, err := shard.SearchPoints(points[0].Vector, 1)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, len(res))
-	assert.Equal(t, points[0].Id, res[0].Point.Id)
-	assert.Equal(t, points[0].Vector, res[0].Point.Vector)
-	assert.Equal(t, points[0].Metadata, res[0].Point.Metadata)
-	assert.EqualValues(t, 0, res[0].Distance)
-	assert.NoError(t, shard.Close())
+	require.NoError(t, err)
+	require.Equal(t, 1, len(res))
+	require.Equal(t, points[0].Id, res[0].Point.Id)
+	require.Equal(t, points[0].Vector, res[0].Point.Vector)
+	require.Equal(t, points[0].Metadata, res[0].Point.Metadata)
+	require.EqualValues(t, 0, res[0].Distance)
+	require.NoError(t, shard.Close())
 }
 
 func TestShard_SearchMaxLimit(t *testing.T) {
@@ -290,22 +290,22 @@ func TestShard_SearchMaxLimit(t *testing.T) {
 	points := randPoints(2)
 	shard.InsertPoints(points)
 	res, err := shard.SearchPoints(points[0].Vector, 7)
-	assert.NoError(t, err)
-	assert.Equal(t, 2, len(res))
-	assert.NoError(t, shard.Close())
+	require.NoError(t, err)
+	require.Equal(t, 2, len(res))
+	require.NoError(t, shard.Close())
 }
 
 func TestShard_UpdatePoint(t *testing.T) {
 	shard := tempShard(t)
 	points := randPoints(2)
 	err := shard.InsertPoints(points[:1])
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	updateRes, err := shard.UpdatePoints(points)
-	assert.NoError(t, err)
-	assert.Equal(t, 1, len(updateRes))
-	assert.Contains(t, updateRes, points[0].Id)
-	assert.NotContains(t, updateRes, points[1].Id)
-	assert.NoError(t, shard.Close())
+	require.NoError(t, err)
+	require.Equal(t, 1, len(updateRes))
+	require.Contains(t, updateRes, points[0].Id)
+	require.NotContains(t, updateRes, points[1].Id)
+	require.NoError(t, shard.Close())
 }
 
 func TestShard_DeletePoint(t *testing.T) {
@@ -316,27 +316,27 @@ func TestShard_DeletePoint(t *testing.T) {
 	deleteSet[points[0].Id] = struct{}{}
 	// delete one point
 	delIds, err := shard.DeletePoints(deleteSet)
-	assert.NoError(t, err)
-	assert.Len(t, delIds, 1)
-	assert.Equal(t, points[0].Id, delIds[0])
+	require.NoError(t, err)
+	require.Len(t, delIds, 1)
+	require.Equal(t, points[0].Id, delIds[0])
 	checkPointCount(t, shard, 1)
 	checkMaxNodeId(t, shard, 2)
 	checkNoReferences(t, shard, points[0].Id)
 	// Try deleting the same point again
 	delIds, err = shard.DeletePoints(deleteSet)
-	assert.NoError(t, err)
-	assert.Len(t, delIds, 0)
+	require.NoError(t, err)
+	require.Len(t, delIds, 0)
 	checkPointCount(t, shard, 1)
 	checkNoReferences(t, shard, points[0].Id)
 	// Delete other point too
 	deleteSet[points[1].Id] = struct{}{}
 	delIds, err = shard.DeletePoints(deleteSet)
-	assert.Len(t, delIds, 1)
-	assert.Equal(t, points[1].Id, delIds[0])
-	assert.NoError(t, err)
+	require.Len(t, delIds, 1)
+	require.Equal(t, points[1].Id, delIds[0])
+	require.NoError(t, err)
 	checkPointCount(t, shard, 0)
 	checkNoReferences(t, shard, points[0].Id, points[1].Id)
-	assert.NoError(t, shard.Close())
+	require.NoError(t, shard.Close())
 }
 
 func TestShard_InsertDeleteSearchInsertPoint(t *testing.T) {
@@ -348,22 +348,22 @@ func TestShard_InsertDeleteSearchInsertPoint(t *testing.T) {
 	deleteSet[points[1].Id] = struct{}{}
 	// delete all points
 	delIds, err := shard.DeletePoints(deleteSet)
-	assert.NoError(t, err)
-	assert.Len(t, delIds, 2)
+	require.NoError(t, err)
+	require.Len(t, delIds, 2)
 	checkPointCount(t, shard, 0)
-	assert.Equal(t, 0, getPointEdgeCount(shard, shard.startId))
+	require.Equal(t, 0, getPointEdgeCount(shard, shard.startId))
 	checkNoReferences(t, shard, delIds...)
 	checkMaxNodeId(t, shard, 0)
 	// Try searching for the deleted point
 	res, err := shard.SearchPoints(points[0].Vector, 1)
-	assert.NoError(t, err)
-	assert.Len(t, res, 0)
+	require.NoError(t, err)
+	require.Len(t, res, 0)
 	// Try inserting the deleted points
 	err = shard.InsertPoints(points)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	checkPointCount(t, shard, 2)
 	checkMaxNodeId(t, shard, 2)
-	assert.NoError(t, shard.Close())
+	require.NoError(t, shard.Close())
 }
 
 func TestShard_LargeInsertDeleteInsertSearch(t *testing.T) {
@@ -381,23 +381,23 @@ func TestShard_LargeInsertDeleteInsertSearch(t *testing.T) {
 	// delete all points
 	delIds, err := shard.DeletePoints(deleteSet)
 	// dumpEdgesToCSV(t, shard, "../dump/edgesAfterDelete.csv")
-	assert.NoError(t, err)
-	assert.Len(t, delIds, delSize)
+	require.NoError(t, err)
+	require.Len(t, delIds, delSize)
 	checkPointCount(t, shard, initSize-delSize)
 	checkNoReferences(t, shard, delIds...)
 	checkMaxNodeId(t, shard, initSize)
 	// Try inserting the deleted points
 	err = shard.InsertPoints(points[:delSize])
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	checkPointCount(t, shard, initSize)
 	checkMaxNodeId(t, shard, initSize)
 	// Try searching for the deleted point
 	sp := points[0]
 	res, err := shard.SearchPoints(sp.Vector, 1)
-	assert.NoError(t, err)
-	assert.Len(t, res, 1)
-	assert.Equal(t, sp.Id, res[0].Point.Id)
-	assert.NoError(t, shard.Close())
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	require.Equal(t, sp.Id, res[0].Point.Id)
+	require.NoError(t, shard.Close())
 }
 
 func TestShard_LargeInsertUpdateSearch(t *testing.T) {
@@ -412,16 +412,16 @@ func TestShard_LargeInsertUpdateSearch(t *testing.T) {
 		updatePoints[i].Id = points[i].Id
 	}
 	updateRes, err := shard.UpdatePoints(updatePoints)
-	assert.NoError(t, err)
-	assert.Len(t, updateRes, updateSize)
+	require.NoError(t, err)
+	require.Len(t, updateRes, updateSize)
 	checkPointCount(t, shard, initSize)
 	checkMaxNodeId(t, shard, initSize)
 	// Try searching for the updated point
 	res, err := shard.SearchPoints(updatePoints[0].Vector, 1)
-	assert.NoError(t, err)
-	assert.Len(t, res, 1)
-	assert.Equal(t, points[0].Id, res[0].Point.Id)
-	assert.NoError(t, shard.Close())
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	require.Equal(t, points[0].Id, res[0].Point.Id)
+	require.NoError(t, shard.Close())
 }
 
 func TestShard_InsertSinglePoint(t *testing.T) {
@@ -437,7 +437,7 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 	// ---------------------------
 	// Find all dataset files in data folder ending with hdf5
 	datasetFiles, err := filepath.Glob("../data/*.hdf5")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	t.Log("Found", len(datasetFiles), "files:", datasetFiles)
 	// ---------------------------
 	// Disable zerolog
@@ -451,7 +451,7 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 	for _, datasetFile := range datasetFiles {
 		t.Run(filepath.Base(datasetFile), func(t *testing.T) {
 			vecCol, err := loadhdf5.LoadHDF5(datasetFile)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			col := models.Collection{
 				UserId:     "test",
 				Id:         strings.Split(filepath.Base(datasetFile), ".")[0],
@@ -465,7 +465,7 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 			// ---------------------------
 			dbpath := filepath.Join(t.TempDir(), "sharddb.bbolt")
 			shard, err := NewShard(dbpath, col)
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			// ---------------------------
 			maxPoints := min(numPoints, len(vecCol.Vectors))
 			err = shard.db.Update(func(tx *bbolt.Tx) error {
@@ -484,7 +484,7 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 				t.Log("Insert took", time.Since(startTime))
 				return pc.Flush()
 			})
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			// ---------------------------
 			// Perform search
 			err = shard.db.View(func(tx *bbolt.Tx) error {
@@ -498,14 +498,14 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 					if err != nil {
 						return err
 					}
-					assert.Greater(t, len(searchSet.items), 0)
+					require.Greater(t, len(searchSet.items), 0)
 				}
 				t.Log("Search took", time.Since(startTime))
 				return nil
 			})
-			assert.NoError(t, err)
+			require.NoError(t, err)
 			// ---------------------------
-			assert.NoError(t, shard.Close())
+			require.NoError(t, shard.Close())
 		})
 	}
 	// ---------------------------

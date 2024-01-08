@@ -11,7 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/models"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type RequestTest struct {
@@ -47,7 +47,7 @@ func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode
 			ShardTimeout: 30,
 		},
 	})
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	// Setup state
 	for _, colState := range nodeS.Collections {
 		// ---------------------------
@@ -60,11 +60,11 @@ func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode
 			ShardBackupCount:        3,
 		}
 		err := cnode.CreateCollection(colState.Collection)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		// ---------------------------
 		failedRanges, err := cnode.InsertPoints(colState.Collection, colState.Points)
-		assert.NoError(t, err)
-		assert.Len(t, failedRanges, 0)
+		require.NoError(t, err)
+		require.Len(t, failedRanges, 0)
 	}
 	return cnode
 }
@@ -93,11 +93,11 @@ func makeRequest(t *testing.T, router *gin.Engine, method string, endpoint strin
 	var bodyReader io.Reader
 	if body != nil {
 		jsonBody, err := json.Marshal(body)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		bodyReader = bytes.NewReader(jsonBody)
 	}
 	req, err := http.NewRequest(method, endpoint, bodyReader)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-User-Id", "testy")
 	req.Header.Set("X-Plan-Id", "BASIC")
@@ -115,14 +115,14 @@ func Test_pongHandler(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	require.Equal(t, http.StatusBadRequest, w.Code)
 	// With App Headers
 	req.Header.Set("X-User-Id", "testy")
 	req.Header.Set("X-Plan-Id", "BASIC")
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, "{\"message\":\"pong from semadb\"}", w.Body.String())
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, "{\"message\":\"pong from semadb\"}", w.Body.String())
 }
 
 func Test_CreateCollection(t *testing.T) {
@@ -134,16 +134,16 @@ func Test_CreateCollection(t *testing.T) {
 		DistanceMetric: "euclidean",
 	}
 	resp := makeRequest(t, router, "POST", "/v1/collections", reqBody)
-	assert.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 	// ---------------------------
 	// Duplicate request conflicts
 	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody)
-	assert.Equal(t, http.StatusConflict, resp.Code)
+	require.Equal(t, http.StatusConflict, resp.Code)
 	// ---------------------------
 	// Extra request trigger quota limit
 	reqBody.Id = "testy2"
 	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody)
-	assert.Equal(t, http.StatusForbidden, resp.Code)
+	require.Equal(t, http.StatusForbidden, resp.Code)
 }
 
 func Test_ListCollections(t *testing.T) {
@@ -151,11 +151,11 @@ func Test_ListCollections(t *testing.T) {
 	// Initially the user no collections
 	router := setupTestRouter(t, ClusterNodeState{})
 	resp := makeRequest(t, router, "GET", "/v1/collections", nil)
-	assert.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 	var respBody ListCollectionsResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
-	assert.NoError(t, err)
-	assert.Len(t, respBody.Collections, 0)
+	require.NoError(t, err)
+	require.Len(t, respBody.Collections, 0)
 	// ---------------------------
 	// List user collections
 	nodeS := ClusterNodeState{
@@ -172,13 +172,13 @@ func Test_ListCollections(t *testing.T) {
 	}
 	router = setupTestRouter(t, nodeS)
 	resp = makeRequest(t, router, "GET", "/v1/collections", nil)
-	assert.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 	err = json.Unmarshal(resp.Body.Bytes(), &respBody)
-	assert.NoError(t, err)
-	assert.Len(t, respBody.Collections, 1)
-	assert.Equal(t, "gandalf", respBody.Collections[0].Id)
-	assert.EqualValues(t, 42, respBody.Collections[0].VectorSize)
-	assert.Equal(t, "cosine", respBody.Collections[0].DistanceMetric)
+	require.NoError(t, err)
+	require.Len(t, respBody.Collections, 1)
+	require.Equal(t, "gandalf", respBody.Collections[0].Id)
+	require.EqualValues(t, 42, respBody.Collections[0].VectorSize)
+	require.Equal(t, "cosine", respBody.Collections[0].DistanceMetric)
 }
 
 func Test_GetCollection(t *testing.T) {
@@ -198,17 +198,17 @@ func Test_GetCollection(t *testing.T) {
 	// ---------------------------
 	// Unknown collection returns not found
 	resp := makeRequest(t, router, "GET", "/v1/collections/boromir", nil)
-	assert.Equal(t, http.StatusNotFound, resp.Code)
+	require.Equal(t, http.StatusNotFound, resp.Code)
 	// ---------------------------
 	resp = makeRequest(t, router, "GET", "/v1/collections/gandalf", nil)
-	assert.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 	var respBody GetCollectionResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
-	assert.NoError(t, err)
-	assert.Equal(t, "gandalf", respBody.Id)
-	assert.Equal(t, "cosine", respBody.DistanceMetric)
-	assert.EqualValues(t, 42, respBody.VectorSize)
-	assert.Len(t, respBody.Shards, 0)
+	require.NoError(t, err)
+	require.Equal(t, "gandalf", respBody.Id)
+	require.Equal(t, "cosine", respBody.DistanceMetric)
+	require.EqualValues(t, 42, respBody.VectorSize)
+	require.Len(t, respBody.Shards, 0)
 }
 
 func Test_DeleteCollection(t *testing.T) {
@@ -228,14 +228,14 @@ func Test_DeleteCollection(t *testing.T) {
 	// ---------------------------
 	// Unknown collection returns not found
 	resp := makeRequest(t, router, "DELETE", "/v1/collections/boromir", nil)
-	assert.Equal(t, http.StatusNotFound, resp.Code)
+	require.Equal(t, http.StatusNotFound, resp.Code)
 	// ---------------------------
 	resp = makeRequest(t, router, "DELETE", "/v1/collections/gandalf", nil)
-	assert.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 	// ---------------------------
 	// Collection no longer exists
 	resp = makeRequest(t, router, "GET", "/v1/collections/gandalf", nil)
-	assert.Equal(t, http.StatusNotFound, resp.Code)
+	require.Equal(t, http.StatusNotFound, resp.Code)
 }
 
 func Test_InsertPoints(t *testing.T) {
@@ -283,7 +283,7 @@ func Test_InsertPoints(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.Name, func(t *testing.T) {
 			resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", test.Payload)
-			assert.Equal(t, test.Code, resp.Code)
+			require.Equal(t, test.Code, resp.Code)
 		})
 	}
 	// ---------------------------
@@ -299,12 +299,12 @@ func Test_InsertPoints(t *testing.T) {
 		},
 	}
 	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", reqBody)
-	assert.Equal(t, http.StatusOK, resp.Code)
+	require.Equal(t, http.StatusOK, resp.Code)
 	var respBody InsertPointsResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
-	assert.NoError(t, err)
-	assert.Len(t, respBody.FailedRanges, 0)
+	require.NoError(t, err)
+	require.Len(t, respBody.FailedRanges, 0)
 	// Adding more points triggers quota limit
 	resp = makeRequest(t, router, "POST", "/v1/collections/gandalf/points", reqBody)
-	assert.Equal(t, http.StatusForbidden, resp.Code)
+	require.Equal(t, http.StatusForbidden, resp.Code)
 }
