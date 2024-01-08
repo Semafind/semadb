@@ -105,11 +105,7 @@ func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
 		isDirty:    true,
 	}
 	if newPoint.NodeId == 0 {
-		newNodeId, err := pc.bucket.NextSequence()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get next sequence: %w", err)
-		}
-		newPoint.NodeId = newNodeId
+		return nil, fmt.Errorf("node id cannot be 0")
 	}
 	pc.points[newPoint.NodeId] = newPoint
 	return newPoint, nil

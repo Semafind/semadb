@@ -24,10 +24,17 @@ type Shard struct {
 	startId    uint64
 }
 
+// ---------------------------
 var POINTSBUCKETKEY = []byte("points")
 var INTERNALBUCKETKEY = []byte("internal")
+
+// ---------------------------
 var STARTIDKEY = []byte("startId")
 var POINTCOUNTKEY = []byte("pointCount")
+var FREEIDSKEY = []byte("freeNodeIds")
+var NEXTFREEIDKEY = []byte("nextFreeNodeId")
+
+// ---------------------------
 
 func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 	// ---------------------------
@@ -66,8 +73,16 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 				randVector[i] *= norm
 			}
 			// ---------------------------
+			counter, err := NewIdCounter(bInternal)
+			if err != nil {
+				return fmt.Errorf("could not create id counter: %w", err)
+			}
+			startId = counter.NextId()
+			if err := counter.Flush(); err != nil {
+				return fmt.Errorf("could not flush id counter: %w", err)
+			}
+			// ---------------------------
 			// Create start point
-			startId, _ = bPoints.NextSequence()
 			randPoint := ShardPoint{
 				NodeId: startId,
 				Point: models.Point{
@@ -227,11 +242,16 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 	}
 	// ---------------------------
 	// Insert points
-	// bar := progressbar.Default(int64(len(points)))
 	startTime := time.Now()
+	// Remember, Bolt allows only one read-write transaction at a time
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
 		pc := NewPointCache(b)
+		// ---------------------------
+		idcounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY))
+		if err != nil {
+			return fmt.Errorf("could not create id counter: %w", err)
+		}
 		// ---------------------------
 		// Setup parallel insert routine
 		var wg sync.WaitGroup
@@ -274,7 +294,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		}
 		// Submit the jobs
 		for point := range points {
-			jobQueue <- ShardPoint{Point: points[point]}
+			jobQueue <- ShardPoint{Point: points[point], NodeId: idcounter.NextId()}
 		}
 		close(jobQueue)
 		wg.Wait()
@@ -290,9 +310,15 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		}
 		// ---------------------------
 		startTime = time.Now()
-		err := pc.Flush()
+		if err := pc.Flush(); err != nil {
+			return fmt.Errorf("could not flush point cache: %w", err)
+		}
 		log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("InsertPoints - Flush")
-		return err
+		// ---------------------------
+		if err := idcounter.Flush(); err != nil {
+			return fmt.Errorf("could not flush id counter: %w", err)
+		}
+		return nil
 	})
 	if err != nil {
 		log.Debug().Err(err).Msg("could not insert points")
@@ -504,6 +530,11 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		b := tx.Bucket(POINTSBUCKETKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
+		idcounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY))
+		if err != nil {
+			return fmt.Errorf("could not create id counter: %w", err)
+		}
+		// ---------------------------
 		for pointId := range deleteSet {
 			point, err := pc.GetPointByUUID(pointId)
 			if err != nil {
@@ -514,6 +545,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 			point.isDeleted = true
 			deletedIds = append(deletedIds, pointId)
 			deletedNodeIds[point.NodeId] = struct{}{}
+			idcounter.FreeId(point.NodeId)
 		}
 		if len(deletedIds) == 0 {
 			// No points to delete, we skip scanning
@@ -544,6 +576,10 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		// Update point count accordingly
 		if err := changePointCount(tx, -len(deletedIds)); err != nil {
 			return fmt.Errorf("could not change point count for deletion: %w", err)
+		}
+		// ---------------------------
+		if err := idcounter.Flush(); err != nil {
+			return fmt.Errorf("could not flush id counter: %w", err)
 		}
 		// ---------------------------
 		return pc.Flush()

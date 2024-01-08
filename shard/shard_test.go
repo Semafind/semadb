@@ -149,6 +149,27 @@ func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 	})
 }
 
+func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
+	var maxId uint64
+	shard.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(POINTSBUCKETKEY)
+		b.ForEach(func(k, v []byte) error {
+			if k[0] == 'n' && k[len(k)-1] == 'i' {
+				nodeId := bytesToUint64(k[1 : len(k)-1])
+				if nodeId > maxId {
+					maxId = nodeId
+				}
+			}
+			return nil
+		})
+		return nil
+	})
+	// We add one because the start point nodeId starts from 1. For example, if
+	// we are expecting the maxId to be 3 (points), then the maximum Id will be
+	// 4.
+	assert.LessOrEqual(t, maxId, uint64(expected+1))
+}
+
 /*func dumpEdgesToCSV(t *testing.T, shard *Shard, fpath string) {
 	assert.Equal(t, ".csv", filepath.Ext(fpath))
 	// ---------------------------
@@ -299,6 +320,7 @@ func TestShard_DeletePoint(t *testing.T) {
 	assert.Len(t, delIds, 1)
 	assert.Equal(t, points[0].Id, delIds[0])
 	checkPointCount(t, shard, 1)
+	checkMaxNodeId(t, shard, 2)
 	checkNoReferences(t, shard, points[0].Id)
 	// Try deleting the same point again
 	delIds, err = shard.DeletePoints(deleteSet)
@@ -331,6 +353,7 @@ func TestShard_InsertDeleteSearchInsertPoint(t *testing.T) {
 	checkPointCount(t, shard, 0)
 	assert.Equal(t, 0, getPointEdgeCount(shard, shard.startId))
 	checkNoReferences(t, shard, delIds...)
+	checkMaxNodeId(t, shard, 0)
 	// Try searching for the deleted point
 	res, err := shard.SearchPoints(points[0].Vector, 1)
 	assert.NoError(t, err)
@@ -339,6 +362,7 @@ func TestShard_InsertDeleteSearchInsertPoint(t *testing.T) {
 	err = shard.InsertPoints(points)
 	assert.NoError(t, err)
 	checkPointCount(t, shard, 2)
+	checkMaxNodeId(t, shard, 2)
 	assert.NoError(t, shard.Close())
 }
 
@@ -361,10 +385,12 @@ func TestShard_LargeInsertDeleteInsertSearch(t *testing.T) {
 	assert.Len(t, delIds, delSize)
 	checkPointCount(t, shard, initSize-delSize)
 	checkNoReferences(t, shard, delIds...)
+	checkMaxNodeId(t, shard, initSize)
 	// Try inserting the deleted points
 	err = shard.InsertPoints(points[:delSize])
 	assert.NoError(t, err)
 	checkPointCount(t, shard, initSize)
+	checkMaxNodeId(t, shard, initSize)
 	// Try searching for the deleted point
 	sp := points[0]
 	res, err := shard.SearchPoints(sp.Vector, 1)
@@ -389,6 +415,7 @@ func TestShard_LargeInsertUpdateSearch(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, updateRes, updateSize)
 	checkPointCount(t, shard, initSize)
+	checkMaxNodeId(t, shard, initSize)
 	// Try searching for the updated point
 	res, err := shard.SearchPoints(updatePoints[0].Vector, 1)
 	assert.NoError(t, err)
