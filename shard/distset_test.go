@@ -14,6 +14,7 @@ func randDistElems(queryVector []float32, dists ...float32) []*CachePoint {
 	for i, dist := range dists {
 		elems[i] = &CachePoint{
 			ShardPoint: ShardPoint{
+				NodeId: uint64(i),
 				Point: models.Point{
 					Id:     uuid.New(),
 					Vector: []float32{queryVector[0] + dist, queryVector[1] + dist},
