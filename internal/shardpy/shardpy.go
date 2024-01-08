@@ -17,6 +17,11 @@ import (
 	"github.com/google/uuid"
 )
 
+/* This module provides a C interface to the shard package. It is used by the
+ * Python wrapper to interact with the shard directly without any overhead.
+ * Common use case is profiling the shard more easily with real data from
+ * Python. */
+
 var globalShard *shard.Shard
 var globalVectorSize int
 
@@ -93,6 +98,10 @@ func stopProfile() {
 	pprof.StopCPUProfile()
 }
 
+/* The query accepts an out array instead of returning one because the return
+ * types get ugly between Go, C and Python. It is easier to just pass the array
+ * in and fill it in Go. */
+
 //export query
 func query(x []float32, k int, out []uint32) {
 	res, err := globalShard.SearchPoints(x, k)
@@ -108,4 +117,5 @@ func query(x []float32, k int, out []uint32) {
 	}
 }
 
+// The main function is required for the build process
 func main() {}
