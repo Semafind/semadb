@@ -25,6 +25,8 @@ type Shard struct {
 }
 
 // ---------------------------
+const CURRENTSHARDVERSION = 1
+
 var POINTSBUCKETKEY = []byte("points")
 var INTERNALBUCKETKEY = []byte("internal")
 
@@ -33,6 +35,7 @@ var STARTIDKEY = []byte("startId")
 var POINTCOUNTKEY = []byte("pointCount")
 var FREEIDSKEY = []byte("freeNodeIds")
 var NEXTFREEIDKEY = []byte("nextFreeNodeId")
+var SHARDVERSIONKEY = []byte("shardVersion")
 
 // ---------------------------
 
@@ -54,6 +57,22 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 		bInternal, err := tx.CreateBucketIfNotExists(INTERNALBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
+		}
+		// ---------------------------
+		// Get or set shard version
+		sv := bInternal.Get(SHARDVERSIONKEY)
+		if sv == nil {
+			// There is no shard version, we'll create one
+			if err := bInternal.Put(SHARDVERSIONKEY, uint64ToBytes(CURRENTSHARDVERSION)); err != nil {
+				return fmt.Errorf("could not set shard version: %w", err)
+			}
+		} else {
+			// Check if the shard version is compatible
+			shardVersion := bytesToUint64(sv)
+			if shardVersion != CURRENTSHARDVERSION {
+				// In the future we can implement a migration process here
+				return fmt.Errorf("shard version mismatch: %d != %d", shardVersion, CURRENTSHARDVERSION)
+			}
 		}
 		// ---------------------------
 		// Setup start point

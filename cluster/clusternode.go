@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"net/http"
 	"net/rpc"
@@ -17,7 +18,16 @@ import (
 	"go.etcd.io/bbolt"
 )
 
-var USERCOLSKEY = []byte("userCollections")
+// ---------------------------
+const CURRRENTNODEVERSION = 1
+
+var INTERNALBUCKETKEY = []byte("internal")
+var USERCOLSBUCKETKEY = []byte("userCollections")
+
+// ---------------------------
+var NODEVERSIONKEY = []byte("clusterNodeVersion")
+
+// ---------------------------
 
 const DBDELIMITER = "/"
 
@@ -131,9 +141,31 @@ func openNodeDB(dbPath string) (*bbolt.DB, error) {
 	// ---------------------------
 	// Check if user collections bucket exists
 	err = db.Update(func(tx *bbolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(USERCOLSKEY)
+		// ---------------------------
+		bInternal, err := tx.CreateBucketIfNotExists(INTERNALBUCKETKEY)
 		if err != nil {
-			return fmt.Errorf("could not create bucket: %w", err)
+			return fmt.Errorf("could not create internal bucket: %w", err)
+		}
+		versionBytes := bInternal.Get(NODEVERSIONKEY)
+		if versionBytes == nil {
+			// There is no version key, so this is a new database
+			var vb [8]byte
+			binary.LittleEndian.PutUint64(vb[:], CURRRENTNODEVERSION)
+			if err := bInternal.Put(NODEVERSIONKEY, vb[:]); err != nil {
+				return fmt.Errorf("could not set node version: %w", err)
+			}
+		} else {
+			// There is a version key, so check it
+			version := binary.LittleEndian.Uint64(versionBytes)
+			if version != CURRRENTNODEVERSION {
+				// In the future we can add code to migrate the database
+				return fmt.Errorf("cluster node version mismatch: %d != %d", version, CURRRENTNODEVERSION)
+			}
+		}
+		// ---------------------------
+		// Create internal bucket if it does not exist
+		if _, err := tx.CreateBucketIfNotExists(USERCOLSBUCKETKEY); err != nil {
+			return fmt.Errorf("could not create user collections bucket: %w", err)
 		}
 		return nil
 	})

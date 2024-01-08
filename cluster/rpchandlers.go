@@ -56,7 +56,7 @@ func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, repl
 	}
 	// ---------------------------
 	err = c.nodedb.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(USERCOLSKEY)
+		b := tx.Bucket(USERCOLSBUCKETKEY)
 		// ---------------------------
 		key := []byte(args.Collection.UserId + DBDELIMITER + args.Collection.Id)
 		if b.Get(key) != nil {
@@ -100,7 +100,7 @@ func (c *ClusterNode) RPCDeleteCollection(args *RPCDeleteCollectionRequest, repl
 		return c.internalRoute("ClusterNode.RPCDeleteCollection", args, reply)
 	}
 	err := c.nodedb.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(USERCOLSKEY)
+		b := tx.Bucket(USERCOLSBUCKETKEY)
 		if err := b.Delete([]byte(args.Collection.UserId + DBDELIMITER + args.Collection.Id)); err != nil {
 			return fmt.Errorf("could not delete collection: %w", err)
 		}
@@ -127,7 +127,7 @@ func (c *ClusterNode) RPCListCollections(args *RPCListCollectionsRequest, reply 
 	}
 	reply.Collections = make([]models.Collection, 0)
 	err := c.nodedb.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(USERCOLSKEY)
+		b := tx.Bucket(USERCOLSBUCKETKEY)
 		// ---------------------------
 		c := b.Cursor()
 		for k, v := c.Seek([]byte(args.UserId + DBDELIMITER)); k != nil && bytes.HasPrefix(k, []byte(args.UserId)); k, v = c.Next() {
@@ -161,7 +161,7 @@ func (c *ClusterNode) RPCGetCollection(args *RPCGetCollectionRequest, reply *RPC
 		return c.internalRoute("ClusterNode.RPCGetCollection", args, reply)
 	}
 	err := c.nodedb.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(USERCOLSKEY)
+		b := tx.Bucket(USERCOLSBUCKETKEY)
 		// ---------------------------
 		key := []byte(args.UserId + DBDELIMITER + args.CollectionId)
 		value := b.Get(key)
@@ -196,7 +196,7 @@ func (c *ClusterNode) RPCCreateShard(args *RPCCreateShardRequest, reply *RPCCrea
 		return c.internalRoute("ClusterNode.RPCCreateShard", args, reply)
 	}
 	err := c.nodedb.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(USERCOLSKEY)
+		b := tx.Bucket(USERCOLSBUCKETKEY)
 		// ---------------------------
 		key := []byte(args.UserId + DBDELIMITER + args.CollectionId)
 		value := b.Get(key)
