@@ -15,6 +15,7 @@ import (
  * uint64 ids helps us use more efficient data structures compared to raw UUIDs
  * when traversing the graph. */
 
+// Represents a single point in the shard graph structure.
 type ShardPoint struct {
 	NodeId uint64
 	models.Point

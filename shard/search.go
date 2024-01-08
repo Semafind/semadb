@@ -8,6 +8,9 @@ func (s *Shard) greedySearch(pc *PointCache, startPointId uint64, query []float3
 	// ---------------------------
 	// Initialise distance set
 	searchSet := NewDistSet(query, searchSize, true, s.distFn)
+	// The faster visited set is only used for the search and we release it
+	// after we're done. This does not affect the items stored in the search
+	// set.
 	defer searchSet.Release()
 	visitedSet := NewDistSet(query, searchSize*2, false, s.distFn)
 	// Check that the search size is greater than k

@@ -8,6 +8,9 @@ import (
 	"github.com/semafind/semadb/distance"
 )
 
+// The global set pool is reused between searches. This is because we don't
+// want to allocate a new bitset for every search. sync.Pool gives a thread safe
+// and potentially garbage collected way to reuse objects.
 var globalSetPool sync.Pool
 
 func init() {
@@ -92,8 +95,8 @@ type DistSetElem struct {
 
 // This data structure is exclusively used by search and robust pruning.
 // Therefore, we optimise just for those cases and make assumptions about the
-// inner workings of the data structure breaking encapsulation for now. It may
-// not be complete semantically and there are tricks and shortcuts that are
+// inner workings of the data structure potentially breaking encapsulation. It
+// may not be complete semantically and there are tricks and shortcuts that are
 // taken to make it faster. Please take care when interacting with this data
 // structure.
 type DistSet struct {

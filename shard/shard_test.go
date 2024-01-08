@@ -29,7 +29,7 @@ var sampleCol models.Collection = models.Collection{
 
 func getVectorCount(shard *Shard) (count int) {
 	shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSKEY)
+		b := tx.Bucket(POINTSBUCKETKEY)
 		b.ForEach(func(k, v []byte) error {
 			if k[len(k)-1] == 'v' {
 				count++
@@ -44,7 +44,7 @@ func getVectorCount(shard *Shard) (count int) {
 
 func getPointEdgeCount(shard *Shard, pointId uint64) (count int) {
 	shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSKEY)
+		b := tx.Bucket(POINTSBUCKETKEY)
 		point, err := getNode(b, pointId)
 		if err != nil {
 			count = -1
@@ -62,7 +62,7 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	queue := make([]uint64, 0)
 	queue = append(queue, shard.startId)
 	err := shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSKEY)
+		b := tx.Bucket(POINTSBUCKETKEY)
 		for len(queue) > 0 {
 			pointId := queue[0]
 			queue = queue[1:]
@@ -88,7 +88,7 @@ func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
 	nodeCount := 0
 	pointCount := 0
 	shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSKEY)
+		b := tx.Bucket(POINTSBUCKETKEY)
 		b.ForEach(func(k, v []byte) error {
 			if k[0] == 'n' && k[len(k)-1] == 'i' {
 				pointId := uuid.UUID(v)
@@ -125,7 +125,7 @@ func checkPointCount(t *testing.T, shard *Shard, expected int) {
 
 func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 	shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSKEY)
+		b := tx.Bucket(POINTSBUCKETKEY)
 		// Check that the point ids are not in the database
 		for _, id := range pointIds {
 			nodeIdBytes := b.Get(pointKey(id, 'i'))
@@ -442,7 +442,7 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 			// ---------------------------
 			maxPoints := min(numPoints, len(vecCol.Vectors))
 			err = shard.db.Update(func(tx *bbolt.Tx) error {
-				buc := tx.Bucket(POINTSKEY)
+				buc := tx.Bucket(POINTSBUCKETKEY)
 				pc := NewPointCache(buc)
 				startTime := time.Now()
 				for i := 0; i < maxPoints; i++ {
@@ -461,7 +461,7 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 			// ---------------------------
 			// Perform search
 			err = shard.db.View(func(tx *bbolt.Tx) error {
-				buc := tx.Bucket(POINTSKEY)
+				buc := tx.Bucket(POINTSBUCKETKEY)
 				pc := NewPointCache(buc)
 				startTime := time.Now()
 				for i := 0; i < maxPoints; i++ {

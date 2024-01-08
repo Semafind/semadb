@@ -8,6 +8,9 @@ import (
 	"go.etcd.io/bbolt"
 )
 
+// Represents a single point in the cache, it uses dirty flags to determine
+// whether it needs to be flushed to the database. Access to the point via the
+// cache is protected by a mutex.
 type CachePoint struct {
 	ShardPoint
 	isDirty     bool
@@ -45,22 +48,22 @@ func NewPointCache(bucket *bbolt.Bucket) *PointCache {
 	}
 }
 
-func (pc *PointCache) GetPoint(id uint64) (*CachePoint, error) {
+func (pc *PointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 	pc.mu.Lock()
 	defer pc.mu.Unlock()
 	// ---------------------------
-	if point, ok := pc.points[id]; ok {
+	if point, ok := pc.points[nodeId]; ok {
 		return point, nil
 	}
 	// ---------------------------
-	point, err := getNode(pc.bucket, id)
+	point, err := getNode(pc.bucket, nodeId)
 	if err != nil {
 		return nil, err
 	}
 	newPoint := &CachePoint{
 		ShardPoint: point,
 	}
-	pc.points[id] = newPoint
+	pc.points[nodeId] = newPoint
 	return newPoint, nil
 }
 

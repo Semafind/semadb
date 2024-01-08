@@ -24,8 +24,8 @@ type Shard struct {
 	startId    uint64
 }
 
-var POINTSKEY = []byte("points")
-var INTERNALKEY = []byte("internal")
+var POINTSBUCKETKEY = []byte("points")
+var INTERNALBUCKETKEY = []byte("internal")
 var STARTIDKEY = []byte("startId")
 var POINTCOUNTKEY = []byte("pointCount")
 
@@ -40,11 +40,11 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 	err = db.Update(func(tx *bbolt.Tx) error {
 		// ---------------------------
 		// Setup buckets
-		bPoints, err := tx.CreateBucketIfNotExists(POINTSKEY)
+		bPoints, err := tx.CreateBucketIfNotExists(POINTSBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
-		bInternal, err := tx.CreateBucketIfNotExists(INTERNALKEY)
+		bInternal, err := tx.CreateBucketIfNotExists(INTERNALBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("create bucket: %s", err)
 		}
@@ -118,7 +118,7 @@ func (s *Shard) Backup(backupFrequency, backupCount int) error {
 // ---------------------------
 
 func changePointCount(tx *bbolt.Tx, change int) error {
-	bInternal := tx.Bucket(INTERNALKEY)
+	bInternal := tx.Bucket(INTERNALBUCKETKEY)
 	// ---------------------------
 	countBytes := bInternal.Get(POINTCOUNTKEY)
 	var count uint64
@@ -146,14 +146,14 @@ type shardInfo struct {
 
 func (s *Shard) Info() (si shardInfo, err error) {
 	err = s.db.View(func(tx *bbolt.Tx) error {
-		bInternal := tx.Bucket(INTERNALKEY)
+		bInternal := tx.Bucket(INTERNALBUCKETKEY)
 		// ---------------------------
 		countBytes := bInternal.Get(POINTCOUNTKEY)
 		if countBytes != nil {
 			si.PointCount = bytesToUint64(countBytes)
 		}
 		// ---------------------------
-		pStats := tx.Bucket(POINTSKEY).Stats()
+		pStats := tx.Bucket(POINTSBUCKETKEY).Stats()
 		si.Allocated = int64(pStats.BranchAlloc + pStats.LeafAlloc)
 		si.InUse = int64(pStats.BranchInuse + pStats.LeafInuse + pStats.InlineBucketInuse)
 		return nil
@@ -230,7 +230,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 	// bar := progressbar.Default(int64(len(points)))
 	startTime := time.Now()
 	err := s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSKEY)
+		b := tx.Bucket(POINTSBUCKETKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
 		// Setup parallel insert routine
@@ -314,7 +314,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 	updatedIds := make([]uuid.UUID, 0, len(points))
 	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSKEY)
+		b := tx.Bucket(POINTSBUCKETKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
 		updateSet := make(map[uuid.UUID]*CachePoint, len(points))
@@ -375,7 +375,7 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 	// search, and is not included in the results.
 	results := make([]SearchPoint, 0, k+1)
 	err := s.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSKEY)
+		b := tx.Bucket(POINTSBUCKETKEY)
 		pc := NewPointCache(b)
 		searchSet, _, err := s.greedySearch(pc, s.startId, query, k, s.collection.Parameters.SearchSize)
 		if err != nil {
@@ -501,7 +501,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 	deletedNodeIds := make(map[uint64]struct{}, len(deleteSet)/2)
 	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSKEY)
+		b := tx.Bucket(POINTSBUCKETKEY)
 		pc := NewPointCache(b)
 		// ---------------------------
 		for pointId := range deleteSet {
