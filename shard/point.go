@@ -25,6 +25,11 @@ type ShardPoint struct {
 var ErrNotFound = errors.New("not found")
 
 // ---------------------------
+/* What is a node vs a point? A point is a unit of data that is stored in the
+ * shard as the user sees. They have unique UUIDs. A node wraps a point to be
+ * indexed in a graph structure. A node has a unique node id and edges to other
+ * nodes. */
+
 /* Storage map:
  * - n<node_id>v: vector
  * - n<node_id>e: edges

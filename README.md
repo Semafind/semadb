@@ -33,6 +33,29 @@ docker run -it --rm -v ./config:/config -e SEMADB_CONFIG=/config/singleServer.ya
 
 Please note that when using docker, the hostname and whitelisting of IPs may need to be adjusted depending on the network configuration of docker. Leaving hostname as a blank string and setting whitelisting to `'*'` opens up SemaDB to every connection as done in the `singleServer.yaml` configuration.
 
+## Search Algorithm
+
+SemaDB's core search algorithm is based on the following excellent research papers:
+
+- Jayaram Subramanya, Suhas, et al. "Diskann: Fast accurate billion-point nearest neighbor search on a single node." Advances in Neural Information Processing Systems 32 (2019) [link](https://proceedings.neurips.cc/paper_files/paper/2019/file/09853c7fb1d3f8ee67a61b6bf4a7f8e6-Paper.pdf).
+- Singh, Aditi, et al. "FreshDiskANN: A Fast and Accurate Graph-Based ANN Index for Streaming Similarity Search." arXiv preprint arXiv:2105.09613 (2021) [link](https://arxiv.org/abs/2105.09613).
+- Gollapudi, Siddharth, et al. "Filtered-DiskANN: Graph Algorithms for Approximate Nearest Neighbor Search with Filters." Proceedings of the ACM Web Conference 2023. 2023 [link](https://harsha-simhadri.org/pubs/Filtered-DiskANN23.pdf).
+
+### Performance
+
+SemaDB with default configuration values, similar to the reported results, achieves good recall across standard benchmarks:
+
+|             Dataset |  Recall |
+|--------------------:|:-------:|
+| gist-960-euclidean  |  0.9678 |
+| glove-100-angular   | 0.92447 |
+| glove-25-angular    | 0.99896 |
+| mnist-784-euclidean |  0.9992 |
+| nytimes-256-angular |  0.9028 |
+| sift-128-euclidean  | 0.99837 |
+
+The queries per second (QPS) is currently omitted because the end-to-end database performance has the overhead of HTTP handling, encoding, decoding of query, parsing, validation, cluster routing, remote procedure calls, loading data from disk etc. This further depends on the type and performance of the CPU. However, the raw performance of the search algorithm within a single Shard would, in theory, be similar to that reported in the research papers.
+
 ## Limitations
 
 Automatic horizontal scaling: the number of servers in the SemaDB is currently fixed because it has no mechanism of moving the data around after server count change. When the number of servers change, the rendezvous hashing used will move 1/n amount of data to the new server. This is tricky to perform safely while the database is operating due to race conditions across servers. Some pitfalls are: a server lagging behind in configuration sending data to old servers, while data transfer is happening user requests must be handled, any mis-routed data must eventually arrive at the correct server, the system must recover from a split-brain scenario if the network is partitioned. Many distributed databases incorporate additional machinery that adds significant complexity to handles these such as versioned keys, vector clocks etc. One option in the future could be an offline scaling tool. At the moment, pre-deployment the workload must be anticipated and only vertical scaling (increasing compute resources per server) is possible.
