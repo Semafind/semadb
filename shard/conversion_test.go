@@ -1,6 +1,7 @@
 package shard
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 
@@ -16,12 +17,55 @@ func Test_uint64ToBytes(t *testing.T) {
 }
 
 func Test_float32ToBytes(t *testing.T) {
-	for i := 0; i < 10; i++ {
-		randFloat1 := rand.Float32()
-		randFloat2 := rand.Float32()
-		b := float32ToBytes([]float32{randFloat1, randFloat2})
-		require.Equal(t, randFloat1, bytesToFloat32(b)[0])
-		require.Equal(t, randFloat2, bytesToFloat32(b)[1])
+	fns := []struct {
+		name      string
+		forwardFn func([]float32) []byte
+		reverseFn func([]byte) []float32
+	}{
+		{"safe", float32ToBytesSafe, bytesToFloat32Safe},
+		{"raw", float32ToBytesRaw, bytesToFloat32Raw},
+	}
+	vecSizes := []int{128, 768, 960, 1536}
+	// ---------------------------
+	for _, vecSize := range vecSizes {
+		randFloats := make([]float32, vecSize)
+		for j := 0; j < vecSize; j++ {
+			randFloats[j] = rand.Float32()
+		}
+		for _, fn := range fns {
+			t.Run(fmt.Sprintf("%s/%d", fn.name, vecSize), func(t *testing.T) {
+				bytesSlice := fn.forwardFn(randFloats[:])
+				require.Equal(t, randFloats, fn.reverseFn(bytesSlice))
+			})
+		}
+	}
+}
+
+func Benchmark_float32ToBytes(b *testing.B) {
+	// ---------------------------
+	fns := []struct {
+		name      string
+		forwardFn func([]float32) []byte
+		reverseFn func([]byte) []float32
+	}{
+		{"safe", float32ToBytesSafe, bytesToFloat32Safe},
+		{"raw", float32ToBytesRaw, bytesToFloat32Raw},
+	}
+	vecSizes := []int{128, 768, 960, 1536}
+	// ---------------------------
+	for _, vecSize := range vecSizes {
+		randFloats := make([]float32, vecSize)
+		for j := 0; j < vecSize; j++ {
+			randFloats[j] = rand.Float32()
+		}
+		for _, fn := range fns {
+			b.Run(fmt.Sprintf("%s/%d", fn.name, vecSize), func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					bytesSlice := fn.forwardFn(randFloats[:])
+					fn.reverseFn(bytesSlice)
+				}
+			})
+		}
 	}
 }
 
