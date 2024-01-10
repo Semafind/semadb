@@ -1,4 +1,4 @@
-package shard
+package cache
 
 import (
 	"fmt"
@@ -8,11 +8,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func Test_uint64ToBytes(t *testing.T) {
+func Test_Uint64ToBytes(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		randInt := rand.Uint64()
-		b := uint64ToBytes(randInt)
-		require.Equal(t, randInt, bytesToUint64(b))
+		b := Uint64ToBytes(randInt)
+		require.Equal(t, randInt, BytesToUint64(b))
 	}
 }
 

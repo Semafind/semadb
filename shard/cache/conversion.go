@@ -1,4 +1,4 @@
-package shard
+package cache
 
 import (
 	"encoding/binary"
@@ -56,13 +56,13 @@ func init() {
 	}
 }
 
-func uint64ToBytes(i uint64) []byte {
+func Uint64ToBytes(i uint64) []byte {
 	b := make([]byte, 8)
 	binary.LittleEndian.PutUint64(b, i)
 	return b
 }
 
-func bytesToUint64(b []byte) uint64 {
+func BytesToUint64(b []byte) uint64 {
 	return binary.LittleEndian.Uint64(b)
 }
 

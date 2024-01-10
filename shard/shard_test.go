@@ -1,6 +1,7 @@
 package shard
 
 import (
+	"encoding/binary"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/semafind/semadb/internal/loadhdf5"
 	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/shard/cache"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
 )
@@ -42,16 +44,20 @@ func getVectorCount(shard *Shard) (count int) {
 	return
 }
 
-func getPointEdgeCount(shard *Shard, pointId uint64) (count int) {
+func getPointEdgeCount(shard *Shard, nodeId uint64) (count int) {
 	shard.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
-		point, err := getNode(b, pointId)
+		pc := cache.NewPointCache(b)
+		point, err := pc.GetPoint(nodeId)
 		if err != nil {
 			count = -1
 			return err
 		}
-		count = len(point.Edges)
-		return nil
+		err = pc.WithPointNeighbours(point, true, func(neighbours []*cache.CachePoint) error {
+			count = len(neighbours)
+			return nil
+		})
+		return err
 	})
 	return
 }
@@ -63,6 +69,7 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	queue = append(queue, shard.startId)
 	err := shard.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
+		pc := cache.NewPointCache(b)
 		for len(queue) > 0 {
 			pointId := queue[0]
 			queue = queue[1:]
@@ -70,11 +77,17 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 				continue
 			}
 			visited[pointId] = struct{}{}
-			point, err := getNode(b, pointId)
+			point, err := pc.GetPoint(pointId)
 			if err != nil {
 				return err
 			}
-			queue = append(queue, point.Edges...)
+			err = pc.WithPointNeighbours(point, true, func(neighbours []*cache.CachePoint) error {
+				for _, neighbour := range neighbours {
+					queue = append(queue, neighbour.NodeId)
+				}
+				return nil
+			})
+			require.NoError(t, err)
 		}
 		return nil
 	})
@@ -92,15 +105,15 @@ func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
 		b.ForEach(func(k, v []byte) error {
 			if k[0] == 'n' && k[len(k)-1] == 'i' {
 				pointId := uuid.UUID(v)
-				nodeId := bytesToUint64(k[1 : len(k)-1])
-				reverseId := b.Get(pointKey(pointId, 'i'))
-				require.Equal(t, nodeId, bytesToUint64(reverseId))
+				nodeId := cache.BytesToUint64(k[1 : len(k)-1])
+				reverseId := b.Get(cache.PointKey(pointId, 'i'))
+				require.Equal(t, nodeId, cache.BytesToUint64(reverseId))
 				nodeCount++
 			}
 			if k[0] == 'p' && k[len(k)-1] == 'i' {
 				pointId := uuid.UUID(k[1 : len(k)-1])
-				nodeId := bytesToUint64(v)
-				reverseId := b.Get(nodeKey(nodeId, 'i'))
+				nodeId := cache.BytesToUint64(v)
+				reverseId := b.Get(cache.NodeKey(nodeId, 'i'))
 				require.Equal(t, pointId, uuid.UUID(reverseId))
 				pointCount++
 			}
@@ -128,18 +141,21 @@ func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 		b := tx.Bucket(POINTSBUCKETKEY)
 		// Check that the point ids are not in the database
 		for _, id := range pointIds {
-			nodeIdBytes := b.Get(pointKey(id, 'i'))
+			nodeIdBytes := b.Get(cache.PointKey(id, 'i'))
 			require.Nil(t, nodeIdBytes)
 		}
 		// Check all remaining points have valid edges
 		b.ForEach(func(k, v []byte) error {
 			if k[len(k)-1] == 'e' {
-				nodeId := bytesToUint64(k[1 : len(k)-1])
-				edges := bytesToEdgeList(v)
+				nodeId := cache.BytesToUint64(k[1 : len(k)-1])
+				edges := make([]uint64, len(v)/8)
+				for i := range edges {
+					edges[i] = binary.LittleEndian.Uint64(v[i*8:])
+				}
 				// Cannot have self edges
 				require.NotContains(t, edges, nodeId)
 				for _, edge := range edges {
-					nodeVal := b.Get(nodeKey(edge, 'v'))
+					nodeVal := b.Get(cache.NodeKey(edge, 'v'))
 					require.NotNil(t, nodeVal)
 				}
 			}
@@ -155,7 +171,7 @@ func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
 		b := tx.Bucket(POINTSBUCKETKEY)
 		b.ForEach(func(k, v []byte) error {
 			if k[0] == 'n' && k[len(k)-1] == 'i' {
-				nodeId := bytesToUint64(k[1 : len(k)-1])
+				nodeId := cache.BytesToUint64(k[1 : len(k)-1])
 				if nodeId > maxId {
 					maxId = nodeId
 				}
@@ -482,7 +498,7 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 			maxPoints := min(numPoints, len(vecCol.Vectors))
 			err = shard.db.Update(func(tx *bbolt.Tx) error {
 				buc := tx.Bucket(POINTSBUCKETKEY)
-				pc := NewPointCache(buc)
+				pc := cache.NewPointCache(buc)
 				startTime := time.Now()
 				for i := 0; i < maxPoints; i++ {
 					// Create a random point
@@ -491,7 +507,7 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 						Vector:   vecCol.Vectors[i],
 						Metadata: []byte("test"),
 					}
-					shard.insertSinglePoint(pc, shard.startId, ShardPoint{Point: point, NodeId: uint64(i + 1)})
+					shard.insertSinglePoint(pc, shard.startId, cache.ShardPoint{Point: point, NodeId: uint64(i + 1)})
 				}
 				t.Log("Insert took", time.Since(startTime))
 				return pc.Flush()
@@ -501,7 +517,7 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 			// Perform search
 			err = shard.db.View(func(tx *bbolt.Tx) error {
 				buc := tx.Bucket(POINTSBUCKETKEY)
-				pc := NewPointCache(buc)
+				pc := cache.NewPointCache(buc)
 				startTime := time.Now()
 				for i := 0; i < maxPoints; i++ {
 					query := vecCol.Vectors[i]

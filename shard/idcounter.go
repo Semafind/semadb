@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/shard/cache"
 	"go.etcd.io/bbolt"
 )
 
@@ -36,7 +37,7 @@ func NewIdCounter(bucket *bbolt.Bucket) (*IdCounter, error) {
 	freeIdsMap := make(map[uint64]struct{})
 	if freeIdsBytes != nil {
 		for i := 0; i < len(freeIdsBytes); i += 8 {
-			freeId := bytesToUint64(freeIdsBytes[i : i+8])
+			freeId := cache.BytesToUint64(freeIdsBytes[i : i+8])
 			freeIdsMap[freeId] = struct{}{}
 		}
 	}
@@ -48,7 +49,7 @@ func NewIdCounter(bucket *bbolt.Bucket) (*IdCounter, error) {
 	nextFreeId := uint64(1) // we start from 1 because 0 can be used for nil
 	nextFreeIdBytes := bucket.Get(NEXTFREEIDKEY)
 	if nextFreeIdBytes != nil {
-		nextFreeId = bytesToUint64(nextFreeIdBytes)
+		nextFreeId = cache.BytesToUint64(nextFreeIdBytes)
 	}
 	// ---------------------------
 	log.Debug().Uint64("nextFreeId", nextFreeId).Int("freeIds", len(freeIds)).Msg("NewIdCounter")
@@ -80,13 +81,13 @@ func (ic *IdCounter) FreeId(id uint64) {
 }
 
 func (ic *IdCounter) Flush() error {
-	if err := ic.bucket.Put(NEXTFREEIDKEY, uint64ToBytes(ic.nextFreeId)); err != nil {
+	if err := ic.bucket.Put(NEXTFREEIDKEY, cache.Uint64ToBytes(ic.nextFreeId)); err != nil {
 		return fmt.Errorf("could not set next free id: %w", err)
 	}
 	// ---------------------------
 	freeIdsBytes := make([]byte, len(ic.freeIds)*8)
 	for i, freeId := range ic.freeIds {
-		copy(freeIdsBytes[i*8:], uint64ToBytes(freeId))
+		copy(freeIdsBytes[i*8:], cache.Uint64ToBytes(freeId))
 	}
 	if err := ic.bucket.Put(FREEIDSKEY, freeIdsBytes); err != nil {
 		return fmt.Errorf("could not set free ids: %w", err)

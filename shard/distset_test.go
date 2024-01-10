@@ -6,14 +6,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/shard/cache"
 	"github.com/stretchr/testify/require"
 )
 
-func randDistElems(queryVector []float32, dists ...float32) []*CachePoint {
-	elems := make([]*CachePoint, len(dists))
+func randDistElems(queryVector []float32, dists ...float32) []*cache.CachePoint {
+	elems := make([]*cache.CachePoint, len(dists))
 	for i, dist := range dists {
-		elems[i] = &CachePoint{
-			ShardPoint: ShardPoint{
+		elems[i] = &cache.CachePoint{
+			ShardPoint: cache.ShardPoint{
 				NodeId: uint64(i),
 				Point: models.Point{
 					Id:     uuid.New(),

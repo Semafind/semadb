@@ -2,9 +2,11 @@ package shard
 
 import (
 	"fmt"
+
+	"github.com/semafind/semadb/shard/cache"
 )
 
-func (s *Shard) greedySearch(pc *PointCache, startPointId uint64, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
+func (s *Shard) greedySearch(pc *cache.PointCache, startPointId uint64, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
 	// ---------------------------
 	// Initialise distance set
 	searchSet := NewDistSet(query, searchSize, uint(s.maxNodeId), s.distFn)
@@ -44,14 +46,13 @@ func (s *Shard) greedySearch(pc *PointCache, startPointId uint64, query []float3
 		// goroutine changing them. The case we aren't covering is after we have
 		// calculated, they may change the search we are doing is not
 		// deterministic. With approximate search this is not a major problem.
-		distElem.point.mu.Lock()
-		neighbours, err := pc.GetPointNeighbours(distElem.point)
+		err := pc.WithPointNeighbours(distElem.point, true, func(neighbours []*cache.CachePoint) error {
+			searchSet.AddPointWithLimit(neighbours...)
+			return nil
+		})
 		if err != nil {
-			distElem.point.mu.Unlock()
-			return searchSet, visitedSet, fmt.Errorf("failed to get neighbours: %w", err)
+			return searchSet, visitedSet, fmt.Errorf("failed to get neighbours during search: %w", err)
 		}
-		searchSet.AddPointWithLimit(neighbours...)
-		distElem.point.mu.Unlock()
 		// ---------------------------
 		i = 0
 	}
@@ -60,7 +61,7 @@ func (s *Shard) greedySearch(pc *PointCache, startPointId uint64, query []float3
 	return searchSet, visitedSet, nil
 }
 
-func (s *Shard) robustPrune(point *CachePoint, candidateSet DistSet, alpha float32, degreeBound int) {
+func (s *Shard) robustPrune(point *cache.CachePoint, candidateSet DistSet, alpha float32, degreeBound int) {
 	// ---------------------------
 	point.ClearNeighbours() // Reset edges / neighbours
 	// ---------------------------

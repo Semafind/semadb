@@ -1,4 +1,4 @@
-package shard
+package cache
 
 import (
 	"encoding/binary"
@@ -19,7 +19,7 @@ import (
 type ShardPoint struct {
 	NodeId uint64
 	models.Point
-	Edges []uint64
+	edges []uint64
 }
 
 var ErrNotFound = errors.New("not found")
@@ -39,7 +39,7 @@ var ErrNotFound = errors.New("not found")
  */
 // ---------------------------
 
-func pointKey(id uuid.UUID, suffix byte) []byte {
+func PointKey(id uuid.UUID, suffix byte) []byte {
 	key := [18]byte{}
 	key[0] = 'p'
 	copy(key[1:], id[:])
@@ -47,7 +47,7 @@ func pointKey(id uuid.UUID, suffix byte) []byte {
 	return key[:]
 }
 
-func nodeKey(id uint64, suffix byte) []byte {
+func NodeKey(id uint64, suffix byte) []byte {
 	key := [10]byte{}
 	key[0] = 'n'
 	binary.LittleEndian.PutUint64(key[1:], id)
@@ -62,21 +62,21 @@ func getNode(b *bbolt.Bucket, nodeId uint64) (ShardPoint, error) {
 	shardPoint := ShardPoint{NodeId: nodeId}
 	// ---------------------------
 	// Get vector
-	vecVal := b.Get(nodeKey(nodeId, 'v'))
+	vecVal := b.Get(NodeKey(nodeId, 'v'))
 	if vecVal == nil {
 		return shardPoint, fmt.Errorf("could not get vector %d", nodeId)
 	}
 	shardPoint.Vector = bytesToFloat32(vecVal)
 	// ---------------------------
 	// Get edges
-	edgeVal := b.Get(nodeKey(nodeId, 'e'))
+	edgeVal := b.Get(NodeKey(nodeId, 'e'))
 	if edgeVal == nil {
 		return shardPoint, fmt.Errorf("could not get edges %d", nodeId)
 	}
-	shardPoint.Edges = bytesToEdgeList(edgeVal)
+	shardPoint.edges = bytesToEdgeList(edgeVal)
 	// ---------------------------
 	// Get point id
-	pointIdBytes := b.Get(nodeKey(nodeId, 'i'))
+	pointIdBytes := b.Get(NodeKey(nodeId, 'i'))
 	if pointIdBytes == nil {
 		return shardPoint, fmt.Errorf("could not get point id %d", nodeId)
 	}
@@ -88,11 +88,11 @@ func getNode(b *bbolt.Bucket, nodeId uint64) (ShardPoint, error) {
 func getPointByUUID(b *bbolt.Bucket, id uuid.UUID) (ShardPoint, error) {
 	// ---------------------------
 	// Get node id
-	nodeIdBytes := b.Get(pointKey(id, 'i'))
+	nodeIdBytes := b.Get(PointKey(id, 'i'))
 	if nodeIdBytes == nil {
 		return ShardPoint{}, fmt.Errorf("could not get node id %s", id)
 	}
-	nodeId := bytesToUint64(nodeIdBytes)
+	nodeId := BytesToUint64(nodeIdBytes)
 	// ---------------------------
 	sp, err := getNode(b, nodeId)
 	if err != nil {
@@ -107,7 +107,7 @@ func getPointByUUID(b *bbolt.Bucket, id uuid.UUID) (ShardPoint, error) {
 func setPointEdges(b *bbolt.Bucket, point ShardPoint) error {
 	// ---------------------------
 	// Set edges
-	if err := b.Put(nodeKey(point.NodeId, 'e'), edgeListToBytes(point.Edges)); err != nil {
+	if err := b.Put(NodeKey(point.NodeId, 'e'), edgeListToBytes(point.edges)); err != nil {
 		return fmt.Errorf("could not set edge: %w", err)
 	}
 	// ---------------------------
@@ -121,30 +121,30 @@ func setPoint(b *bbolt.Bucket, point ShardPoint) error {
 	 * like that. For example, suffixedKey[17] = 'e' and re-use, will not work. */
 	// ---------------------------
 	// Set vector
-	if err := b.Put(nodeKey(point.NodeId, 'v'), float32ToBytes(point.Vector)); err != nil {
+	if err := b.Put(NodeKey(point.NodeId, 'v'), float32ToBytes(point.Vector)); err != nil {
 		return fmt.Errorf("could not set vector: %w", err)
 	}
 	// ---------------------------
 	// Set edges
-	if err := b.Put(nodeKey(point.NodeId, 'e'), edgeListToBytes(point.Edges)); err != nil {
+	if err := b.Put(NodeKey(point.NodeId, 'e'), edgeListToBytes(point.edges)); err != nil {
 		return fmt.Errorf("could not set edge: %w", err)
 	}
 	// ---------------------------
 	// Set external UUID
-	if err := b.Put(pointKey(point.Id, 'i'), uint64ToBytes(point.NodeId)); err != nil {
+	if err := b.Put(PointKey(point.Id, 'i'), Uint64ToBytes(point.NodeId)); err != nil {
 		return fmt.Errorf("could not set point id: %w", err)
 	}
-	if err := b.Put(nodeKey(point.NodeId, 'i'), point.Id[:]); err != nil {
+	if err := b.Put(NodeKey(point.NodeId, 'i'), point.Id[:]); err != nil {
 		return fmt.Errorf("could not set node id: %w", err)
 	}
 	// ---------------------------
 	// Set metadata if any
 	if point.Metadata != nil {
-		if err := b.Put(nodeKey(point.NodeId, 'm'), point.Metadata); err != nil {
+		if err := b.Put(NodeKey(point.NodeId, 'm'), point.Metadata); err != nil {
 			return fmt.Errorf("could not set metadata: %w", err)
 		}
 	} else {
-		if err := b.Delete(nodeKey(point.NodeId, 'm')); err != nil {
+		if err := b.Delete(NodeKey(point.NodeId, 'm')); err != nil {
 			return fmt.Errorf("could not delete metadata on nil: %w", err)
 		}
 	}
@@ -154,25 +154,25 @@ func setPoint(b *bbolt.Bucket, point ShardPoint) error {
 func deletePoint(b *bbolt.Bucket, point ShardPoint) error {
 	// ---------------------------
 	// Delete vector
-	if err := b.Delete(nodeKey(point.NodeId, 'v')); err != nil {
+	if err := b.Delete(NodeKey(point.NodeId, 'v')); err != nil {
 		return fmt.Errorf("could not delete vector: %w", err)
 	}
 	// ---------------------------
 	// Delete edges
-	if err := b.Delete(nodeKey(point.NodeId, 'e')); err != nil {
+	if err := b.Delete(NodeKey(point.NodeId, 'e')); err != nil {
 		return fmt.Errorf("could not delete edges: %w", err)
 	}
 	// ---------------------------
 	// Delete metadata
-	if err := b.Delete(nodeKey(point.NodeId, 'm')); err != nil {
+	if err := b.Delete(NodeKey(point.NodeId, 'm')); err != nil {
 		return fmt.Errorf("could not delete metadata: %w", err)
 	}
 	// ---------------------------
 	// Delete external UUID
-	if err := b.Delete(pointKey(point.Id, 'i')); err != nil {
+	if err := b.Delete(PointKey(point.Id, 'i')); err != nil {
 		return fmt.Errorf("could not delete point id: %w", err)
 	}
-	if err := b.Delete(nodeKey(point.NodeId, 'i')); err != nil {
+	if err := b.Delete(NodeKey(point.NodeId, 'i')); err != nil {
 		return fmt.Errorf("could not delete node id: %w", err)
 	}
 	// ---------------------------
@@ -182,7 +182,7 @@ func deletePoint(b *bbolt.Bucket, point ShardPoint) error {
 func getPointMetadata(b *bbolt.Bucket, nodeId uint64) ([]byte, error) {
 	// ---------------------------
 	// Get metadata
-	metadataVal := b.Get(nodeKey(nodeId, 'm'))
+	metadataVal := b.Get(NodeKey(nodeId, 'm'))
 	// ---------------------------
 	return metadataVal, nil
 }

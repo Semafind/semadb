@@ -1,4 +1,4 @@
-package shard
+package cache
 
 import (
 	"fmt"
@@ -17,20 +17,24 @@ type CachePoint struct {
 	isEdgeDirty bool
 	isDeleted   bool
 	neighbours  []*CachePoint
-	mu          sync.Mutex
+	mu          sync.RWMutex
 }
 
 func (cp *CachePoint) ClearNeighbours() {
-	cp.Edges = cp.Edges[:0]
+	cp.edges = cp.edges[:0]
 	cp.neighbours = cp.neighbours[:0]
 	cp.isEdgeDirty = true
 }
 
 func (cp *CachePoint) AddNeighbour(neighbour *CachePoint) int {
-	cp.Edges = append(cp.Edges, neighbour.NodeId)
+	cp.edges = append(cp.edges, neighbour.NodeId)
 	cp.neighbours = append(cp.neighbours, neighbour)
 	cp.isEdgeDirty = true
-	return len(cp.Edges)
+	return len(cp.edges)
+}
+
+func (cp *CachePoint) Delete() {
+	cp.isDeleted = true
 }
 
 // ---------------------------
@@ -81,20 +85,44 @@ func (pc *PointCache) GetPointByUUID(pointId uuid.UUID) (*CachePoint, error) {
 	return newPoint, nil
 }
 
-func (pc *PointCache) GetPointNeighbours(point *CachePoint) ([]*CachePoint, error) {
-	if point.neighbours != nil {
-		return point.neighbours, nil
+// Operate with a lock on the point neighbours. If the neighbours are not
+// loaded, load them from the database.
+func (pc *PointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn func([]*CachePoint) error) error {
+	/* We have to lock here because we can't have another goroutine changing the
+	 * edges while we are using them. The read only case mainly occurs in
+	 * searching whereas the writes happen for pruning edges. By using
+	 * read-write lock, we are hoping the search doesn't get blocked too much in
+	 * case there are concurrent insert, update, delete operations.
+	 *
+	 * Why are we not just locking each point, reading the neighbours and
+	 * unlocking as opposed to locking throughout an operation. This is because
+	 * if we know a goroutine has a chance to change the neighbours, another go
+	 * routine might read outdated edges that might lead to disconnected graph.
+	 * Consider the base case, 1 node with no edges, 2 go routines trying to
+	 * insert. If locked only for reading, they'll both think there are no edges
+	 * and race to add the first connection. */
+	if readOnly {
+		point.mu.RLock()
+		defer point.mu.RUnlock()
+	} else {
+		point.mu.Lock()
+		defer point.mu.Unlock()
 	}
-	neighbours := make([]*CachePoint, 0, len(point.Edges))
-	for _, edgeId := range point.Edges {
+	// ---------------------------
+	if point.neighbours != nil {
+		return fn(point.neighbours)
+	}
+	// ---------------------------
+	neighbours := make([]*CachePoint, 0, len(point.edges))
+	for _, edgeId := range point.edges {
 		edge, err := pc.GetPoint(edgeId)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		neighbours = append(neighbours, edge)
 	}
 	point.neighbours = neighbours
-	return point.neighbours, nil
+	return fn(point.neighbours)
 }
 
 func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
@@ -109,6 +137,22 @@ func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
 	}
 	pc.points[newPoint.NodeId] = newPoint
 	return newPoint, nil
+}
+
+func (pc *PointCache) GetMetadata(nodeId uint64) ([]byte, error) {
+	cp, err := pc.GetPoint(nodeId)
+	if err != nil {
+		return nil, err
+	}
+	// Backfill metadata if it's not set
+	if cp.Metadata == nil {
+		mdata, err := getPointMetadata(pc.bucket, nodeId)
+		if err != nil {
+			return nil, err
+		}
+		cp.Metadata = mdata
+	}
+	return cp.Metadata, nil
 }
 
 func (pc *PointCache) EdgeScan(deleteSet map[uint64]struct{}) ([]uint64, error) {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/bits-and-blooms/bitset"
 	"github.com/semafind/semadb/distance"
+	"github.com/semafind/semadb/shard/cache"
 )
 
 /* The bitset size is an important number to consider. If we just have a single
@@ -119,7 +120,7 @@ func (vb *VisitedBitSet) Release() {
 // ---------------------------
 
 type DistSetElem struct {
-	point        *CachePoint
+	point        *cache.CachePoint
 	distance     float32
 	visited      bool
 	pruneRemoved bool
@@ -168,7 +169,7 @@ func (ds *DistSet) String() string {
 // ---------------------------
 
 // Add points while respecting the capacity of the array, used in greedy search
-func (ds *DistSet) AddPointWithLimit(points ...*CachePoint) {
+func (ds *DistSet) AddPointWithLimit(points ...*cache.CachePoint) {
 	for _, p := range points {
 		// ---------------------------
 		// First check if we've seen this point before. We we have than it has
@@ -205,7 +206,7 @@ func (ds *DistSet) AddPointWithLimit(points ...*CachePoint) {
 }
 
 // Add entries and only computes distance if the point is never seen before
-func (ds *DistSet) AddPoint(points ...*CachePoint) {
+func (ds *DistSet) AddPoint(points ...*cache.CachePoint) {
 	for _, p := range points {
 		if ds.set.CheckAndVisit(p.NodeId) {
 			continue

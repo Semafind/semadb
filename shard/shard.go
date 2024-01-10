@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/utils"
 	"go.etcd.io/bbolt"
 )
@@ -74,12 +75,12 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 		sv := bInternal.Get(SHARDVERSIONKEY)
 		if sv == nil {
 			// There is no shard version, we'll create one
-			if err := bInternal.Put(SHARDVERSIONKEY, uint64ToBytes(CURRENTSHARDVERSION)); err != nil {
+			if err := bInternal.Put(SHARDVERSIONKEY, cache.Uint64ToBytes(CURRENTSHARDVERSION)); err != nil {
 				return fmt.Errorf("could not set shard version: %w", err)
 			}
 		} else {
 			// Check if the shard version is compatible
-			shardVersion := bytesToUint64(sv)
+			shardVersion := cache.BytesToUint64(sv)
 			if shardVersion != CURRENTSHARDVERSION {
 				// In the future we can implement a migration process here
 				return fmt.Errorf("shard version mismatch: %d != %d", shardVersion, CURRENTSHARDVERSION)
@@ -113,23 +114,25 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 			}
 			// ---------------------------
 			// Create start point
-			randPoint := ShardPoint{
+			randPoint := cache.ShardPoint{
 				NodeId: startId,
 				Point: models.Point{
 					Id:     uuid.New(),
 					Vector: randVector,
 				},
 			}
+			pc := cache.NewPointCache(bPoints)
 			log.Debug().Uint64("id", startId).Str("UUID", randPoint.Id.String()).Msg("creating start point")
-			if err := setPoint(bPoints, randPoint); err != nil {
-				return fmt.Errorf("could not set start point: %w", err)
+			pc.SetPoint(randPoint)
+			if err := pc.Flush(); err != nil {
+				return fmt.Errorf("could not flush start point: %w", err)
 			}
-			if err := bInternal.Put(STARTIDKEY, uint64ToBytes(randPoint.NodeId)); err != nil {
+			if err := bInternal.Put(STARTIDKEY, cache.Uint64ToBytes(randPoint.NodeId)); err != nil {
 				return fmt.Errorf("could not set start point id: %w", err)
 			}
 			// ---------------------------
 		} else {
-			startId = bytesToUint64(sid)
+			startId = cache.BytesToUint64(sid)
 			log.Debug().Uint64("id", startId).Msg("found start point")
 		}
 		// ---------------------------
@@ -171,7 +174,7 @@ func changePointCount(tx *bbolt.Tx, change int) error {
 	countBytes := bInternal.Get(POINTCOUNTKEY)
 	var count uint64
 	if countBytes != nil {
-		count = bytesToUint64(countBytes)
+		count = cache.BytesToUint64(countBytes)
 	}
 	// ---------------------------
 	newCount := int(count) + change
@@ -179,7 +182,7 @@ func changePointCount(tx *bbolt.Tx, change int) error {
 		return fmt.Errorf("point count cannot be negative")
 	}
 	// ---------------------------
-	countBytes = uint64ToBytes(uint64(newCount))
+	countBytes = cache.Uint64ToBytes(uint64(newCount))
 	if err := bInternal.Put(POINTCOUNTKEY, countBytes); err != nil {
 		return fmt.Errorf("could not change point count: %w", err)
 	}
@@ -198,7 +201,7 @@ func (s *Shard) Info() (si shardInfo, err error) {
 		// ---------------------------
 		countBytes := bInternal.Get(POINTCOUNTKEY)
 		if countBytes != nil {
-			si.PointCount = bytesToUint64(countBytes)
+			si.PointCount = cache.BytesToUint64(countBytes)
 		}
 		// ---------------------------
 		pStats := tx.Bucket(POINTSBUCKETKEY).Stats()
@@ -211,7 +214,7 @@ func (s *Shard) Info() (si shardInfo, err error) {
 
 // ---------------------------
 
-func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uint64, shardPoint ShardPoint) error {
+func (s *Shard) insertSinglePoint(pc *cache.PointCache, startPointId uint64, shardPoint cache.ShardPoint) error {
 	// ---------------------------
 	point, err := pc.SetPoint(shardPoint)
 	if err != nil {
@@ -223,38 +226,40 @@ func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uint64, shardPoin
 		return fmt.Errorf("could not greedy search: %w", err)
 	}
 	// ---------------------------
+	// We don't need to lock the point here because it does not yet have inbound
+	// edges that other goroutines might use to visit this node.
 	s.robustPrune(point, visitedSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
 	// ---------------------------
-	// Add the bi-directional edges
-	for _, nId := range point.Edges {
-		n, err := pc.GetPoint(nId)
-		if err != nil {
-			return fmt.Errorf("could not get neighbour point: %w", err)
-		}
-		// While we are adding the bi-directional edges, we need exclusive
-		// access to ensure other goroutines don't modify the edges while we are
-		// dealing with them.
-		n.mu.Lock()
-		if len(n.Edges)+1 > s.collection.Parameters.DegreeBound {
-			// ---------------------------
-			nn, err := pc.GetPointNeighbours(n)
+	// Add the bi-directional edges, suppose A is being added and has A -> B and
+	// A -> C. Then we attempt to add edges from B and C back to A. point.Edges
+	// is A -> B and A -> C.
+	err = pc.WithPointNeighbours(point, true, func(nnA []*cache.CachePoint) error {
+		for _, n := range nnA {
+			// So here n = B or C as the example goes
+			// While we are adding the bi-directional edges, we need exclusive
+			// access to ensure other goroutines don't modify the edges while we are
+			// dealing with them. That is what WithPointNeighbours is for.
+			err = pc.WithPointNeighbours(n, false, func(nnB []*cache.CachePoint) error {
+				if len(nnB)+1 > s.collection.Parameters.DegreeBound {
+					// We need to prune the neighbour as well to keep the degree bound
+					candidateSet := NewDistSet(n.Vector, len(nnB)+1, 0, s.distFn)
+					candidateSet.AddPoint(nnB...)
+					candidateSet.AddPoint(point) // Here we are asking B or C to add A
+					candidateSet.Sort()
+					s.robustPrune(n, candidateSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
+				} else {
+					// ---------------------------
+					// Add the edge
+					n.AddNeighbour(point)
+				}
+				return nil
+			})
 			if err != nil {
-				n.mu.Unlock()
-				return fmt.Errorf("could not get neighbour neighbours: %w", err)
+				return fmt.Errorf("could not get neighbour point neighbours for bi-directional edges: %w", err)
 			}
-			// We need to prune the neighbour as well to keep the degree bound
-			candidateSet := NewDistSet(n.Vector, len(n.Edges)+1, 0, s.distFn)
-			candidateSet.AddPoint(nn...)
-			candidateSet.AddPoint(point)
-			candidateSet.Sort()
-			s.robustPrune(n, candidateSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
-		} else {
-			// ---------------------------
-			// Add the edge
-			n.AddNeighbour(point)
 		}
-		n.mu.Unlock()
-	}
+		return nil
+	})
 	// ---------------------------
 	return nil
 }
@@ -279,7 +284,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 	// Remember, Bolt allows only one read-write transaction at a time
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
-		pc := NewPointCache(b)
+		pc := cache.NewPointCache(b)
 		// ---------------------------
 		idcounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY))
 		if err != nil {
@@ -290,7 +295,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		var wg sync.WaitGroup
 		ctx, cancel := context.WithCancelCause(context.Background())
 		defer cancel(nil)
-		jobQueue := make(chan ShardPoint, len(points))
+		jobQueue := make(chan cache.ShardPoint, len(points))
 		// Start the workers and start inserting points.
 		numWorkers := runtime.NumCPU() * 3 / 4 // We leave some cores for other tasks
 		for i := 0; i < numWorkers; i++ {
@@ -327,7 +332,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		}
 		// Submit the jobs
 		for point := range points {
-			jobQueue <- ShardPoint{Point: points[point], NodeId: idcounter.NextId()}
+			jobQueue <- cache.ShardPoint{Point: points[point], NodeId: idcounter.NextId()}
 		}
 		close(jobQueue)
 		wg.Wait()
@@ -373,9 +378,9 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
-		pc := NewPointCache(b)
+		pc := cache.NewPointCache(b)
 		// ---------------------------
-		updateSet := make(map[uuid.UUID]*CachePoint, len(points))
+		updateSet := make(map[uuid.UUID]*cache.CachePoint, len(points))
 		updateNodeIds := make(map[uint64]struct{}, len(points))
 		// ---------------------------
 		// First we check if the points exist
@@ -434,7 +439,7 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 	results := make([]SearchPoint, 0, k+1)
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
-		pc := NewPointCache(b)
+		pc := cache.NewPointCache(b)
 		searchSet, _, err := s.greedySearch(pc, s.startId, query, k, s.collection.Parameters.SearchSize)
 		if err != nil {
 			return fmt.Errorf("could not perform graph search: %w", err)
@@ -450,7 +455,7 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 			if len(results) >= k {
 				break
 			}
-			mdata, err := getPointMetadata(b, point.NodeId)
+			mdata, err := pc.GetMetadata(point.NodeId)
 			if err != nil {
 				return fmt.Errorf("could not get point metadata: %w", err)
 			}
@@ -476,49 +481,60 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 
 // ---------------------------
 
-func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uint64, deleteSet map[uint64]struct{}) error {
+// This point has a neighbour that is being deleted. We need to pool together
+// the deleted neighbour neighbours and prune the point.
+func (s *Shard) pruneDeleteNeighbour(pc *cache.PointCache, id uint64, deleteSet map[uint64]struct{}) error {
 	// ---------------------------
 	point, err := pc.GetPoint(id)
 	if err != nil {
 		return fmt.Errorf("could not get point: %w", err)
 	}
 	// ---------------------------
-	pointNeighbours, err := pc.GetPointNeighbours(point)
+	// We are going to build a new candidate list of neighbours and then robust
+	// prune it. What is happening here is A -> B -> C, and B is being deleted.
+	// So we add existing neighbours of B to the candidate list. We go / expand
+	// only one level deep.
+	deletedNothing := true
+	err = pc.WithPointNeighbours(point, false, func(nnA []*cache.CachePoint) error {
+		// These are the neighbours of A
+		candidateSet := NewDistSet(point.Vector, len(nnA)*2, 0, s.distFn)
+		for _, neighbour := range nnA {
+			// Is B deleted?
+			if _, ok := deleteSet[neighbour.NodeId]; ok {
+				// Pull the neighbours of the deleted neighbour (B), and add them to the candidate set
+				err := pc.WithPointNeighbours(neighbour, true, func(nnB []*cache.CachePoint) error {
+					// Check if those neighbours are in the delete set, if not add them
+					// to the candidate set. We do this check in case our neighbour has
+					// neighbours that are being deleted too.
+					for _, deletedPointNeighbour := range nnB {
+						// Is C a valid candidate or is it deleted too?
+						if _, ok := deleteSet[deletedPointNeighbour.NodeId]; !ok {
+							candidateSet.AddPoint(deletedPointNeighbour)
+						}
+					}
+					deletedNothing = false
+					return nil
+				})
+				if err != nil {
+					return fmt.Errorf("could not get deleted neighbour point neighbours: %w", err)
+				}
+			} else {
+				// Nope, B is not deleted so we just add it to the candidate set
+				candidateSet.AddPoint(neighbour)
+			}
+		}
+		candidateSet.Sort()
+		// ---------------------------
+		s.robustPrune(point, candidateSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
+		return nil
+	})
 	if err != nil {
 		return fmt.Errorf("could not get point neighbours: %w", err)
-	}
-	// ---------------------------
-	// We are going to build a new candidate list of neighbours and then robust
-	// prune it
-	candidateSet := NewDistSet(point.Vector, len(point.Edges)*2, 0, s.distFn)
-	deletedNothing := true
-	for _, neighbour := range pointNeighbours {
-		if _, ok := deleteSet[neighbour.NodeId]; ok {
-			// Pull the neighbours of the deleted neighbour, and add them to the candidate set
-			deletedPointNeighbours, err := pc.GetPointNeighbours(neighbour)
-			if err != nil {
-				return fmt.Errorf("could not get deleted point neighbours: %w", err)
-			}
-			// Check if those neighbours are in the delete set, if not add them
-			// to the candidate set. We do this check in case our neighbour has
-			// neighbours that are being deleted too.
-			for _, deletedPointNeighbour := range deletedPointNeighbours {
-				if _, ok := deleteSet[deletedPointNeighbour.NodeId]; !ok {
-					candidateSet.AddPoint(deletedPointNeighbour)
-				}
-			}
-			deletedNothing = false
-		} else {
-			candidateSet.AddPoint(neighbour)
-		}
 	}
 	if deletedNothing {
 		// No neighbours are to be deleted, something's up
 		return fmt.Errorf("no neighbours to be deleted for point: %s", point.Id.String())
 	}
-	candidateSet.Sort()
-	// ---------------------------
-	s.robustPrune(point, candidateSet, s.collection.Parameters.Alpha, s.collection.Parameters.DegreeBound)
 	// ---------------------------
 	return nil
 }
@@ -527,7 +543,7 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uint64, deleteSet map[ui
 
 // Attempts to remove the edges of the deleted points. This is done by scanning
 // all the edges and removing the ones that point to a deleted point.
-func (s *Shard) removeInboundEdges(pc *PointCache, deleteSet map[uint64]struct{}) error {
+func (s *Shard) removeInboundEdges(pc *cache.PointCache, deleteSet map[uint64]struct{}) error {
 	// The scanning may not be efficient but it is correct. We can optimise this
 	// in the future.
 	// ---------------------------
@@ -560,7 +576,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
-		pc := NewPointCache(b)
+		pc := cache.NewPointCache(b)
 		// ---------------------------
 		idcounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY))
 		if err != nil {
@@ -574,7 +590,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 				log.Debug().Err(err).Msg("could not get point for deletion")
 				continue
 			}
-			point.isDeleted = true
+			point.Delete()
 			deletedIds = append(deletedIds, pointId)
 			deletedNodeIds[point.NodeId] = struct{}{}
 			idcounter.FreeId(point.NodeId)
