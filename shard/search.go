@@ -7,12 +7,12 @@ import (
 func (s *Shard) greedySearch(pc *PointCache, startPointId uint64, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
 	// ---------------------------
 	// Initialise distance set
-	searchSet := NewDistSet(query, searchSize, true, s.distFn)
+	searchSet := NewDistSet(query, searchSize, uint(s.maxNodeId), s.distFn)
 	// The faster visited set is only used for the search and we release it
 	// after we're done. This does not affect the items stored in the search
 	// set.
 	defer searchSet.Release()
-	visitedSet := NewDistSet(query, searchSize*2, false, s.distFn)
+	visitedSet := NewDistSet(query, searchSize*2, 0, s.distFn)
 	// Check that the search size is greater than k
 	if searchSize < k {
 		return searchSet, visitedSet, fmt.Errorf("searchSize (%d) must be greater than k (%d)", searchSize, k)

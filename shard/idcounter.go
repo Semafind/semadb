@@ -60,6 +60,10 @@ func NewIdCounter(bucket *bbolt.Bucket) (*IdCounter, error) {
 	return idCounter, nil
 }
 
+func (ic *IdCounter) MaxId() uint64 {
+	return ic.nextFreeId - 1
+}
+
 func (ic *IdCounter) NextId() uint64 {
 	if len(ic.freeIds) == 0 {
 		ic.nextFreeId++

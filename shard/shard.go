@@ -21,7 +21,17 @@ type Shard struct {
 	db         *bbolt.DB
 	collection models.Collection
 	distFn     distance.DistFunc
-	startId    uint64
+	// Start point is the entry point to the graph. It is used to bootstrap the
+	// search and is excluded from results
+	startId uint64
+	// Maximum node id used in the shard. This is actually used for visit sets
+	// to determine the size of the bitset or fallback to a map. It is not the
+	// counter from which new Ids are generated. That is handled by the id
+	// counter. We store this here to avoid having to read the id counter
+	// potentially from disk every time we need to create a new visit set. It
+	// doesn't need to be exact either, bitsets can resize if we get it wrong
+	// but we keep it in sync anyway.
+	maxNodeId uint64
 }
 
 // ---------------------------
@@ -47,6 +57,7 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 	}
 	// ---------------------------
 	var startId uint64
+	var maxNodeId uint64
 	err = db.Update(func(tx *bbolt.Tx) error {
 		// ---------------------------
 		// Setup buckets
@@ -75,6 +86,11 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 			}
 		}
 		// ---------------------------
+		counter, err := NewIdCounter(bInternal)
+		if err != nil {
+			return fmt.Errorf("could not create id counter: %w", err)
+		}
+		// ---------------------------
 		// Setup start point
 		sid := bInternal.Get(STARTIDKEY)
 		if sid == nil {
@@ -90,11 +106,6 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 			norm := 1 / float32(math.Sqrt(float64(sum)))
 			for i := range randVector {
 				randVector[i] *= norm
-			}
-			// ---------------------------
-			counter, err := NewIdCounter(bInternal)
-			if err != nil {
-				return fmt.Errorf("could not create id counter: %w", err)
 			}
 			startId = counter.NextId()
 			if err := counter.Flush(); err != nil {
@@ -122,6 +133,8 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 			log.Debug().Uint64("id", startId).Msg("found start point")
 		}
 		// ---------------------------
+		maxNodeId = counter.MaxId()
+		// ---------------------------
 		return nil
 	})
 	if err != nil {
@@ -138,6 +151,7 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 		collection: collection,
 		distFn:     distFn,
 		startId:    startId,
+		maxNodeId:  maxNodeId,
 	}, nil
 }
 
@@ -229,7 +243,7 @@ func (s *Shard) insertSinglePoint(pc *PointCache, startPointId uint64, shardPoin
 				return fmt.Errorf("could not get neighbour neighbours: %w", err)
 			}
 			// We need to prune the neighbour as well to keep the degree bound
-			candidateSet := NewDistSet(n.Vector, len(n.Edges)+1, false, s.distFn)
+			candidateSet := NewDistSet(n.Vector, len(n.Edges)+1, 0, s.distFn)
 			candidateSet.AddPoint(nn...)
 			candidateSet.AddPoint(point)
 			candidateSet.Sort()
@@ -337,14 +351,13 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		if err := idcounter.Flush(); err != nil {
 			return fmt.Errorf("could not flush id counter: %w", err)
 		}
+		s.maxNodeId = idcounter.MaxId()
 		return nil
 	})
 	if err != nil {
 		log.Debug().Err(err).Msg("could not insert points")
 		return fmt.Errorf("could not insert points: %w", err)
 	}
-	// ---------------------------
-	// bar.Close()
 	// ---------------------------
 	return nil
 }
@@ -477,7 +490,7 @@ func (s *Shard) pruneDeleteNeighbour(pc *PointCache, id uint64, deleteSet map[ui
 	// ---------------------------
 	// We are going to build a new candidate list of neighbours and then robust
 	// prune it
-	candidateSet := NewDistSet(point.Vector, len(point.Edges)*2, false, s.distFn)
+	candidateSet := NewDistSet(point.Vector, len(point.Edges)*2, 0, s.distFn)
 	deletedNothing := true
 	for _, neighbour := range pointNeighbours {
 		if _, ok := deleteSet[neighbour.NodeId]; ok {

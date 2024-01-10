@@ -168,6 +168,9 @@ func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
 	// we are expecting the maxId to be 3 (points), then the maximum Id will be
 	// 4.
 	require.LessOrEqual(t, maxId, uint64(expected+1))
+	if expected != 0 {
+		require.Equal(t, uint64(expected+1), shard.maxNodeId)
+	}
 }
 
 /*func dumpEdgesToCSV(t *testing.T, shard *Shard, fpath string) {

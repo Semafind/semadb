@@ -8,26 +8,57 @@ import (
 	"github.com/semafind/semadb/distance"
 )
 
+/* The bitset size is an important number to consider. If we just have a single
+ * large bitset (which we did in the past) then we end up wasting or just running
+ * out memory. The amount of memory a bitset uses is N/8 bytes, so it's not
+ * terrible even at 5 million bits ~0.6 MiB. But recall that each search
+ * operation requires a clean bitset. 10 concurrent searches means the pool will
+ * yield 10x5 million bits, ~3MiB. We also consider the following:
+ *
+ * 1. Search is really fast. For 10 concurrent searches to happen, the requests
+ * need to come at near identical times. A single shard can handle hundreds of
+ * requests per second, so hopefully this is rare.
+ *
+ * 2. Bitsets get reused and garbage collected via sync.Pool. This means that
+ * the memory is not actually allocated until it is needed. So if we have 10
+ * search requests one after another, then we will only ever have 1 or 2 bitsets
+ * in memory.
+ *
+ * 3. When run as part of a cluster, a large collection is sharded. So the
+ * maximum number of points in a shard never goes crazy. Instead, multiple
+ * shards work together to handle the load. These shards could be on the
+ * same machine or different machines.
+ *
+ * The biset size is not a hard limit but we fallback to using a map if it
+ * exceeds the maximum size of around 5 million for now. Greedy search will most
+ * likely visit a very small subset of such a large collection, so maps are fine
+ * in those cases. Finally, please note that the bitset size is not the same as
+ * the number of points in the shard, instead it is the maximum node Id. For
+ * example, if we have 1m points and delete the first 500k, we still need a
+ * bitset of size 1m.
+ *
+ * We add a bit of slack to the bitset size to account for the extra start nodes.
+ */
+var visitBitSetSizes = []uint{110_000, 260_000, 520_000, 1_300_000, 2_600_000, 5_200_000, 10_500_000}
+
 // The global set pool is reused between searches. This is because we don't
 // want to allocate a new bitset for every search. sync.Pool gives a thread safe
 // and potentially garbage collected way to reuse objects.
-var globalSetPool sync.Pool
+var globalSetPool map[uint]*sync.Pool
 
 func init() {
-	globalSetPool = sync.Pool{
-		New: func() any {
-			// This initial size is important. If we set it too low, then we will
-			// have to resize the bitset as we add more points. If we set it too
-			// high, then we will waste memory. We can't set it too too high
-			// because we'll run out of memory. The principle is around the
-			// number of points we expect to see in a shard. In the database,
-			// larger collections are sharded so we set a reasonable upper bound
-			// of 500k. But recall that this is the maximum node id, things can
-			// get ugly if a lot of points are deleted and re-inserted pushing
-			// the node id up without bound. In the future we can look to address
-			// this perhaps by reusing node ids.
-			return bitset.New(500000)
-		},
+	globalSetPool = make(map[uint]*sync.Pool, len(visitBitSetSizes))
+	for _, size := range visitBitSetSizes {
+		// This innocuous looking re-assignment is necessary because of how
+		// closures work in Go. If we don't do this, then the size variable will
+		// be shared between all the closures and we will end up with a single
+		// pool of size 10_500_000.
+		numBits := size
+		globalSetPool[size] = &sync.Pool{
+			New: func() any {
+				return bitset.New(numBits)
+			},
+		}
 	}
 }
 
@@ -62,13 +93,14 @@ func (vm *VisitedMap) Release() {
 }
 
 type VisitedBitSet struct {
-	set *bitset.BitSet
+	set  *bitset.BitSet
+	pool *sync.Pool
 }
 
-func NewVisitedBitSet() *VisitedBitSet {
-	set := globalSetPool.Get().(*bitset.BitSet)
+func NewVisitedBitSet(bs *bitset.BitSet, pool *sync.Pool) *VisitedBitSet {
+	set := bs
 	set.ClearAll()
-	return &VisitedBitSet{set: set}
+	return &VisitedBitSet{set: set, pool: pool}
 }
 
 func (vb *VisitedBitSet) CheckAndVisit(id uint64) bool {
@@ -80,7 +112,7 @@ func (vb *VisitedBitSet) CheckAndVisit(id uint64) bool {
 }
 
 func (vb *VisitedBitSet) Release() {
-	globalSetPool.Put(vb.set)
+	vb.pool.Put(vb.set)
 	vb.set = nil
 }
 
@@ -107,12 +139,18 @@ type DistSet struct {
 	sortedUntil int
 }
 
-func NewDistSet(queryVector []float32, capacity int, fast bool, distFn distance.DistFunc) DistSet {
+func NewDistSet(queryVector []float32, capacity int, visitSize uint, distFn distance.DistFunc) DistSet {
 	var set visitedSet
-	if fast {
-		set = NewVisitedBitSet()
-	} else {
+	if visitSize == 0 || visitSize > visitBitSetSizes[len(visitBitSetSizes)-1] {
 		set = NewVisitedMap(capacity)
+	} else {
+		for _, size := range visitBitSetSizes {
+			if visitSize <= size {
+				pool := globalSetPool[size]
+				set = NewVisitedBitSet(pool.Get().(*bitset.BitSet), pool)
+				break
+			}
+		}
 	}
 	return DistSet{queryVector: queryVector, items: make([]DistSetElem, 0, capacity), set: set, distFn: distFn}
 }
