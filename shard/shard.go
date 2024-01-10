@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,7 +33,7 @@ type Shard struct {
 	// potentially from disk every time we need to create a new visit set. It
 	// doesn't need to be exact either, bitsets can resize if we get it wrong
 	// but we keep it in sync anyway.
-	maxNodeId uint64
+	maxNodeId atomic.Uint64
 }
 
 // ---------------------------
@@ -149,13 +150,14 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 		return nil, fmt.Errorf("could not get distance function: %w", err)
 	}
 	// ---------------------------
-	return &Shard{
+	shard := &Shard{
 		db:         db,
 		collection: collection,
 		distFn:     distFn,
 		startId:    startId,
-		maxNodeId:  maxNodeId,
-	}, nil
+	}
+	shard.maxNodeId.Store(maxNodeId)
+	return shard, nil
 }
 
 func (s *Shard) Close() error {
@@ -356,7 +358,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		if err := idcounter.Flush(); err != nil {
 			return fmt.Errorf("could not flush id counter: %w", err)
 		}
-		s.maxNodeId = idcounter.MaxId()
+		s.maxNodeId.Store(idcounter.MaxId())
 		return nil
 	})
 	if err != nil {

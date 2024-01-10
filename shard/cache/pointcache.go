@@ -16,8 +16,13 @@ type CachePoint struct {
 	isDirty     bool
 	isEdgeDirty bool
 	isDeleted   bool
-	neighbours  []*CachePoint
-	mu          sync.RWMutex
+	// ---------------------------
+	// Neighbours are loaded lazily. This is because we don't want to load the
+	// entire graph into memory. We only load the neighbours when we need them.
+	neighbours       []*CachePoint
+	neighboursMu     sync.RWMutex
+	loadMu           sync.Mutex
+	loadedNeighbours bool
 }
 
 func (cp *CachePoint) ClearNeighbours() {
@@ -100,18 +105,28 @@ func (pc *PointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn f
 	 * routine might read outdated edges that might lead to disconnected graph.
 	 * Consider the base case, 1 node with no edges, 2 go routines trying to
 	 * insert. If locked only for reading, they'll both think there are no edges
-	 * and race to add the first connection. */
-	if readOnly {
-		point.mu.RLock()
-		defer point.mu.RUnlock()
-	} else {
-		point.mu.Lock()
-		defer point.mu.Unlock()
-	}
+	 * and race to add the first connection.
+	 *
+	 * Hint: to check if things are working, run:
+	 * go test -race ./shard */
 	// ---------------------------
-	if point.neighbours != nil {
+	point.loadMu.Lock()
+	// This check needs to be syncronized because we don't want two go routines
+	// to load the neighbours at the same time.
+	if point.loadedNeighbours {
+		// Early return if the neighbours are already loaded, what would the
+		// goroutine like to do?
+		point.loadMu.Unlock()
+		if readOnly {
+			point.neighboursMu.RLock()
+			defer point.neighboursMu.RUnlock()
+		} else {
+			point.neighboursMu.Lock()
+			defer point.neighboursMu.Unlock()
+		}
 		return fn(point.neighbours)
 	}
+	defer point.loadMu.Unlock()
 	// ---------------------------
 	neighbours := make([]*CachePoint, 0, len(point.edges))
 	for _, edgeId := range point.edges {
@@ -122,6 +137,10 @@ func (pc *PointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn f
 		neighbours = append(neighbours, edge)
 	}
 	point.neighbours = neighbours
+	point.loadedNeighbours = true
+	// Technically we unlock loading lock here and use the neighboursMu lock to
+	// have even more fine grain control. But that seems overkill for what is to
+	// happen once.
 	return fn(point.neighbours)
 }
 

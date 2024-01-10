@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"runtime/pprof"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -185,7 +186,7 @@ func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
 	// 4.
 	require.LessOrEqual(t, maxId, uint64(expected+1))
 	if expected != 0 {
-		require.Equal(t, uint64(expected+1), shard.maxNodeId)
+		require.Equal(t, uint64(expected+1), shard.maxNodeId.Load())
 	}
 }
 
@@ -382,6 +383,132 @@ func TestShard_InsertDeleteSearchInsertPoint(t *testing.T) {
 	require.NoError(t, err)
 	checkPointCount(t, shard, 2)
 	checkMaxNodeId(t, shard, 2)
+	require.NoError(t, shard.Close())
+}
+
+func TestShard_SearchWhileInsert(t *testing.T) {
+	shard := tempShard(t)
+	points := randPoints(100)
+	// Insert points
+	err := shard.InsertPoints(points)
+	require.NoError(t, err)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		newPoints := randPoints(100)
+		err := shard.InsertPoints(newPoints)
+		require.NoError(t, err)
+		wg.Done()
+	}()
+	// Search points
+	go func() {
+		for _, point := range points {
+			res, err := shard.SearchPoints(point.Vector, 1)
+			require.NoError(t, err)
+			require.Len(t, res, 1)
+			require.Equal(t, point.Id, res[0].Point.Id)
+		}
+		wg.Done()
+	}()
+	wg.Wait()
+	checkPointCount(t, shard, 200)
+	require.NoError(t, shard.Close())
+}
+
+func TestShard_DeleteWhileInsert(t *testing.T) {
+	shard := tempShard(t)
+	points := randPoints(100)
+	// Insert points
+	err := shard.InsertPoints(points)
+	require.NoError(t, err)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		newPoints := randPoints(100)
+		err := shard.InsertPoints(newPoints)
+		require.NoError(t, err)
+		wg.Done()
+	}()
+	go func() {
+		// Delete points
+		deleteSet := make(map[uuid.UUID]struct{})
+		for i := 0; i < 50; i++ {
+			deleteSet[points[i].Id] = struct{}{}
+		}
+		delIds, err := shard.DeletePoints(deleteSet)
+		require.NoError(t, err)
+		require.Len(t, delIds, 50)
+		wg.Done()
+	}()
+	wg.Wait()
+	checkPointCount(t, shard, 150)
+	require.NoError(t, shard.Close())
+}
+
+func TestShard_ConcurrentCRUD(t *testing.T) {
+	// We'll insert, search, update and delete at the same time
+	shard := tempShard(t)
+	points := randPoints(150)
+	// Initial points
+	require.NoError(t, shard.InsertPoints(points))
+	var wg sync.WaitGroup
+	wg.Add(5)
+	// ---------------------------
+	// Insert more points
+	go func() {
+		// Insert points
+		newPoints := randPoints(50)
+		require.NoError(t, shard.InsertPoints(newPoints))
+		wg.Done()
+	}()
+	go func() {
+		// Insert points
+		newPoints := randPoints(50)
+		require.NoError(t, shard.InsertPoints(newPoints))
+		wg.Done()
+	}()
+	// ---------------------------
+	// Search points
+	go func() {
+		for i := 0; i < 50; i++ {
+			res, err := shard.SearchPoints(points[i].Vector, 1)
+			require.NoError(t, err)
+			require.Len(t, res, 1)
+			require.Equal(t, points[i].Id, res[0].Point.Id)
+		}
+		wg.Done()
+	}()
+	// ---------------------------
+	// Update points
+	go func() {
+		updatePoints := randPoints(50)
+		for i := 50; i < 100; i++ {
+			updatePoints[i-50].Id = points[i].Id
+		}
+		updateRes, err := shard.UpdatePoints(updatePoints)
+		require.NoError(t, err)
+		require.Len(t, updateRes, 50)
+		wg.Done()
+	}()
+	// ---------------------------
+	// Delete points
+	go func() {
+		deleteSet := make(map[uuid.UUID]struct{})
+		for i := 100; i < 150; i++ {
+			deleteSet[points[i].Id] = struct{}{}
+		}
+		delIds, err := shard.DeletePoints(deleteSet)
+		require.NoError(t, err)
+		require.Len(t, delIds, 50)
+		wg.Done()
+	}()
+	// ---------------------------
+	wg.Wait()
+	checkPointCount(t, shard, 200)
+	// We can't guarantee that the max node id will be 200 or 250 because it
+	// depends on the order of delete and inserts run. If both inserts run first
+	// it'll go up to 250, if delete runs first then it'll be 200.
+	// checkMaxNodeId(t, shard, 250)
 	require.NoError(t, shard.Close())
 }
 
