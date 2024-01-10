@@ -446,6 +446,16 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 	// Disable zerolog
 	zerolog.SetGlobalLevel(zerolog.Disabled)
 	// ---------------------------
+	// Preload dataset files so we don't measure the time it takes to load them
+	datasets := make(map[string]loadhdf5.VectorCollection, len(datasetFiles))
+	for _, datasetFile := range datasetFiles {
+		start := time.Now()
+		vecCol, err := loadhdf5.LoadHDF5(datasetFile)
+		require.NoError(t, err)
+		datasets[datasetFile] = vecCol
+		t.Log("Loaded", len(vecCol.Vectors), "vectors of size", len(vecCol.Vectors[0]), "from", datasetFile, "in", time.Since(start))
+	}
+	// ---------------------------
 	profileFile, _ := os.Create("../dump/cpu.prof")
 	defer profileFile.Close()
 	pprof.StartCPUProfile(profileFile)
@@ -453,7 +463,7 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 	// ---------------------------
 	for _, datasetFile := range datasetFiles {
 		t.Run(filepath.Base(datasetFile), func(t *testing.T) {
-			vecCol, err := loadhdf5.LoadHDF5(datasetFile)
+			vecCol := datasets[datasetFile]
 			require.NoError(t, err)
 			col := models.Collection{
 				UserId:     "test",
@@ -464,7 +474,6 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 				Algorithm:  "vamana",
 				Parameters: models.DefaultVamanaParameters(),
 			}
-			t.Log("Loaded", len(vecCol.Vectors), "vectors of size", col.VectorSize, "from", datasetFile)
 			// ---------------------------
 			dbpath := filepath.Join(t.TempDir(), "sharddb.bbolt")
 			shard, err := NewShard(dbpath, col)
@@ -482,7 +491,7 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 						Vector:   vecCol.Vectors[i],
 						Metadata: []byte("test"),
 					}
-					shard.insertSinglePoint(pc, shard.startId, ShardPoint{Point: point})
+					shard.insertSinglePoint(pc, shard.startId, ShardPoint{Point: point, NodeId: uint64(i + 1)})
 				}
 				t.Log("Insert took", time.Since(startTime))
 				return pc.Flush()
