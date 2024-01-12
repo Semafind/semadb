@@ -33,6 +33,12 @@
 		},
 		{
 			"type": "shell",
+			"label": "go: coverage",
+			"command": "go test -coverprofile=coverage.out ${fileDirname} && go tool cover -html=coverage.out -o coverage.html",
+			"problemMatcher": []
+		},
+		{
+			"type": "shell",
 			"label": "go: update packages",
 			"command": "go",
 			"args": [
