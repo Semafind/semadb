@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"go.etcd.io/bbolt"
 )
 
 // ---------------------------
@@ -32,23 +31,34 @@ type ReadWriteCache interface {
 
 // ---------------------------
 
-type PointCache struct {
-	bucket *bbolt.Bucket
-	store  *sharedInMemStore
+// Represents an underlying storage that can be used to store things.
+type diskStore interface {
+	Writable() bool
+	Get([]byte) []byte
+	Put([]byte, []byte) error
+	ForEach(func(k, v []byte) error) error
+	Delete([]byte) error
 }
 
-func newPointCache(bucket *bbolt.Bucket, store *sharedInMemStore) *PointCache {
+// ---------------------------
+
+type PointCache struct {
+	bucket      diskStore
+	sharedCache *sharedInMemCache
+}
+
+func newPointCache(bucket diskStore, sharedCache *sharedInMemCache) *PointCache {
 	return &PointCache{
-		bucket: bucket,
-		store:  store,
+		bucket:      bucket,
+		sharedCache: sharedCache,
 	}
 }
 
 func (pc *PointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
-	pc.store.pointsMu.Lock()
-	defer pc.store.pointsMu.Unlock()
+	pc.sharedCache.pointsMu.Lock()
+	defer pc.sharedCache.pointsMu.Unlock()
 	// ---------------------------
-	if point, ok := pc.store.points[nodeId]; ok {
+	if point, ok := pc.sharedCache.points[nodeId]; ok {
 		return point, nil
 	}
 	// ---------------------------
@@ -59,14 +69,14 @@ func (pc *PointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 	newPoint := &CachePoint{
 		ShardPoint: point,
 	}
-	pc.store.points[nodeId] = newPoint
-	pc.store.estimatedSize.Add(newPoint.estimateSize())
+	pc.sharedCache.points[nodeId] = newPoint
+	pc.sharedCache.estimatedSize.Add(newPoint.estimateSize())
 	return newPoint, nil
 }
 
 func (pc *PointCache) GetPointByUUID(pointId uuid.UUID) (*CachePoint, error) {
-	pc.store.pointsMu.Lock()
-	defer pc.store.pointsMu.Unlock()
+	pc.sharedCache.pointsMu.Lock()
+	defer pc.sharedCache.pointsMu.Unlock()
 	point, err := getPointByUUID(pc.bucket, pointId)
 	if err != nil {
 		return nil, err
@@ -74,8 +84,8 @@ func (pc *PointCache) GetPointByUUID(pointId uuid.UUID) (*CachePoint, error) {
 	newPoint := &CachePoint{
 		ShardPoint: point,
 	}
-	pc.store.points[point.NodeId] = newPoint
-	pc.store.estimatedSize.Add(newPoint.estimateSize())
+	pc.sharedCache.points[point.NodeId] = newPoint
+	pc.sharedCache.estimatedSize.Add(newPoint.estimateSize())
 	return newPoint, nil
 }
 
@@ -140,8 +150,8 @@ func (pc *PointCache) WithReadOnlyPointNeighbours(point *CachePoint, fn func([]*
 }
 
 func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
-	pc.store.pointsMu.Lock()
-	defer pc.store.pointsMu.Unlock()
+	pc.sharedCache.pointsMu.Lock()
+	defer pc.sharedCache.pointsMu.Unlock()
 	newPoint := &CachePoint{
 		ShardPoint: point,
 		isDirty:    true,
@@ -149,8 +159,8 @@ func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
 	if newPoint.NodeId == 0 {
 		return nil, fmt.Errorf("node id cannot be 0")
 	}
-	pc.store.points[newPoint.NodeId] = newPoint
-	pc.store.estimatedSize.Add(newPoint.estimateSize())
+	pc.sharedCache.points[newPoint.NodeId] = newPoint
+	pc.sharedCache.estimatedSize.Add(newPoint.estimateSize())
 	return newPoint, nil
 }
 
@@ -167,7 +177,7 @@ func (pc *PointCache) GetMetadata(nodeId uint64) ([]byte, error) {
 		}
 		cp.Metadata = mdata
 	}
-	pc.store.estimatedSize.Add(int32(len(cp.Metadata)))
+	pc.sharedCache.estimatedSize.Add(int32(len(cp.Metadata)))
 	return cp.Metadata, nil
 }
 
@@ -176,15 +186,15 @@ func (pc *PointCache) EdgeScan(deleteSet map[uint64]struct{}) ([]uint64, error) 
 }
 
 func (pc *PointCache) Flush() error {
-	pc.store.pointsMu.Lock()
-	defer pc.store.pointsMu.Unlock()
-	for _, point := range pc.store.points {
+	pc.sharedCache.pointsMu.Lock()
+	defer pc.sharedCache.pointsMu.Unlock()
+	for _, point := range pc.sharedCache.points {
 		if point.isDeleted {
 			if err := deletePoint(pc.bucket, point.ShardPoint); err != nil {
 				return err
 			}
-			delete(pc.store.points, point.NodeId)
-			pc.store.estimatedSize.Add(-point.estimateSize())
+			delete(pc.sharedCache.points, point.NodeId)
+			pc.sharedCache.estimatedSize.Add(-point.estimateSize())
 			continue
 		}
 		if point.isDirty {

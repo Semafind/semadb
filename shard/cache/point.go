@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/models"
-	"go.etcd.io/bbolt"
 )
 
 /* The reason we have a ShardPoint struct is because we need to store the node
@@ -57,7 +56,7 @@ func NodeKey(id uint64, suffix byte) []byte {
 
 // ---------------------------
 
-func getNode(b *bbolt.Bucket, nodeId uint64) (ShardPoint, error) {
+func getNode(b diskStore, nodeId uint64) (ShardPoint, error) {
 	// ---------------------------
 	shardPoint := ShardPoint{NodeId: nodeId}
 	// ---------------------------
@@ -85,7 +84,7 @@ func getNode(b *bbolt.Bucket, nodeId uint64) (ShardPoint, error) {
 	return shardPoint, nil
 }
 
-func getPointByUUID(b *bbolt.Bucket, id uuid.UUID) (ShardPoint, error) {
+func getPointByUUID(b diskStore, id uuid.UUID) (ShardPoint, error) {
 	// ---------------------------
 	// Get node id
 	nodeIdBytes := b.Get(PointKey(id, 'i'))
@@ -104,7 +103,7 @@ func getPointByUUID(b *bbolt.Bucket, id uuid.UUID) (ShardPoint, error) {
 	return sp, nil
 }
 
-func setPointEdges(b *bbolt.Bucket, point ShardPoint) error {
+func setPointEdges(b diskStore, point ShardPoint) error {
 	// ---------------------------
 	// Set edges
 	if err := b.Put(NodeKey(point.NodeId, 'e'), edgeListToBytes(point.edges)); err != nil {
@@ -114,7 +113,7 @@ func setPointEdges(b *bbolt.Bucket, point ShardPoint) error {
 	return nil
 }
 
-func setPoint(b *bbolt.Bucket, point ShardPoint) error {
+func setPoint(b diskStore, point ShardPoint) error {
 	// ---------------------------
 	/* Sharing suffix keys with the same point id does not work because the
 	 * underlying array the slice points to gets modified and badger does not
@@ -151,7 +150,7 @@ func setPoint(b *bbolt.Bucket, point ShardPoint) error {
 	return nil
 }
 
-func deletePoint(b *bbolt.Bucket, point ShardPoint) error {
+func deletePoint(b diskStore, point ShardPoint) error {
 	// ---------------------------
 	// Delete vector
 	if err := b.Delete(NodeKey(point.NodeId, 'v')); err != nil {
@@ -179,7 +178,7 @@ func deletePoint(b *bbolt.Bucket, point ShardPoint) error {
 	return nil
 }
 
-func getPointMetadata(b *bbolt.Bucket, nodeId uint64) ([]byte, error) {
+func getPointMetadata(b diskStore, nodeId uint64) ([]byte, error) {
 	// ---------------------------
 	// Get metadata
 	metadataVal := b.Get(NodeKey(nodeId, 'm'))
@@ -190,7 +189,7 @@ func getPointMetadata(b *bbolt.Bucket, nodeId uint64) ([]byte, error) {
 // This function is used to check if the edges of a point are valid. It is
 // called after a delete operation to make sure that the edges pointing to the
 // deleted items are removed.
-func scanPointEdges(b *bbolt.Bucket, deleteSet map[uint64]struct{}) ([]uint64, error) {
+func scanPointEdges(b diskStore, deleteSet map[uint64]struct{}) ([]uint64, error) {
 	// ---------------------------
 	// We set capacity to the length of the delete set because we guess there is
 	// at least one node pointing to each deleted node.

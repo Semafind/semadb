@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-type sharedInMemStore struct {
+type sharedInMemCache struct {
 	points   map[uint64]*CachePoint
 	pointsMu sync.Mutex
 	// ---------------------------
@@ -27,8 +27,8 @@ type sharedInMemStore struct {
 	scrapped bool
 }
 
-func newSharedInMemStore() *sharedInMemStore {
-	return &sharedInMemStore{
+func newSharedInMemCache() *sharedInMemCache {
+	return &sharedInMemCache{
 		points:       make(map[uint64]*CachePoint),
 		lastAccessed: time.Now(),
 	}
