@@ -26,6 +26,8 @@ type ShardManagerConfig struct {
 	RootDir string `yaml:"rootDir"`
 	// Shard timeout in seconds
 	ShardTimeout int `yaml:"shardTimeout"`
+	// Cache size in bytes, set to -1 for unlimited, 0 for no shared caching
+	MaxCacheSize int32 `yaml:"maxCacheSize"`
 }
 
 type ShardManager struct {

@@ -31,6 +31,8 @@ clusterNode:
     rootDir: *ROOT_DIR
     # Shard timeout in seconds
     shardTimeout: 300 # 5 minutes
+    # Maximum shared shard cache in bytes
+    maxCacheSize: 1073741824 # 1GiB
 # -------------------------------
 httpApi:
   debug: *GLOBAL_DEBUG
