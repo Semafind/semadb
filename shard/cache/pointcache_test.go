@@ -139,7 +139,7 @@ func TestPointCache_SetPoint(t *testing.T) {
 		pc.SetPoint(p.ShardPoint)
 	}
 	require.Len(t, pc.sharedCache.points, 10)
-	require.Greater(t, pc.sharedCache.estimatedSize.Load(), int32(0))
+	require.Greater(t, pc.sharedCache.estimatedSize.Load(), int64(0))
 }
 
 func TestPointCache_Neighbours(t *testing.T) {
