@@ -2,66 +2,53 @@ package cache
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/google/uuid"
 	"go.etcd.io/bbolt"
 )
 
-// Represents a single point in the cache, it uses dirty flags to determine
-// whether it needs to be flushed to the database. Access to the point via the
-// cache is protected by a mutex.
-type CachePoint struct {
-	ShardPoint
-	isDirty     bool
-	isEdgeDirty bool
-	isDeleted   bool
-	// ---------------------------
-	// Neighbours are loaded lazily. This is because we don't want to load the
-	// entire graph into memory. We only load the neighbours when we need them.
-	neighbours       []*CachePoint
-	neighboursMu     sync.RWMutex
-	loadMu           sync.Mutex
-	loadedNeighbours bool
+// ---------------------------
+
+/* We are creating these two type interfaces so that the compiler can stop us
+ * from accidentally writing to a read only cache. This way, things will be
+ * enforced at compile time. */
+
+// A read only cache that only exposes the functions that are safe to use in
+// read only mode.
+type ReadOnlyCache interface {
+	GetPoint(uint64) (*CachePoint, error)
+	GetPointByUUID(uuid.UUID) (*CachePoint, error)
+	GetMetadata(uint64) ([]byte, error)
+	WithReadOnlyPointNeighbours(*CachePoint, func([]*CachePoint) error) error
 }
 
-func (cp *CachePoint) ClearNeighbours() {
-	cp.edges = cp.edges[:0]
-	cp.neighbours = cp.neighbours[:0]
-	cp.isEdgeDirty = true
-}
-
-func (cp *CachePoint) AddNeighbour(neighbour *CachePoint) int {
-	cp.edges = append(cp.edges, neighbour.NodeId)
-	cp.neighbours = append(cp.neighbours, neighbour)
-	cp.isEdgeDirty = true
-	return len(cp.edges)
-}
-
-func (cp *CachePoint) Delete() {
-	cp.isDeleted = true
+type ReadWriteCache interface {
+	ReadOnlyCache
+	SetPoint(ShardPoint) (*CachePoint, error)
+	WithPointNeighbours(*CachePoint, bool, func([]*CachePoint) error) error
+	EdgeScan(map[uint64]struct{}) ([]uint64, error)
+	Flush() error
 }
 
 // ---------------------------
 
 type PointCache struct {
 	bucket *bbolt.Bucket
-	points map[uint64]*CachePoint
-	mu     sync.Mutex
+	store  *sharedInMemStore
 }
 
-func NewPointCache(bucket *bbolt.Bucket) *PointCache {
+func newPointCache(bucket *bbolt.Bucket, store *sharedInMemStore) *PointCache {
 	return &PointCache{
 		bucket: bucket,
-		points: make(map[uint64]*CachePoint),
+		store:  store,
 	}
 }
 
 func (pc *PointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
-	pc.mu.Lock()
-	defer pc.mu.Unlock()
+	pc.store.pointsMu.Lock()
+	defer pc.store.pointsMu.Unlock()
 	// ---------------------------
-	if point, ok := pc.points[nodeId]; ok {
+	if point, ok := pc.store.points[nodeId]; ok {
 		return point, nil
 	}
 	// ---------------------------
@@ -72,13 +59,14 @@ func (pc *PointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 	newPoint := &CachePoint{
 		ShardPoint: point,
 	}
-	pc.points[nodeId] = newPoint
+	pc.store.points[nodeId] = newPoint
+	pc.store.estimatedSize.Add(newPoint.estimateSize())
 	return newPoint, nil
 }
 
 func (pc *PointCache) GetPointByUUID(pointId uuid.UUID) (*CachePoint, error) {
-	pc.mu.Lock()
-	defer pc.mu.Unlock()
+	pc.store.pointsMu.Lock()
+	defer pc.store.pointsMu.Unlock()
 	point, err := getPointByUUID(pc.bucket, pointId)
 	if err != nil {
 		return nil, err
@@ -86,7 +74,8 @@ func (pc *PointCache) GetPointByUUID(pointId uuid.UUID) (*CachePoint, error) {
 	newPoint := &CachePoint{
 		ShardPoint: point,
 	}
-	pc.points[point.NodeId] = newPoint
+	pc.store.points[point.NodeId] = newPoint
+	pc.store.estimatedSize.Add(newPoint.estimateSize())
 	return newPoint, nil
 }
 
@@ -138,15 +127,21 @@ func (pc *PointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn f
 	}
 	point.neighbours = neighbours
 	point.loadedNeighbours = true
-	// Technically we unlock loading lock here and use the neighboursMu lock to
-	// have even more fine grain control. But that seems overkill for what is to
-	// happen once.
+	// Technically we can unlock loading lock here and use the neighboursMu lock
+	// to have even more fine grain control. But that seems overkill for what is
+	// to happen once.
 	return fn(point.neighbours)
 }
 
+// These two functions are the same except for the lock type. This is to fit the
+// interface types.
+func (pc *PointCache) WithReadOnlyPointNeighbours(point *CachePoint, fn func([]*CachePoint) error) error {
+	return pc.WithPointNeighbours(point, true, fn)
+}
+
 func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
-	pc.mu.Lock()
-	defer pc.mu.Unlock()
+	pc.store.pointsMu.Lock()
+	defer pc.store.pointsMu.Unlock()
 	newPoint := &CachePoint{
 		ShardPoint: point,
 		isDirty:    true,
@@ -154,7 +149,8 @@ func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
 	if newPoint.NodeId == 0 {
 		return nil, fmt.Errorf("node id cannot be 0")
 	}
-	pc.points[newPoint.NodeId] = newPoint
+	pc.store.points[newPoint.NodeId] = newPoint
+	pc.store.estimatedSize.Add(newPoint.estimateSize())
 	return newPoint, nil
 }
 
@@ -171,6 +167,7 @@ func (pc *PointCache) GetMetadata(nodeId uint64) ([]byte, error) {
 		}
 		cp.Metadata = mdata
 	}
+	pc.store.estimatedSize.Add(int32(len(cp.Metadata)))
 	return cp.Metadata, nil
 }
 
@@ -179,25 +176,32 @@ func (pc *PointCache) EdgeScan(deleteSet map[uint64]struct{}) ([]uint64, error) 
 }
 
 func (pc *PointCache) Flush() error {
-	pc.mu.Lock()
-	defer pc.mu.Unlock()
-	for _, point := range pc.points {
+	pc.store.pointsMu.Lock()
+	defer pc.store.pointsMu.Unlock()
+	for _, point := range pc.store.points {
 		if point.isDeleted {
 			if err := deletePoint(pc.bucket, point.ShardPoint); err != nil {
 				return err
 			}
+			delete(pc.store.points, point.NodeId)
+			pc.store.estimatedSize.Add(-point.estimateSize())
 			continue
 		}
 		if point.isDirty {
 			if err := setPoint(pc.bucket, point.ShardPoint); err != nil {
 				return err
 			}
+			// Only one goroutine flushes the point cache so we are not locking
+			// here.
+			point.isDirty = false
+			point.isEdgeDirty = false
 			continue
 		}
 		if point.isEdgeDirty {
 			if err := setPointEdges(pc.bucket, point.ShardPoint); err != nil {
 				return err
 			}
+			point.isEdgeDirty = false
 		}
 	}
 	return nil

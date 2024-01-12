@@ -20,6 +20,7 @@ import (
 )
 
 type Shard struct {
+	dbFile     string
 	db         *bbolt.DB
 	collection models.Collection
 	distFn     distance.DistFunc
@@ -34,6 +35,8 @@ type Shard struct {
 	// doesn't need to be exact either, bitsets can resize if we get it wrong
 	// but we keep it in sync anyway.
 	maxNodeId atomic.Uint64
+	// ---------------------------
+	cacheManager *cache.Manager
 }
 
 // ---------------------------
@@ -51,13 +54,17 @@ var SHARDVERSIONKEY = []byte("shardVersion")
 
 // ---------------------------
 
-func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
+func NewShard(dbFile string, collection models.Collection, cacheManager *cache.Manager) (*Shard, error) {
 	// ---------------------------
-	db, err := bbolt.Open(dbfile, 0644, &bbolt.Options{Timeout: 1 * time.Minute})
+	db, err := bbolt.Open(dbFile, 0644, &bbolt.Options{Timeout: 1 * time.Minute})
 	if err != nil {
 		return nil, fmt.Errorf("could not open shard db: %w", err)
 	}
 	// ---------------------------
+	if cacheManager == nil {
+		// 0 means no cache, every operation will get blank cache and discard it
+		cacheManager = cache.NewManager(0)
+	}
 	var startId uint64
 	var maxNodeId uint64
 	err = db.Update(func(tx *bbolt.Tx) error {
@@ -122,11 +129,16 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 					Vector: randVector,
 				},
 			}
-			pc := cache.NewPointCache(bPoints)
-			log.Debug().Uint64("id", startId).Str("UUID", randPoint.Id.String()).Msg("creating start point")
-			pc.SetPoint(randPoint)
-			if err := pc.Flush(); err != nil {
-				return fmt.Errorf("could not flush start point: %w", err)
+			err := cacheManager.With(dbFile, bPoints, func(pc cache.ReadWriteCache) error {
+				log.Debug().Uint64("id", startId).Str("UUID", randPoint.Id.String()).Msg("creating start point")
+				pc.SetPoint(randPoint)
+				if err := pc.Flush(); err != nil {
+					return fmt.Errorf("could not flush start point: %w", err)
+				}
+				return nil
+			})
+			if err != nil {
+				return fmt.Errorf("could not create start point: %w", err)
 			}
 			if err := bInternal.Put(STARTIDKEY, cache.Uint64ToBytes(randPoint.NodeId)); err != nil {
 				return fmt.Errorf("could not set start point id: %w", err)
@@ -151,16 +163,19 @@ func NewShard(dbfile string, collection models.Collection) (*Shard, error) {
 	}
 	// ---------------------------
 	shard := &Shard{
-		db:         db,
-		collection: collection,
-		distFn:     distFn,
-		startId:    startId,
+		dbFile:       dbFile,
+		db:           db,
+		collection:   collection,
+		distFn:       distFn,
+		startId:      startId,
+		cacheManager: cacheManager,
 	}
 	shard.maxNodeId.Store(maxNodeId)
 	return shard, nil
 }
 
 func (s *Shard) Close() error {
+	s.cacheManager.Release(s.dbFile)
 	return s.db.Close()
 }
 
@@ -216,7 +231,7 @@ func (s *Shard) Info() (si shardInfo, err error) {
 
 // ---------------------------
 
-func (s *Shard) insertSinglePoint(pc *cache.PointCache, startPointId uint64, shardPoint cache.ShardPoint) error {
+func (s *Shard) insertSinglePoint(pc cache.ReadWriteCache, startPointId uint64, shardPoint cache.ShardPoint) error {
 	// ---------------------------
 	point, err := pc.SetPoint(shardPoint)
 	if err != nil {
@@ -282,11 +297,9 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 	}
 	// ---------------------------
 	// Insert points
-	startTime := time.Now()
 	// Remember, Bolt allows only one read-write transaction at a time
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
-		pc := cache.NewPointCache(b)
 		// ---------------------------
 		idcounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY))
 		if err != nil {
@@ -294,66 +307,86 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		}
 		// ---------------------------
 		// Setup parallel insert routine
-		var wg sync.WaitGroup
-		ctx, cancel := context.WithCancelCause(context.Background())
-		defer cancel(nil)
 		jobQueue := make(chan cache.ShardPoint, len(points))
-		// Start the workers and start inserting points.
-		numWorkers := runtime.NumCPU() * 3 / 4 // We leave some cores for other tasks
-		for i := 0; i < numWorkers; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				for point := range jobQueue {
-					// Check if we've been cancelled
-					select {
-					case <-ctx.Done():
-						return
-					default:
-					}
-					// If the point exists, we can't re-insert it. This is
-					// actually an error because the edges will be wrong in the
-					// graph. It needs to be updated instead. We can potentially
-					// do it here (do an update instead of insert) but the API
-					// design migh be inconsistent as it will then depend
-					// whether a point is re-assigned to the same shard during
-					// insertion when there are multiple shards. We are
-					// returning an error here to force the user to update the
-					// point instead which handles the multiple shard case.
-					if _, err := pc.GetPointByUUID(point.Id); err == nil {
-						cancel(fmt.Errorf("point already exists: %s", point.Id.String()))
-						return
-					}
-					// Insert the point
-					if err := s.insertSinglePoint(pc, s.startId, point); err != nil {
-						cancel(err)
-						return
-					}
-				}
-			}()
-		}
 		// Submit the jobs
 		for point := range points {
 			jobQueue <- cache.ShardPoint{Point: points[point], NodeId: idcounter.NextId()}
 		}
 		close(jobQueue)
-		wg.Wait()
-		finalErr := context.Cause(ctx)
-		if finalErr != nil {
-			return finalErr
+		/* The reason we need to setup all the jobs before starting as opposed to
+		 * starting the workers and submitting jobs is because the workers shared
+		 * the same cache. Notice how the cache operation waits for all workers
+		 * to finish to determine whether there was a failure and then we report
+		 * that failure to bbolt to abort the transaction. If we start workers
+		 * first, we can synchronise on the final error, in other words we can't
+		 * check the error before submitting the jobs. */
+		err = s.cacheManager.With(s.dbFile, b, func(pc cache.ReadWriteCache) error {
+			/* In this funky case there are actually multiple goroutines
+			 * operating on the same cache. As opposed to multiple requests
+			 * queuing to get access to the shared cache. */
+			// ---------------------------
+			var wg sync.WaitGroup
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			numWorkers := runtime.NumCPU() * 3 / 4 // We leave some cores for other tasks
+			startTime := time.Now()
+			// ---------------------------
+			for i := 0; i < numWorkers; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for point := range jobQueue {
+						// Check if we've been cancelled
+						select {
+						case <-ctx.Done():
+							return
+						default:
+						}
+						/* If the point exists, we can't re-insert it. This is
+						 * actually an error because the edges will be wrong in
+						 * the graph. It needs to be updated instead. We can
+						 * potentially do it here (do an update instead of
+						 * insert) but the API design migh be inconsistent as it
+						 * will then depend whether a point is re-assigned to the
+						 * same shard during insertion when there are multiple
+						 * shards. We are returning an error here to force the
+						 * user to update the point instead which handles the
+						 * multiple shard case. */
+						if _, err := pc.GetPointByUUID(point.Id); err == nil {
+							cancel(fmt.Errorf("point already exists: %s", point.Id.String()))
+							return
+						}
+						// Insert the point
+						if err := s.insertSinglePoint(pc, s.startId, point); err != nil {
+							cancel(err)
+							return
+						}
+					}
+				}()
+			}
+			wg.Wait()
+			log.Debug().Int("points", len(points)).Str("duration", time.Since(startTime).String()).Msg("InsertPoints - Insert")
+			// ---------------------------
+			if err := context.Cause(ctx); err != nil {
+				return fmt.Errorf("could not run insert procedure: %w", err)
+			}
+			// ---------------------------
+			startTime = time.Now()
+			if err := pc.Flush(); err != nil {
+				return fmt.Errorf("could not flush point cache: %w", err)
+			}
+			// ---------------------------
+			log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("InsertPoints - Flush")
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("insertion failed: %w", err)
 		}
-		log.Debug().Int("points", len(points)).Str("duration", time.Since(startTime).String()).Msg("InsertPoints - Insert")
 		// ---------------------------
 		// Update point count accordingly
 		if err := changePointCount(tx, len(points)); err != nil {
 			return fmt.Errorf("could not update point count for insertion: %w", err)
 		}
-		// ---------------------------
-		startTime = time.Now()
-		if err := pc.Flush(); err != nil {
-			return fmt.Errorf("could not flush point cache: %w", err)
-		}
-		log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("InsertPoints - Flush")
 		// ---------------------------
 		if err := idcounter.Flush(); err != nil {
 			return fmt.Errorf("could not flush id counter: %w", err)
@@ -380,43 +413,45 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
-		pc := cache.NewPointCache(b)
 		// ---------------------------
-		updateSet := make(map[uuid.UUID]*cache.CachePoint, len(points))
-		updateNodeIds := make(map[uint64]struct{}, len(points))
-		// ---------------------------
-		// First we check if the points exist
-		for _, point := range points {
-			if cp, err := pc.GetPointByUUID(point.Id); err != nil {
-				// Point does not exist, or we can't access it at the moment
-				continue
-			} else {
-				updatedIds = append(updatedIds, point.Id)
-				cp.Point = point // Update the point, we will re-insert the cache point later
-				updateSet[point.Id] = cp
-				updateNodeIds[cp.NodeId] = struct{}{}
+		err := s.cacheManager.With(s.dbFile, b, func(pc cache.ReadWriteCache) error {
+			updateSet := make(map[uuid.UUID]*cache.CachePoint, len(points))
+			updateNodeIds := make(map[uint64]struct{}, len(points))
+			// ---------------------------
+			// First we check if the points exist
+			for _, point := range points {
+				if cp, err := pc.GetPointByUUID(point.Id); err != nil {
+					// Point does not exist, or we can't access it at the moment
+					continue
+				} else {
+					updatedIds = append(updatedIds, point.Id)
+					cp.Point = point // Update the point, we will re-insert the cache point later
+					updateSet[point.Id] = cp
+					updateNodeIds[cp.NodeId] = struct{}{}
+				}
 			}
-		}
-		if len(updateSet) == 0 {
-			// No points to update, we skip the process
-			return nil
-		}
-		// ---------------------------
-		// We assume the updated points have their vectors changed. We can in
-		// the future handle metadata updates specifically so all this
-		// re-indexing doesn't happen.
-		if err := s.removeInboundEdges(pc, updateNodeIds); err != nil {
-			return fmt.Errorf("could not remove inbound edges: %w", err)
-		}
-		// ---------------------------
-		// Now the pruning is complete, we can re-insert the points again
-		for _, cp := range updateSet {
-			if err := s.insertSinglePoint(pc, s.startId, cp.ShardPoint); err != nil {
-				return fmt.Errorf("could not re-insert point: %w", err)
+			if len(updateSet) == 0 {
+				// No points to update, we skip the process
+				return nil
 			}
-		}
-		// ---------------------------
-		return pc.Flush()
+			// ---------------------------
+			// We assume the updated points have their vectors changed. We can in
+			// the future handle metadata updates specifically so all this
+			// re-indexing doesn't happen.
+			if err := s.removeInboundEdges(pc, updateNodeIds); err != nil {
+				return fmt.Errorf("could not remove inbound edges: %w", err)
+			}
+			// ---------------------------
+			// Now the pruning is complete, we can re-insert the points again
+			for _, cp := range updateSet {
+				if err := s.insertSinglePoint(pc, s.startId, cp.ShardPoint); err != nil {
+					return fmt.Errorf("could not re-insert point: %w", err)
+				}
+			}
+			// ---------------------------
+			return pc.Flush()
+		})
+		return err
 	})
 	if err != nil {
 		log.Debug().Err(err).Msg("could not update points")
@@ -441,38 +476,40 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 	results := make([]SearchPoint, 0, k+1)
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
-		pc := cache.NewPointCache(b)
-		searchSet, _, err := s.greedySearch(pc, s.startId, query, k, s.collection.Parameters.SearchSize)
-		if err != nil {
-			return fmt.Errorf("could not perform graph search: %w", err)
-		}
-		// ---------------------------
-		// Clean up results and backfill metadata
-		for _, distElem := range searchSet.items {
-			point := distElem.point
-			// We skip the start point
-			if point.NodeId == s.startId {
-				continue
-			}
-			if len(results) >= k {
-				break
-			}
-			mdata, err := pc.GetMetadata(point.NodeId)
+		err := s.cacheManager.WithReadOnly(s.dbFile, b, func(pc cache.ReadOnlyCache) error {
+			searchSet, _, err := s.greedySearch(pc, s.startId, query, k, s.collection.Parameters.SearchSize)
 			if err != nil {
-				return fmt.Errorf("could not get point metadata: %w", err)
+				return fmt.Errorf("could not perform graph search: %w", err)
 			}
-			// We copy here because the byte slice is only valid for the
-			// lifetime of the transaction
-			if mdata != nil {
-				point.Metadata = make([]byte, len(mdata))
-				copy(point.Metadata, mdata)
+			// ---------------------------
+			// Clean up results and backfill metadata
+			for _, distElem := range searchSet.items {
+				point := distElem.point
+				// We skip the start point
+				if point.NodeId == s.startId {
+					continue
+				}
+				if len(results) >= k {
+					break
+				}
+				mdata, err := pc.GetMetadata(point.NodeId)
+				if err != nil {
+					return fmt.Errorf("could not get point metadata: %w", err)
+				}
+				// We copy here because the byte slice is only valid for the
+				// lifetime of the transaction
+				if mdata != nil {
+					point.Metadata = make([]byte, len(mdata))
+					copy(point.Metadata, mdata)
+				}
+				sp := SearchPoint{
+					Point:    point.Point,
+					Distance: distElem.distance}
+				results = append(results, sp)
 			}
-			sp := SearchPoint{
-				Point:    point.Point,
-				Distance: distElem.distance}
-			results = append(results, sp)
-		}
-		return nil
+			return nil
+		})
+		return err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("could not perform search: %w", err)
@@ -485,7 +522,7 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 
 // This point has a neighbour that is being deleted. We need to pool together
 // the deleted neighbour neighbours and prune the point.
-func (s *Shard) pruneDeleteNeighbour(pc *cache.PointCache, id uint64, deleteSet map[uint64]struct{}) error {
+func (s *Shard) pruneDeleteNeighbour(pc cache.ReadWriteCache, id uint64, deleteSet map[uint64]struct{}) error {
 	// ---------------------------
 	point, err := pc.GetPoint(id)
 	if err != nil {
@@ -545,7 +582,7 @@ func (s *Shard) pruneDeleteNeighbour(pc *cache.PointCache, id uint64, deleteSet 
 
 // Attempts to remove the edges of the deleted points. This is done by scanning
 // all the edges and removing the ones that point to a deleted point.
-func (s *Shard) removeInboundEdges(pc *cache.PointCache, deleteSet map[uint64]struct{}) error {
+func (s *Shard) removeInboundEdges(pc cache.ReadWriteCache, deleteSet map[uint64]struct{}) error {
 	// The scanning may not be efficient but it is correct. We can optimise this
 	// in the future.
 	// ---------------------------
@@ -578,49 +615,54 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
-		pc := cache.NewPointCache(b)
 		// ---------------------------
 		idcounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY))
 		if err != nil {
 			return fmt.Errorf("could not create id counter: %w", err)
 		}
-		// ---------------------------
-		for pointId := range deleteSet {
-			point, err := pc.GetPointByUUID(pointId)
-			if err != nil {
-				// If the point doesn't exist, we can skip it
-				log.Debug().Err(err).Msg("could not get point for deletion")
-				continue
+		err = s.cacheManager.With(s.dbFile, b, func(pc cache.ReadWriteCache) error {
+			// ---------------------------
+			for pointId := range deleteSet {
+				point, err := pc.GetPointByUUID(pointId)
+				if err != nil {
+					// If the point doesn't exist, we can skip it
+					log.Debug().Err(err).Msg("could not get point for deletion")
+					continue
+				}
+				point.Delete()
+				deletedIds = append(deletedIds, pointId)
+				deletedNodeIds[point.NodeId] = struct{}{}
+				idcounter.FreeId(point.NodeId)
 			}
-			point.Delete()
-			deletedIds = append(deletedIds, pointId)
-			deletedNodeIds[point.NodeId] = struct{}{}
-			idcounter.FreeId(point.NodeId)
-		}
-		if len(deletedIds) == 0 {
-			// No points to delete, we skip scanning
-			return nil
-		}
-		// ---------------------------
-		// Collect all the neighbours of the points to be deleted
-		/* Initially we doubled downed on the assumption that more often than not
-		 * there would be bidirectional edges between points. This is, however,
-		 * not the case which leads to active edges to points that do not exist.
-		 * During search that throws an error. There are three approaches:
-			1. Scan all edges and delete the ones that point to a deleted point
-			2. Prune optimistically of the neighbours of the deleted points,
-			then during getPointNeighbours to check if the neighbour exists
-			3. A midway where we mark the deleted points, ignore them
-			during search and only do a full prune when it reaches say 10% of
-			total size.
-		   We are going with 1 for now to achieve correctness. The sharding
-		   process means no single shard will be too large to cause a huge
-		   performance hit. Each shard scan can be done in parallel too.  In the
-		   future we can implement 3 by keeping track of the number of deleted
-		   points and only doing a full prune when it reaches a certain
-		   threshold. */
-		if err := s.removeInboundEdges(pc, deletedNodeIds); err != nil {
-			return fmt.Errorf("could not remove inbound edges: %w", err)
+			if len(deletedIds) == 0 {
+				// No points to delete, we skip scanning
+				return nil
+			}
+			// ---------------------------
+			// Collect all the neighbours of the points to be deleted
+			/* Initially we doubled downed on the assumption that more often than not
+			 * there would be bidirectional edges between points. This is, however,
+			 * not the case which leads to active edges to points that do not exist.
+			 * During search that throws an error. There are three approaches:
+				1. Scan all edges and delete the ones that point to a deleted point
+				2. Prune optimistically of the neighbours of the deleted points,
+				then during getPointNeighbours to check if the neighbour exists
+				3. A midway where we mark the deleted points, ignore them
+				during search and only do a full prune when it reaches say 10% of
+				total size.
+			   We are going with 1 for now to achieve correctness. The sharding
+			   process means no single shard will be too large to cause a huge
+			   performance hit. Each shard scan can be done in parallel too.  In the
+			   future we can implement 3 by keeping track of the number of deleted
+			   points and only doing a full prune when it reaches a certain
+			   threshold. */
+			if err := s.removeInboundEdges(pc, deletedNodeIds); err != nil {
+				return fmt.Errorf("could not remove inbound edges: %w", err)
+			}
+			return pc.Flush()
+		})
+		if err != nil {
+			return fmt.Errorf("could not run delete procedure: %w", err)
 		}
 		// ---------------------------
 		// Update point count accordingly
@@ -632,7 +674,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 			return fmt.Errorf("could not flush id counter: %w", err)
 		}
 		// ---------------------------
-		return pc.Flush()
+		return nil
 	})
 	if err != nil {
 		return nil, fmt.Errorf("could not delete points: %w", err)

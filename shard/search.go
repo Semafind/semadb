@@ -6,7 +6,7 @@ import (
 	"github.com/semafind/semadb/shard/cache"
 )
 
-func (s *Shard) greedySearch(pc *cache.PointCache, startPointId uint64, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
+func (s *Shard) greedySearch(pc cache.ReadOnlyCache, startPointId uint64, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
 	// ---------------------------
 	// Initialise distance set
 	searchSet := NewDistSet(query, searchSize, uint(s.maxNodeId.Load()), s.distFn)
@@ -46,7 +46,7 @@ func (s *Shard) greedySearch(pc *cache.PointCache, startPointId uint64, query []
 		// goroutine changing them. The case we aren't covering is after we have
 		// calculated, they may change the search we are doing is not
 		// deterministic. With approximate search this is not a major problem.
-		err := pc.WithPointNeighbours(distElem.point, true, func(neighbours []*cache.CachePoint) error {
+		err := pc.WithReadOnlyPointNeighbours(distElem.point, func(neighbours []*cache.CachePoint) error {
 			searchSet.AddPointWithLimit(neighbours...)
 			return nil
 		})

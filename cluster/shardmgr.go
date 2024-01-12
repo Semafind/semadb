@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
+	"github.com/semafind/semadb/shard/cache"
 )
 
 type loadedShard struct {
@@ -36,14 +37,17 @@ type ShardManager struct {
 	// ---------------------------
 	shardStore map[string]*loadedShard
 	shardLock  sync.Mutex
+	// Shared cache for all the shards loaded by this shard manager
+	cacheManager *cache.Manager
 }
 
 func NewShardManager(config ShardManagerConfig) *ShardManager {
 	logger := log.With().Str("component", "shardManager").Logger()
 	return &ShardManager{
-		logger:     logger,
-		cfg:        config,
-		shardStore: make(map[string]*loadedShard),
+		logger:       logger,
+		cfg:          config,
+		shardStore:   make(map[string]*loadedShard),
+		cacheManager: cache.NewManager(config.MaxCacheSize),
 	}
 }
 
@@ -73,7 +77,7 @@ func (sm *ShardManager) loadShard(collection models.Collection, shardId string) 
 		return nil, fmt.Errorf("could not create shard directory: %w", err)
 	}
 	// Open shard
-	shard, err := shard.NewShard(filepath.Join(shardDir, "sharddb.bbolt"), collection)
+	shard, err := shard.NewShard(filepath.Join(shardDir, "sharddb.bbolt"), collection, sm.cacheManager)
 	if err != nil {
 		return nil, fmt.Errorf("could not open shard: %w", err)
 	}

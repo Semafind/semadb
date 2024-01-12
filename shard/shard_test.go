@@ -48,17 +48,9 @@ func getVectorCount(shard *Shard) (count int) {
 func getPointEdgeCount(shard *Shard, nodeId uint64) (count int) {
 	shard.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
-		pc := cache.NewPointCache(b)
-		point, err := pc.GetPoint(nodeId)
-		if err != nil {
-			count = -1
-			return err
-		}
-		err = pc.WithPointNeighbours(point, true, func(neighbours []*cache.CachePoint) error {
-			count = len(neighbours)
-			return nil
-		})
-		return err
+		n := b.Get(cache.NodeKey(nodeId, 'e'))
+		count = len(n) / 8
+		return nil
 	})
 	return
 }
@@ -68,29 +60,32 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	visited := make(map[uint64]struct{})
 	queue := make([]uint64, 0)
 	queue = append(queue, shard.startId)
+	cm := cache.NewManager(-1)
 	err := shard.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
-		pc := cache.NewPointCache(b)
-		for len(queue) > 0 {
-			pointId := queue[0]
-			queue = queue[1:]
-			if _, ok := visited[pointId]; ok {
-				continue
-			}
-			visited[pointId] = struct{}{}
-			point, err := pc.GetPoint(pointId)
-			if err != nil {
-				return err
-			}
-			err = pc.WithPointNeighbours(point, true, func(neighbours []*cache.CachePoint) error {
-				for _, neighbour := range neighbours {
-					queue = append(queue, neighbour.NodeId)
+		err := cm.WithReadOnly("checkConnectivity", b, func(pc cache.ReadOnlyCache) error {
+			for len(queue) > 0 {
+				pointId := queue[0]
+				queue = queue[1:]
+				if _, ok := visited[pointId]; ok {
+					continue
 				}
-				return nil
-			})
-			require.NoError(t, err)
-		}
-		return nil
+				visited[pointId] = struct{}{}
+				point, err := pc.GetPoint(pointId)
+				if err != nil {
+					return err
+				}
+				err = pc.WithReadOnlyPointNeighbours(point, func(neighbours []*cache.CachePoint) error {
+					for _, neighbour := range neighbours {
+						queue = append(queue, neighbour.NodeId)
+					}
+					return nil
+				})
+				require.NoError(t, err)
+			}
+			return nil
+		})
+		return err
 	})
 	require.NoError(t, err)
 	// We subtract one because the start point is not in the database but is an
@@ -238,7 +233,7 @@ func randPoints(size int) []models.Point {
 
 func tempShard(t *testing.T) *Shard {
 	dbpath := filepath.Join(t.TempDir(), "sharddb.bbolt")
-	shard, err := NewShard(dbpath, sampleCol)
+	shard, err := NewShard(dbpath, sampleCol, cache.NewManager(-1))
 	require.NoError(t, err)
 	return shard
 }
@@ -267,12 +262,12 @@ func TestShard_CreateMorePoints(t *testing.T) {
 func TestShard_Persistence(t *testing.T) {
 	shardDir := t.TempDir()
 	dbfile := filepath.Join(shardDir, "sharddb.bbolt")
-	shard, _ := NewShard(dbfile, sampleCol)
+	shard, _ := NewShard(dbfile, sampleCol, cache.NewManager(-1))
 	points := randPoints(7)
 	err := shard.InsertPoints(points)
 	require.NoError(t, err)
 	require.NoError(t, shard.Close())
-	shard, err = NewShard(dbfile, sampleCol)
+	shard, err = NewShard(dbfile, sampleCol, cache.NewManager(-1))
 	require.NoError(t, err)
 	// Does the shard still have the points?
 	checkPointCount(t, shard, 7)
@@ -619,44 +614,46 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 			}
 			// ---------------------------
 			dbpath := filepath.Join(t.TempDir(), "sharddb.bbolt")
-			shard, err := NewShard(dbpath, col)
+			shard, err := NewShard(dbpath, col, cache.NewManager(0))
 			require.NoError(t, err)
 			// ---------------------------
 			maxPoints := min(numPoints, len(vecCol.Vectors))
 			err = shard.db.Update(func(tx *bbolt.Tx) error {
 				buc := tx.Bucket(POINTSBUCKETKEY)
-				pc := cache.NewPointCache(buc)
-				startTime := time.Now()
-				for i := 0; i < maxPoints; i++ {
-					// Create a random point
-					point := models.Point{
-						Id:       uuid.New(),
-						Vector:   vecCol.Vectors[i],
-						Metadata: []byte("test"),
+				return shard.cacheManager.With(shard.dbFile, buc, func(pc cache.ReadWriteCache) error {
+					startTime := time.Now()
+					for i := 0; i < maxPoints; i++ {
+						// Create a random point
+						point := models.Point{
+							Id:       uuid.New(),
+							Vector:   vecCol.Vectors[i],
+							Metadata: []byte("test"),
+						}
+						shard.insertSinglePoint(pc, shard.startId, cache.ShardPoint{Point: point, NodeId: uint64(i + 1)})
 					}
-					shard.insertSinglePoint(pc, shard.startId, cache.ShardPoint{Point: point, NodeId: uint64(i + 1)})
-				}
-				t.Log("Insert took", time.Since(startTime))
-				return pc.Flush()
+					t.Log("Insert took", time.Since(startTime))
+					return pc.Flush()
+				})
 			})
 			require.NoError(t, err)
 			// ---------------------------
 			// Perform search
 			err = shard.db.View(func(tx *bbolt.Tx) error {
 				buc := tx.Bucket(POINTSBUCKETKEY)
-				pc := cache.NewPointCache(buc)
-				startTime := time.Now()
-				for i := 0; i < maxPoints; i++ {
-					query := vecCol.Vectors[i]
-					k := 10
-					searchSet, _, err := shard.greedySearch(pc, shard.startId, query, k, shard.collection.Parameters.SearchSize)
-					if err != nil {
-						return err
+				return shard.cacheManager.WithReadOnly(shard.dbFile, buc, func(pc cache.ReadOnlyCache) error {
+					startTime := time.Now()
+					for i := 0; i < maxPoints; i++ {
+						query := vecCol.Vectors[i]
+						k := 10
+						searchSet, _, err := shard.greedySearch(pc, shard.startId, query, k, shard.collection.Parameters.SearchSize)
+						if err != nil {
+							return err
+						}
+						require.Greater(t, len(searchSet.items), 0)
 					}
-					require.Greater(t, len(searchSet.items), 0)
-				}
-				t.Log("Search took", time.Since(startTime))
-				return nil
+					t.Log("Search took", time.Since(startTime))
+					return nil
+				})
 			})
 			require.NoError(t, err)
 			// ---------------------------

@@ -13,8 +13,10 @@ import (
 
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
+	"github.com/semafind/semadb/shard/cache"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 )
 
 /* This module provides a C interface to the shard package. It is used by the
@@ -24,6 +26,10 @@ import (
 
 var globalShard *shard.Shard
 var globalVectorSize int
+
+func init() {
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+}
 
 //export initShard
 func initShard(dataset *C.char, metric *C.char, vectorSize int) {
@@ -43,6 +49,7 @@ func initShard(dataset *C.char, metric *C.char, vectorSize int) {
 			Algorithm:  "vamana",
 			Parameters: models.DefaultVamanaParameters(),
 		},
+		cache.NewManager(-1),
 	)
 	if err != nil {
 		log.Fatal(err)
