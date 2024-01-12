@@ -13,7 +13,7 @@ type sharedInMemCache struct {
 	lastAccessed time.Time
 	// We use this to estimate the size of the cache. This is not accurate but
 	// it's good enough for the manager to decide when to discard.
-	estimatedSize atomic.Int32
+	estimatedSize atomic.Int64
 	// ---------------------------
 	// We currently allow a single writer to the cache at a time. This is because
 	// within a single transaction there could be multiple goroutines writing to
@@ -68,10 +68,6 @@ func (p *CachePoint) Delete() {
 	p.isDeleted = true
 }
 
-func (cp *CachePoint) estimateSize() int32 {
-	size := 0
-	size += len(cp.edges) * 8
-	size += len(cp.Vector) * 4
-	size += len(cp.Metadata)
-	return int32(size)
+func (cp *CachePoint) estimateSize() int64 {
+	return int64(len(cp.edges)*8 + len(cp.Vector)*4 + len(cp.Metadata))
 }

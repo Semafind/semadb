@@ -14,12 +14,12 @@ import (
 // the maxSize but during operation it may go over.
 type Manager struct {
 	// In bytes, set to -1 for unlimited, 0 for no shared caching
-	maxSize      int32
+	maxSize      int64
 	sharedCaches map[string]*sharedInMemCache
 	mu           sync.Mutex
 }
 
-func NewManager(maxSize int32) *Manager {
+func NewManager(maxSize int64) *Manager {
 	return &Manager{
 		sharedCaches: make(map[string]*sharedInMemCache),
 		maxSize:      maxSize,
@@ -46,10 +46,10 @@ func (m *Manager) checkAndPrune() {
 	type cacheElem struct {
 		name   string
 		sCache *sharedInMemCache
-		size   int32
+		size   int64
 	}
 	caches := make([]cacheElem, 0, len(m.sharedCaches))
-	totalSize := int32(0)
+	totalSize := int64(0)
 	for n, s := range m.sharedCaches {
 		ssize := s.estimatedSize.Load()
 		caches = append(caches, cacheElem{name: n, sCache: s, size: ssize})

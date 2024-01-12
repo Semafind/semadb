@@ -177,7 +177,7 @@ func (pc *PointCache) GetMetadata(nodeId uint64) ([]byte, error) {
 		}
 		cp.Metadata = mdata
 	}
-	pc.sharedCache.estimatedSize.Add(int32(len(cp.Metadata)))
+	pc.sharedCache.estimatedSize.Add(int64(len(cp.Metadata)))
 	return cp.Metadata, nil
 }
 
