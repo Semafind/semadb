@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -11,12 +12,14 @@ import (
 // ---------------------------
 
 type tempDiskStore struct {
-	items map[string][]byte
+	items    map[string][]byte
+	readOnly bool
 }
 
-func newTempDiskStore() diskStore {
+func newTempDiskStore(readOnly bool) diskStore {
 	return &tempDiskStore{
-		items: make(map[string][]byte),
+		items:    make(map[string][]byte),
+		readOnly: readOnly,
 	}
 }
 
@@ -24,7 +27,12 @@ func (t *tempDiskStore) Get(key []byte) []byte {
 	return t.items[string(key)]
 }
 
+var ErrReadOnly = errors.New("read only")
+
 func (t *tempDiskStore) Put(key []byte, value []byte) error {
+	if t.readOnly {
+		return ErrReadOnly
+	}
 	t.items[string(key)] = value
 	return nil
 }
@@ -39,12 +47,15 @@ func (t *tempDiskStore) ForEach(f func(k, v []byte) error) error {
 }
 
 func (t *tempDiskStore) Delete(key []byte) error {
+	if t.readOnly {
+		return ErrReadOnly
+	}
 	delete(t.items, string(key))
 	return nil
 }
 
 func (t *tempDiskStore) Writable() bool {
-	return true
+	return !t.readOnly
 }
 
 // ---------------------------
@@ -67,7 +78,7 @@ func randCachePoints(size int) []*CachePoint {
 }
 
 func tempPointCache(t *testing.T) *PointCache {
-	pc := newPointCache(newTempDiskStore(), newSharedInMemCache())
+	pc := newPointCache(newTempDiskStore(false), newSharedInMemCache())
 	return pc
 }
 
@@ -129,6 +140,31 @@ func TestPointCache_SetPoint(t *testing.T) {
 	}
 	require.Len(t, pc.sharedCache.points, 10)
 	require.Greater(t, pc.sharedCache.estimatedSize.Load(), int32(0))
+}
+
+func TestPointCache_Neighbours(t *testing.T) {
+	pc := tempPointCache(t)
+	randPoints := randCachePoints(10)
+	randPoints[0].AddNeighbour(randPoints[1])
+	randPoints[0].AddNeighbour(randPoints[2])
+	randPoints[0].AddNeighbour(randPoints[3])
+	for _, p := range randPoints {
+		pc.SetPoint(p.ShardPoint)
+	}
+	// ---------------------------
+	// We run this twice to see if the cached neighbours are persisted across
+	// calls, that is the call (1) gets neighbours from cache and stores as a
+	// list on the point, (2) just re-uses the list from the point.
+	for i := 0; i < 2; i++ {
+		err := pc.WithReadOnlyPointNeighbours(randPoints[0], func(neighbours []*CachePoint) error {
+			require.Len(t, neighbours, 3)
+			require.Equal(t, randPoints[1].NodeId, neighbours[0].NodeId)
+			require.Equal(t, randPoints[2].NodeId, neighbours[1].NodeId)
+			require.Equal(t, randPoints[3].NodeId, neighbours[2].NodeId)
+			return nil
+		})
+		require.NoError(t, err)
+	}
 }
 
 func TestPointCache_Flush(t *testing.T) {

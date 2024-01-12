@@ -159,6 +159,7 @@ func (m *Manager) with(name string, bucket diskStore, readOnly bool, f func(c *P
 	s := newSharedInMemCache()
 	if m.maxSize != 0 {
 		m.sharedCaches[name] = s
+		defer m.checkAndPrune()
 	}
 	// We know the following locks will succeed because it is a new cache.
 	if readOnly {
