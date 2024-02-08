@@ -297,8 +297,12 @@ func (c *ClusterNode) RPCInsertPoints(args *RPCInsertPointsRequest, reply *RPCIn
 	}
 	// ---------------------------
 	return c.shardManager.DoWithShard(args.Collection, args.ShardId, func(s *shard.Shard) error {
-		reply.Count = len(args.Points)
-		return s.InsertPoints(args.Points)
+		err := s.InsertPoints(args.Points)
+		if err == nil {
+			reply.Count = len(args.Points)
+			c.metrics.pointInsertCount.Add(float64(len(args.Points)))
+		}
+		return err
 	})
 }
 
@@ -324,6 +328,9 @@ func (c *ClusterNode) RPCUpdatePoints(args *RPCUpdatePointsRequest, reply *RPCUp
 	return c.shardManager.DoWithShard(args.Collection, args.ShardId, func(s *shard.Shard) error {
 		updatedIds, err := s.UpdatePoints(args.Points)
 		reply.UpdatedIds = updatedIds
+		if err == nil {
+			c.metrics.pointUpdateCount.Add(float64(len(updatedIds)))
+		}
 		return err
 	})
 }
@@ -354,6 +361,9 @@ func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *RPCDe
 	return c.shardManager.DoWithShard(args.Collection, args.ShardId, func(s *shard.Shard) error {
 		delIds, err := s.DeletePoints(deleteSet)
 		reply.DeletedIds = delIds
+		if err == nil {
+			c.metrics.pointDeleteCount.Add(float64(len(delIds)))
+		}
 		return err
 	})
 }
@@ -381,6 +391,9 @@ func (c *ClusterNode) RPCSearchPoints(args *RPCSearchPointsRequest, reply *RPCSe
 	return c.shardManager.DoWithShard(args.Collection, args.ShardId, func(s *shard.Shard) error {
 		points, err := s.SearchPoints(args.Vector, args.Limit)
 		reply.Points = points
+		if err == nil {
+			c.metrics.pointSearchCount.Add(float64(len(points)))
+		}
 		return err
 	})
 }
