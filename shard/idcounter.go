@@ -26,14 +26,17 @@ import (
 // goal is to ensure the node Ids don't spiral out of control after many
 // deletions and insertions.
 type IdCounter struct {
-	bucket     *bbolt.Bucket
+	bucket        *bbolt.Bucket
+	freeIdsKey    []byte
+	nextFreeIdKey []byte
+	// ---------------------------
 	freeIds    []uint64
 	nextFreeId uint64
 }
 
-func NewIdCounter(bucket *bbolt.Bucket) (*IdCounter, error) {
+func NewIdCounter(bucket *bbolt.Bucket, freeIdsKey []byte, nextFreeIdKey []byte) (*IdCounter, error) {
 	// ---------------------------
-	freeIdsBytes := bucket.Get(FREEIDSKEY)
+	freeIdsBytes := bucket.Get(freeIdsKey)
 	freeIdsMap := make(map[uint64]struct{})
 	if freeIdsBytes != nil {
 		for i := 0; i < len(freeIdsBytes); i += 8 {
@@ -47,16 +50,18 @@ func NewIdCounter(bucket *bbolt.Bucket) (*IdCounter, error) {
 	}
 	// ---------------------------
 	nextFreeId := uint64(1) // we start from 1 because 0 can be used for nil
-	nextFreeIdBytes := bucket.Get(NEXTFREEIDKEY)
+	nextFreeIdBytes := bucket.Get(nextFreeIdKey)
 	if nextFreeIdBytes != nil {
 		nextFreeId = cache.BytesToUint64(nextFreeIdBytes)
 	}
 	// ---------------------------
 	log.Debug().Uint64("nextFreeId", nextFreeId).Int("freeIds", len(freeIds)).Msg("NewIdCounter")
 	idCounter := &IdCounter{
-		bucket:     bucket,
-		freeIds:    freeIds,
-		nextFreeId: nextFreeId,
+		bucket:        bucket,
+		freeIdsKey:    freeIdsKey,
+		nextFreeIdKey: nextFreeIdKey,
+		freeIds:       freeIds,
+		nextFreeId:    nextFreeId,
 	}
 	return idCounter, nil
 }
@@ -81,7 +86,7 @@ func (ic *IdCounter) FreeId(id uint64) {
 }
 
 func (ic *IdCounter) Flush() error {
-	if err := ic.bucket.Put(NEXTFREEIDKEY, cache.Uint64ToBytes(ic.nextFreeId)); err != nil {
+	if err := ic.bucket.Put(ic.nextFreeIdKey, cache.Uint64ToBytes(ic.nextFreeId)); err != nil {
 		return fmt.Errorf("could not set next free id: %w", err)
 	}
 	// ---------------------------
@@ -89,7 +94,7 @@ func (ic *IdCounter) Flush() error {
 	for i, freeId := range ic.freeIds {
 		copy(freeIdsBytes[i*8:], cache.Uint64ToBytes(freeId))
 	}
-	if err := ic.bucket.Put(FREEIDSKEY, freeIdsBytes); err != nil {
+	if err := ic.bucket.Put(ic.freeIdsKey, freeIdsBytes); err != nil {
 		return fmt.Errorf("could not set free ids: %w", err)
 	}
 	// ---------------------------

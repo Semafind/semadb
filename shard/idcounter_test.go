@@ -1,9 +1,10 @@
-package shard
+package shard_test
 
 import (
 	"path/filepath"
 	"testing"
 
+	"github.com/semafind/semadb/shard"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/bbolt"
 )
@@ -15,65 +16,55 @@ func tempDB(t *testing.T) *bbolt.DB {
 	return db
 }
 
-func TestCounterBlank(t *testing.T) {
-	// ---------------------------
-	db := tempDB(t)
+func withCounter(t *testing.T, db *bbolt.DB, f func(*shard.IdCounter)) {
+	if db == nil {
+		db = tempDB(t)
+	}
 	db.Update(func(tx *bbolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte("testing"))
 		require.NoError(t, err)
-		counter, err := NewIdCounter(b)
+		counter, err := shard.NewIdCounter(b, []byte("freeIds"), []byte("nextFreeId"))
 		require.NoError(t, err)
+		f(counter)
+		return nil
+	})
+}
+
+func TestCounterBlank(t *testing.T) {
+	// ---------------------------
+	withCounter(t, nil, func(counter *shard.IdCounter) {
 		require.Equal(t, uint64(1), counter.NextId())
 		require.Equal(t, uint64(2), counter.NextId())
-		return nil
 	})
 }
 
 func TestCounterPersistance(t *testing.T) {
 	// ---------------------------
 	db := tempDB(t)
-	db.Update(func(tx *bbolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte("testing"))
-		require.NoError(t, err)
-		counter, err := NewIdCounter(b)
-		require.NoError(t, err)
+	withCounter(t, db, func(counter *shard.IdCounter) {
 		require.Equal(t, uint64(1), counter.NextId())
 		require.Equal(t, uint64(2), counter.NextId())
 		require.NoError(t, counter.Flush())
-		return nil
 	})
 	// ---------------------------
-	db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("testing"))
-		counter, err := NewIdCounter(b)
-		require.NoError(t, err)
+	withCounter(t, db, func(counter *shard.IdCounter) {
 		require.Equal(t, uint64(3), counter.NextId())
 		require.Equal(t, uint64(4), counter.NextId())
-		return nil
 	})
 }
 
 func TestCounterFreeing(t *testing.T) {
 	// ---------------------------
 	db := tempDB(t)
-	db.Update(func(tx *bbolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte("testing"))
-		require.NoError(t, err)
-		counter, err := NewIdCounter(b)
-		require.NoError(t, err)
+	withCounter(t, db, func(counter *shard.IdCounter) {
 		require.Equal(t, uint64(1), counter.NextId())
 		require.Equal(t, uint64(2), counter.NextId())
 		counter.FreeId(1)
 		require.NoError(t, counter.Flush())
-		return nil
 	})
 	// ---------------------------
-	db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte("testing"))
-		counter, err := NewIdCounter(b)
-		require.NoError(t, err)
+	withCounter(t, db, func(counter *shard.IdCounter) {
 		require.Equal(t, uint64(1), counter.NextId())
 		require.Equal(t, uint64(3), counter.NextId())
-		return nil
 	})
 }

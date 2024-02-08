@@ -48,8 +48,9 @@ var INTERNALBUCKETKEY = []byte("internal")
 // ---------------------------
 var STARTIDKEY = []byte("startId")
 var POINTCOUNTKEY = []byte("pointCount")
-var FREEIDSKEY = []byte("freeNodeIds")
-var NEXTFREEIDKEY = []byte("nextFreeNodeId")
+
+var FREENODEIDSKEY = []byte("freeNodeIds")
+var NEXTFREENODEIDKEY = []byte("nextFreeNodeId")
 var SHARDVERSIONKEY = []byte("shardVersion")
 
 // ---------------------------
@@ -95,7 +96,7 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 			}
 		}
 		// ---------------------------
-		counter, err := NewIdCounter(bInternal)
+		nodeCounter, err := NewIdCounter(bInternal, FREENODEIDSKEY, NEXTFREENODEIDKEY)
 		if err != nil {
 			return fmt.Errorf("could not create id counter: %w", err)
 		}
@@ -116,8 +117,8 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 			for i := range randVector {
 				randVector[i] *= norm
 			}
-			startId = counter.NextId()
-			if err := counter.Flush(); err != nil {
+			startId = nodeCounter.NextId()
+			if err := nodeCounter.Flush(); err != nil {
 				return fmt.Errorf("could not flush id counter: %w", err)
 			}
 			// ---------------------------
@@ -149,7 +150,7 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 			log.Debug().Uint64("id", startId).Msg("found start point")
 		}
 		// ---------------------------
-		maxNodeId = counter.MaxId()
+		maxNodeId = nodeCounter.MaxId()
 		// ---------------------------
 		return nil
 	})
@@ -283,6 +284,35 @@ func (s *Shard) insertSinglePoint(pc cache.ReadWriteCache, startPointId uint64, 
 
 // ---------------------------
 
+func (s *Shard) insertWorker(ctx context.Context, pc cache.ReadWriteCache, jobQueue <-chan cache.ShardPoint, wg *sync.WaitGroup, cancel context.CancelCauseFunc) {
+	defer wg.Done()
+	for point := range jobQueue {
+		// Check if we've been cancelled
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		/* If the point exists, we can't re-insert it. This is actually an error
+		 * because the edges will be wrong in the graph. It needs to be updated
+		 * instead. We can potentially do it here (do an update instead of
+		 * insert) but the API design migh be inconsistent as it will then depend
+		 * whether a point is re-assigned to the same shard during insertion when
+		 * there are multiple shards. We are returning an error here to force the
+		 * user to update the point instead which handles the multiple shard
+		 * case. */
+		if _, err := pc.GetPointByUUID(point.Id); err == nil {
+			cancel(fmt.Errorf("point already exists: %s", point.Id.String()))
+			return
+		}
+		// Insert the point
+		if err := s.insertSinglePoint(pc, s.startId, point); err != nil {
+			cancel(err)
+			return
+		}
+	}
+}
+
 func (s *Shard) InsertPoints(points []models.Point) error {
 	// ---------------------------
 	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("InsertPoints")
@@ -301,7 +331,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
 		// ---------------------------
-		idcounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY))
+		nodeCounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY), FREENODEIDSKEY, NEXTFREENODEIDKEY)
 		if err != nil {
 			return fmt.Errorf("could not create id counter: %w", err)
 		}
@@ -310,7 +340,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		jobQueue := make(chan cache.ShardPoint, len(points))
 		// Submit the jobs
 		for point := range points {
-			jobQueue <- cache.ShardPoint{Point: points[point], NodeId: idcounter.NextId()}
+			jobQueue <- cache.ShardPoint{Point: points[point], NodeId: nodeCounter.NextId()}
 		}
 		close(jobQueue)
 		/* The reason we need to setup all the jobs before starting as opposed to
@@ -333,36 +363,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 			// ---------------------------
 			for i := 0; i < numWorkers; i++ {
 				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					for point := range jobQueue {
-						// Check if we've been cancelled
-						select {
-						case <-ctx.Done():
-							return
-						default:
-						}
-						/* If the point exists, we can't re-insert it. This is
-						 * actually an error because the edges will be wrong in
-						 * the graph. It needs to be updated instead. We can
-						 * potentially do it here (do an update instead of
-						 * insert) but the API design migh be inconsistent as it
-						 * will then depend whether a point is re-assigned to the
-						 * same shard during insertion when there are multiple
-						 * shards. We are returning an error here to force the
-						 * user to update the point instead which handles the
-						 * multiple shard case. */
-						if _, err := pc.GetPointByUUID(point.Id); err == nil {
-							cancel(fmt.Errorf("point already exists: %s", point.Id.String()))
-							return
-						}
-						// Insert the point
-						if err := s.insertSinglePoint(pc, s.startId, point); err != nil {
-							cancel(err)
-							return
-						}
-					}
-				}()
+				go s.insertWorker(ctx, pc, jobQueue, &wg, cancel)
 			}
 			wg.Wait()
 			log.Debug().Int("points", len(points)).Str("duration", time.Since(startTime).String()).Msg("InsertPoints - Insert")
@@ -388,10 +389,10 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 			return fmt.Errorf("could not update point count for insertion: %w", err)
 		}
 		// ---------------------------
-		if err := idcounter.Flush(); err != nil {
+		if err := nodeCounter.Flush(); err != nil {
 			return fmt.Errorf("could not flush id counter: %w", err)
 		}
-		s.maxNodeId.Store(idcounter.MaxId())
+		s.maxNodeId.Store(nodeCounter.MaxId())
 		return nil
 	})
 	if err != nil {
@@ -608,15 +609,13 @@ func (s *Shard) removeInboundEdges(pc cache.ReadWriteCache, deleteSet map[uint64
 
 func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, error) {
 	// ---------------------------
-	// We don't expect to delete all the points because some may be in other
-	// shards. So we start with a lower capacity for the array.
-	deletedIds := make([]uuid.UUID, 0, len(deleteSet)/2)
-	deletedNodeIds := make(map[uint64]struct{}, len(deleteSet)/2)
+	deletedIds := make([]uuid.UUID, 0, len(deleteSet))
+	deletedNodeIds := make(map[uint64]struct{}, len(deleteSet))
 	// ---------------------------
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
 		// ---------------------------
-		idcounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY))
+		nodeCounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY), FREENODEIDSKEY, NEXTFREENODEIDKEY)
 		if err != nil {
 			return fmt.Errorf("could not create id counter: %w", err)
 		}
@@ -632,7 +631,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 				point.Delete()
 				deletedIds = append(deletedIds, pointId)
 				deletedNodeIds[point.NodeId] = struct{}{}
-				idcounter.FreeId(point.NodeId)
+				nodeCounter.FreeId(point.NodeId)
 			}
 			if len(deletedIds) == 0 {
 				// No points to delete, we skip scanning
@@ -670,7 +669,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 			return fmt.Errorf("could not change point count for deletion: %w", err)
 		}
 		// ---------------------------
-		if err := idcounter.Flush(); err != nil {
+		if err := nodeCounter.Flush(); err != nil {
 			return fmt.Errorf("could not flush id counter: %w", err)
 		}
 		// ---------------------------
