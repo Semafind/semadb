@@ -89,12 +89,12 @@ func float32ToBytesRaw(f []float32) []byte {
 }
 
 func bytesToFloat32Raw(b []byte) []float32 {
-	// TODO: When the byte slice is going to be used outside a transaction, we
-	// need to allocate and copy.
-	// f := make([]float32, len(b)/4)
-	// copy(f, unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), len(b)/4))
-	// return f
-	return unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), len(b)/4)
+	f := make([]float32, len(b)/4)
+	copy(f, unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), len(b)/4))
+	return f
+	// If we know the values are never used outside a transaction then we can
+	// shortcut like below. Use with caution.
+	// return unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), len(b)/4)
 }
 
 func edgeListToBytes(edges []uint64) []byte {

@@ -169,15 +169,17 @@ func (pc *PointCache) GetMetadata(nodeId uint64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Backfill metadata if it's not set
+	// Backfill metadata if it's not set, if there is no metadata, the
+	// getPointMetadata function returns an empty slice so this operation will
+	// only run once.
 	if cp.Metadata == nil {
 		mdata, err := getPointMetadata(pc.bucket, nodeId)
 		if err != nil {
 			return nil, err
 		}
 		cp.Metadata = mdata
+		pc.sharedCache.estimatedSize.Add(int64(len(cp.Metadata)))
 	}
-	pc.sharedCache.estimatedSize.Add(int64(len(cp.Metadata)))
 	return cp.Metadata, nil
 }
 

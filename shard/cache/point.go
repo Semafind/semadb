@@ -79,7 +79,11 @@ func getNode(b diskStore, nodeId uint64) (ShardPoint, error) {
 	if pointIdBytes == nil {
 		return shardPoint, fmt.Errorf("could not get point id %d", nodeId)
 	}
-	shardPoint.Id = uuid.UUID(pointIdBytes)
+	sId, err := uuid.FromBytes(pointIdBytes)
+	if err != nil {
+		return shardPoint, fmt.Errorf("could not parse point id %d: %w", nodeId, err)
+	}
+	shardPoint.Id = sId
 	// ---------------------------
 	return shardPoint, nil
 }
@@ -138,7 +142,7 @@ func setPoint(b diskStore, point ShardPoint) error {
 	}
 	// ---------------------------
 	// Set metadata if any
-	if point.Metadata != nil {
+	if len(point.Metadata) > 0 {
 		if err := b.Put(NodeKey(point.NodeId, 'm'), point.Metadata); err != nil {
 			return fmt.Errorf("could not set metadata: %w", err)
 		}
@@ -178,12 +182,18 @@ func deletePoint(b diskStore, point ShardPoint) error {
 	return nil
 }
 
+// Returns the metadata of a point. It creates a copy of the metadata bytes.
 func getPointMetadata(b diskStore, nodeId uint64) ([]byte, error) {
 	// ---------------------------
 	// Get metadata
 	metadataVal := b.Get(NodeKey(nodeId, 'm'))
+	// Again we return a copy because the bytes value is only valid during the
+	// transaction and the returned value may be stored in a long-term shared
+	// cache. This assumes the diskstore behaves like bbolt.
+	mdata := make([]byte, len(metadataVal))
+	copy(mdata, metadataVal)
 	// ---------------------------
-	return metadataVal, nil
+	return mdata, nil
 }
 
 // This function is used to check if the edges of a point are valid. It is

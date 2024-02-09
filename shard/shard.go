@@ -497,12 +497,7 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 				if err != nil {
 					return fmt.Errorf("could not get point metadata: %w", err)
 				}
-				// We copy here because the byte slice is only valid for the
-				// lifetime of the transaction
-				if mdata != nil {
-					point.Metadata = make([]byte, len(mdata))
-					copy(point.Metadata, mdata)
-				}
+				point.Metadata = mdata
 				sp := SearchPoint{
 					Point:    point.Point,
 					Distance: distElem.distance}
