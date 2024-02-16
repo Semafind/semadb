@@ -201,4 +201,5 @@ func (m *Manager) Release(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.sharedCaches, name)
+	log.Debug().Str("name", name).Int("numCaches", len(m.sharedCaches)).Msg("Released cache")
 }
