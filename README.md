@@ -29,6 +29,10 @@ You can locally build and run the docker image using:
 ```bash
 docker build -t semadb ./
 docker run -it --rm -v ./config:/config -e SEMADB_CONFIG=/config/singleServer.yaml -p 8081:8081 semadb
+# If using podman
+podman build -t semadb ./
+# The :Z argument relabels to access: see https://github.com/containers/podman/issues/3683
+podman run -it --rm -v ./config:/config:Z -e SEMADB_CONFIG=/config/singleServer.yaml -p 8081:8081 semadb
 ```
 
 Please note that when using docker, the hostname and whitelisting of IPs may need to be adjusted depending on the network configuration of docker. Leaving hostname as a blank string and setting whitelisting to `'*'` opens up SemaDB to every connection as done in the `singleServer.yaml` configuration.
@@ -43,18 +47,18 @@ SemaDB's core search algorithm is based on the following excellent research pape
 
 ### Performance
 
-SemaDB with default configuration values, similar to the reported results, achieves good recall across standard benchmarks:
+SemaDB with default configuration values on a `Intel(R) Core(TM) i7-6700 CPU @ 3.40GHz` commodity workstation with 16GB RAM achieves good recall across standard benchmarks, similar to the reported results:
 
-|             Dataset |  Recall |
-|--------------------:|:-------:|
-| gist-960-euclidean  |  0.9678 |
-| glove-100-angular   | 0.92447 |
-| glove-25-angular    | 0.99896 |
-| mnist-784-euclidean |  0.9992 |
-| nytimes-256-angular |  0.9028 |
-| sift-128-euclidean  | 0.99837 |
+|             Dataset |  Recall | QPS    |
+|--------------------:|:-------:|--------|
+| gist-960-euclidean  |  0.9678 |        |
+| glove-100-angular   | 0.92447 | 973.6  |
+| glove-25-angular    | 0.99896 | 1130.3 |
+| mnist-784-euclidean |  0.9992 | 1898.6 |
+| nytimes-256-angular |  0.9028 | 1020.6 |
+| sift-128-euclidean  | 0.99837 | 1537.7 |
 
-The queries per second (QPS) is currently omitted because the end-to-end database performance has the overhead of HTTP handling, encoding, decoding of query, parsing, validation, cluster routing, remote procedure calls, loading data from disk etc. This further depends on the type and performance of the CPU. However, the raw performance of the search algorithm within a single Shard would, in theory, be similar to that reported in the research papers.
+The results may not be up to date with the latest changes. The queries per second (QPS) uses full in memory cache similar to other methods but is not a good indication of overall performance. The full pipeline would be slower because the end-to-end journey of a request has the overhead of HTTP handling, encoding, decoding of query, parsing, validation, cluster routing, remote procedure calls, loading data from disk etc. This further depends on the hardware, especially SSD vs harddisk. However, the raw performance of the search algorithm within a single Shard would, in theory, be similar to that reported in the research papers.
 
 ## Limitations
 

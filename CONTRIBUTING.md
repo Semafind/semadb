@@ -94,4 +94,4 @@ The testing idea here is to cover critical behaviour as opposed to handle every 
 - [ ] More documentation to make it easier for new comers
 - [ ] Shard and user collection replication
 - [ ] Multiple root directories to partition data across several disks
-- [ ] Automatic horizontal scaling
+- [ ] Automatic horizontal scaling or serverless approach by splitting storage and compute
