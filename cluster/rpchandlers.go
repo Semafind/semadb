@@ -248,7 +248,7 @@ func (c *ClusterNode) RPCGetShardInfo(args *RPCGetShardInfoRequest, reply *RPCGe
 	return c.shardManager.DoWithShard(args.Collection, args.ShardId, func(s *shard.Shard) error {
 		si, err := s.Info()
 		reply.PointCount = int64(si.PointCount)
-		reply.Size = si.InUse
+		reply.Size = si.Size
 		return err
 	})
 }

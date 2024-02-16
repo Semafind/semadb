@@ -209,22 +209,23 @@ func changePointCount(tx *bbolt.Tx, change int) error {
 
 type shardInfo struct {
 	PointCount uint64
-	Allocated  int64 // Bytes allocated for points bucket
-	InUse      int64 // Bytes in use for points bucket
+	Size       int64 // Size of the shard database file
 }
 
 func (s *Shard) Info() (si shardInfo, err error) {
 	err = s.db.View(func(tx *bbolt.Tx) error {
 		bInternal := tx.Bucket(INTERNALBUCKETKEY)
 		// ---------------------------
+		// The reason we use a point count is because a single point has
+		// multiple key value pairs in the points bucket. This is easier to
+		// manage than counting the number of keys in the points bucket which
+		// may change over time.
 		countBytes := bInternal.Get(POINTCOUNTKEY)
 		if countBytes != nil {
 			si.PointCount = cache.BytesToUint64(countBytes)
 		}
 		// ---------------------------
-		pStats := tx.Bucket(POINTSBUCKETKEY).Stats()
-		si.Allocated = int64(pStats.BranchAlloc + pStats.LeafAlloc)
-		si.InUse = int64(pStats.BranchInuse + pStats.LeafInuse + pStats.InlineBucketInuse)
+		si.Size = tx.Size()
 		return nil
 	})
 	return
