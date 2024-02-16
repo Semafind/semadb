@@ -423,7 +423,11 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	results := make([]SearchPointResult, len(points))
 	for i, sp := range points {
 		var mdata any
-		if sp.Point.Metadata != nil {
+		// We check the length as well because the metadata might be an empty
+		// slice that cached. The empty slice vs nil indicates whether the disk
+		// metadata is empty or not. That is, nil metadata through cache becomes
+		// empty slice.
+		if sp.Point.Metadata != nil && len(sp.Point.Metadata) > 0 {
 			if err := msgpack.Unmarshal(sp.Point.Metadata, &mdata); err != nil {
 				log.Err(err).Interface("meta", sp.Point.Metadata).Msg("msgpack.Unmarshal failed")
 			}
