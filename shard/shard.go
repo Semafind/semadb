@@ -164,7 +164,7 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 	}
 	// ---------------------------
 	shard := &Shard{
-		dbFile:       dbFile,
+		dbFile:       dbFile, // An alternative could be db.Path()
 		db:           db,
 		collection:   collection,
 		distFn:       distFn,
