@@ -90,8 +90,8 @@ The testing idea here is to cover critical behaviour as opposed to handle every 
 - [x] Version releases
 - [x] Shard optimisation
 - [x] Python shard wrapper for data loading
-- [ ] Filter search
 - [ ] More documentation to make it easier for new comers
+- [ ] Filter search, hybrid search etc, use inverted indexes to perform more search types
 - [ ] Shard and user collection replication
 - [ ] Multiple root directories to partition data across several disks
 - [ ] Automatic horizontal scaling or serverless approach by splitting storage and compute
