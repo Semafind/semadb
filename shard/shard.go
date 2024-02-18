@@ -329,6 +329,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 	// ---------------------------
 	// Insert points
 	// Remember, Bolt allows only one read-write transaction at a time
+	var txTime time.Time
 	err := s.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
 		// ---------------------------
@@ -394,8 +395,10 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 			return fmt.Errorf("could not flush id counter: %w", err)
 		}
 		s.maxNodeId.Store(nodeCounter.MaxId())
+		txTime = time.Now()
 		return nil
 	})
+	log.Debug().Str("component", "shard").Str("duration", time.Since(txTime).String()).Msg("InsertPoints - Transaction Done")
 	if err != nil {
 		log.Debug().Err(err).Msg("could not insert points")
 		return fmt.Errorf("could not insert points: %w", err)
@@ -479,7 +482,9 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 	err := s.db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(POINTSBUCKETKEY)
 		err := s.cacheManager.WithReadOnly(s.dbFile, b, func(pc cache.ReadOnlyCache) error {
+			startTime := time.Now()
 			searchSet, _, err := s.greedySearch(pc, s.startId, query, k, s.collection.Parameters.SearchSize)
+			log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("SearchPoints - GreedySearch")
 			if err != nil {
 				return fmt.Errorf("could not perform graph search: %w", err)
 			}
