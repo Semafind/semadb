@@ -26,6 +26,7 @@ type DiskStore interface {
 	CreateBucketsIfNotExists(bucketNames []string) error
 	Read(bucketName string, f func(ReadOnlyBucket) error) error
 	Write(bucketName string, f func(Bucket) error) error
+	BackupToFile(path string) error
 	Close() error
 }
 

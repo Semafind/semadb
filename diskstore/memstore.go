@@ -63,6 +63,10 @@ func (ds *MemDiskStore) Write(bucketName string, f func(Bucket) error) error {
 	return f(b)
 }
 
+func (ds *MemDiskStore) BackupToFile(path string) error {
+	return fmt.Errorf("not supported")
+}
+
 func (ds *MemDiskStore) Close() error {
 	clear(ds.buckets)
 	return nil

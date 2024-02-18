@@ -42,6 +42,12 @@ func (ds BBoltDiskStore) Write(bucketName string, f func(Bucket) error) error {
 	})
 }
 
+func (ds BBoltDiskStore) BackupToFile(path string) error {
+	return ds.bboltDB.View(func(tx *bbolt.Tx) error {
+		return tx.CopyFile(path, 0644)
+	})
+}
+
 func (ds BBoltDiskStore) Close() error {
 	return ds.bboltDB.Close()
 }
