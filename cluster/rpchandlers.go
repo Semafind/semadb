@@ -1,14 +1,13 @@
 package cluster
 
 import (
-	"bytes"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
 	"github.com/vmihailenco/msgpack/v5"
-	"go.etcd.io/bbolt"
 )
 
 // ---------------------------
@@ -55,8 +54,7 @@ func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, repl
 		return fmt.Errorf("could not marshal collection: %w", err)
 	}
 	// ---------------------------
-	err = c.nodedb.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(USERCOLSBUCKETKEY)
+	err = c.nodedb.Write(USERCOLSBUCKETKEY, func(b diskstore.Bucket) error {
 		// ---------------------------
 		key := []byte(args.Collection.UserId + DBDELIMITER + args.Collection.Id)
 		if b.Get(key) != nil {
@@ -65,11 +63,14 @@ func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, repl
 		}
 		// ---------------------------
 		// Check user quota
-		c := b.Cursor()
 		prefix := []byte(args.Collection.UserId + DBDELIMITER)
 		count := 0
-		for k, _ := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next() {
+		err := b.PrefixScan(prefix, func(k, _ []byte) error {
 			count++
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("could not scan user collections: %w", err)
 		}
 		if count >= args.Collection.UserPlan.MaxCollections {
 			reply.QuotaReached = true
@@ -99,8 +100,7 @@ func (c *ClusterNode) RPCDeleteCollection(args *RPCDeleteCollectionRequest, repl
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCDeleteCollection", args, reply)
 	}
-	err := c.nodedb.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(USERCOLSBUCKETKEY)
+	err := c.nodedb.Write(USERCOLSBUCKETKEY, func(b diskstore.Bucket) error {
 		if err := b.Delete([]byte(args.Collection.UserId + DBDELIMITER + args.Collection.Id)); err != nil {
 			return fmt.Errorf("could not delete collection: %w", err)
 		}
@@ -126,18 +126,18 @@ func (c *ClusterNode) RPCListCollections(args *RPCListCollectionsRequest, reply 
 		return c.internalRoute("ClusterNode.RPCListCollections", args, reply)
 	}
 	reply.Collections = make([]models.Collection, 0)
-	err := c.nodedb.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(USERCOLSBUCKETKEY)
+	err := c.nodedb.Read(USERCOLSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		// ---------------------------
-		c := b.Cursor()
-		for k, v := c.Seek([]byte(args.UserId + DBDELIMITER)); k != nil && bytes.HasPrefix(k, []byte(args.UserId)); k, v = c.Next() {
+		prefix := []byte(args.UserId + DBDELIMITER)
+		err := b.PrefixScan(prefix, func(k, v []byte) error {
 			var col models.Collection
 			if err := msgpack.Unmarshal(v, &col); err != nil {
 				return fmt.Errorf("could not unmarshal collection %s: %w", k, err)
 			}
 			reply.Collections = append(reply.Collections, col)
-		}
-		return nil
+			return nil
+		})
+		return err
 	})
 	return err
 }
@@ -160,8 +160,7 @@ func (c *ClusterNode) RPCGetCollection(args *RPCGetCollectionRequest, reply *RPC
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCGetCollection", args, reply)
 	}
-	err := c.nodedb.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(USERCOLSBUCKETKEY)
+	err := c.nodedb.Read(USERCOLSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		// ---------------------------
 		key := []byte(args.UserId + DBDELIMITER + args.CollectionId)
 		value := b.Get(key)
@@ -195,8 +194,7 @@ func (c *ClusterNode) RPCCreateShard(args *RPCCreateShardRequest, reply *RPCCrea
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCCreateShard", args, reply)
 	}
-	err := c.nodedb.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(USERCOLSBUCKETKEY)
+	err := c.nodedb.Write(USERCOLSBUCKETKEY, func(b diskstore.Bucket) error {
 		// ---------------------------
 		key := []byte(args.UserId + DBDELIMITER + args.CollectionId)
 		value := b.Get(key)

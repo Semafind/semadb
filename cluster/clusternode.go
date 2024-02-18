@@ -14,15 +14,15 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/utils"
-	"go.etcd.io/bbolt"
 )
 
 // ---------------------------
 const CURRRENTNODEVERSION = 1
 
-var INTERNALBUCKETKEY = []byte("internal")
-var USERCOLSBUCKETKEY = []byte("userCollections")
+var INTERNALBUCKETKEY = "internal"
+var USERCOLSBUCKETKEY = "userCollections"
 
 // ---------------------------
 var NODEVERSIONKEY = []byte("clusterNodeVersion")
@@ -76,7 +76,7 @@ type ClusterNode struct {
 	// ---------------------------
 	metrics *clusterNodeMetrics
 	// ---------------------------
-	nodedb *bbolt.DB
+	nodedb diskstore.DiskStore
 	// ---------------------------
 	shardManager *ShardManager
 	// ---------------------------
@@ -133,25 +133,24 @@ func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
 
 // ---------------------------
 
-func openNodeDB(dbPath string) (*bbolt.DB, error) {
-	db, err := bbolt.Open(dbPath, 0644, &bbolt.Options{Timeout: 1 * time.Minute})
+func openNodeDB(dbPath string) (diskstore.DiskStore, error) {
+	db, err := diskstore.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("could not open db %s: %w", dbPath, err)
 	}
 	// ---------------------------
 	// Check if user collections bucket exists
-	err = db.Update(func(tx *bbolt.Tx) error {
+	if err := db.CreateBucketsIfNotExists([]string{INTERNALBUCKETKEY, USERCOLSBUCKETKEY}); err != nil {
+		return nil, fmt.Errorf("could not create user collections bucket in nodedb: %w", err)
+	}
+	err = db.Write(INTERNALBUCKETKEY, func(b diskstore.Bucket) error {
 		// ---------------------------
-		bInternal, err := tx.CreateBucketIfNotExists(INTERNALBUCKETKEY)
-		if err != nil {
-			return fmt.Errorf("could not create internal bucket: %w", err)
-		}
-		versionBytes := bInternal.Get(NODEVERSIONKEY)
+		versionBytes := b.Get(NODEVERSIONKEY)
 		if versionBytes == nil {
 			// There is no version key, so this is a new database
 			var vb [8]byte
 			binary.LittleEndian.PutUint64(vb[:], CURRRENTNODEVERSION)
-			if err := bInternal.Put(NODEVERSIONKEY, vb[:]); err != nil {
+			if err := b.Put(NODEVERSIONKEY, vb[:]); err != nil {
 				return fmt.Errorf("could not set node version: %w", err)
 			}
 		} else {
@@ -163,10 +162,6 @@ func openNodeDB(dbPath string) (*bbolt.DB, error) {
 			}
 		}
 		// ---------------------------
-		// Create internal bucket if it does not exist
-		if _, err := tx.CreateBucketIfNotExists(USERCOLSBUCKETKEY); err != nil {
-			return fmt.Errorf("could not create user collections bucket: %w", err)
-		}
 		return nil
 	})
 	if err != nil {
