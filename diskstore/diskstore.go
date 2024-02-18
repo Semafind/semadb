@@ -23,6 +23,8 @@ type Bucket interface {
 
 // A disk storage layer abstracts multiple buckets.
 type DiskStore interface {
+	// The path to where the store is located. It may be a file or a directory.
+	Path() string
 	CreateBucketsIfNotExists(bucketNames []string) error
 	Read(bucketName string, f func(ReadOnlyBucket) error) error
 	Write(bucketName string, f func(Bucket) error) error

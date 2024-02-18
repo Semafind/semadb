@@ -10,6 +10,10 @@ type BBoltDiskStore struct {
 	bboltDB *bbolt.DB
 }
 
+func (ds BBoltDiskStore) Path() string {
+	return ds.bboltDB.Path()
+}
+
 func (ds BBoltDiskStore) CreateBucketsIfNotExists(bucketName []string) error {
 	return ds.bboltDB.Update(func(tx *bbolt.Tx) error {
 		for _, name := range bucketName {

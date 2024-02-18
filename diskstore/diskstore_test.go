@@ -20,6 +20,13 @@ func tempDiskStore(t *testing.T, path string, inMemory bool) diskstore.DiskStore
 	return ds
 }
 
+func Test_Path(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	ds := tempDiskStore(t, path, false)
+	require.Equal(t, path, ds.Path())
+	require.NoError(t, ds.Close())
+}
+
 func Test_NoBuckets(t *testing.T) {
 	for _, inMemory := range []bool{true, false} {
 		t.Run("inMemory", func(t *testing.T) {

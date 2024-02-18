@@ -37,6 +37,10 @@ func NewMemDiskStore() *MemDiskStore {
 	}
 }
 
+func (ds *MemDiskStore) Path() string {
+	return "memory"
+}
+
 func (ds *MemDiskStore) CreateBucketsIfNotExists(bucketNames []string) error {
 	for _, name := range bucketNames {
 		if _, ok := ds.buckets[name]; ok {
