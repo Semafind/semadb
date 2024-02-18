@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/semafind/semadb/diskstore"
 )
 
 // ---------------------------
@@ -18,43 +19,32 @@ type ReadOnlyCache interface {
 	GetPoint(uint64) (*CachePoint, error)
 	GetPointByUUID(uuid.UUID) (*CachePoint, error)
 	GetMetadata(uint64) ([]byte, error)
-	WithReadOnlyPointNeighbours(*CachePoint, func([]*CachePoint) error) error
+	WithPointNeighbours(point *CachePoint, readOnly bool, fn func([]*CachePoint) error) error
 }
 
 type ReadWriteCache interface {
 	ReadOnlyCache
 	SetPoint(ShardPoint) (*CachePoint, error)
-	WithPointNeighbours(*CachePoint, bool, func([]*CachePoint) error) error
 	EdgeScan(map[uint64]struct{}) ([]uint64, error)
 	Flush() error
 }
 
 // ---------------------------
 
-// Represents an underlying storage that can be used to store things.
-type diskStore interface {
-	Writable() bool
-	Get([]byte) []byte
-	Put([]byte, []byte) error
-	ForEach(func(k, v []byte) error) error
-	Delete([]byte) error
-}
+/* This duplication appeared mainly because union of interface types is not
+ * possible in Go. The types in question are ReadOnlyBucket and Bucket. */
 
-// ---------------------------
-
-type PointCache struct {
-	bucket      diskStore
+type ReadOnlyPointCache struct {
+	bucket      diskstore.ReadOnlyBucket
 	sharedCache *sharedInMemCache
 }
 
-func newPointCache(bucket diskStore, sharedCache *sharedInMemCache) *PointCache {
-	return &PointCache{
-		bucket:      bucket,
-		sharedCache: sharedCache,
-	}
+type PointCache struct {
+	ReadOnlyPointCache
+	bucket diskstore.Bucket // This takes precedence over the read only bucket.
 }
 
-func (pc *PointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
+func (pc *ReadOnlyPointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
 	// ---------------------------
@@ -74,7 +64,7 @@ func (pc *PointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 	return newPoint, nil
 }
 
-func (pc *PointCache) GetPointByUUID(pointId uuid.UUID) (*CachePoint, error) {
+func (pc *ReadOnlyPointCache) GetPointByUUID(pointId uuid.UUID) (*CachePoint, error) {
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
 	point, err := getPointByUUID(pc.bucket, pointId)
@@ -91,7 +81,7 @@ func (pc *PointCache) GetPointByUUID(pointId uuid.UUID) (*CachePoint, error) {
 
 // Operate with a lock on the point neighbours. If the neighbours are not
 // loaded, load them from the database.
-func (pc *PointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn func([]*CachePoint) error) error {
+func (pc *ReadOnlyPointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn func([]*CachePoint) error) error {
 	/* We have to lock here because we can't have another goroutine changing the
 	 * edges while we are using them. The read only case mainly occurs in
 	 * searching whereas the writes happen for pruning edges. By using
@@ -143,12 +133,6 @@ func (pc *PointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn f
 	return fn(point.neighbours)
 }
 
-// These two functions are the same except for the lock type. This is to fit the
-// interface types.
-func (pc *PointCache) WithReadOnlyPointNeighbours(point *CachePoint, fn func([]*CachePoint) error) error {
-	return pc.WithPointNeighbours(point, true, fn)
-}
-
 func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
@@ -164,7 +148,7 @@ func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
 	return newPoint, nil
 }
 
-func (pc *PointCache) GetMetadata(nodeId uint64) ([]byte, error) {
+func (pc *ReadOnlyPointCache) GetMetadata(nodeId uint64) ([]byte, error) {
 	cp, err := pc.GetPoint(nodeId)
 	if err != nil {
 		return nil, err

@@ -1,7 +1,6 @@
 package cache
 
 import (
-	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -11,34 +10,19 @@ import (
 
 // ---------------------------
 
-type tempDiskStore struct {
-	items    map[string][]byte
-	readOnly bool
+type tempBucket map[string][]byte
+
+func (b tempBucket) Get(k []byte) []byte {
+	return b[string(k)]
 }
 
-func newTempDiskStore(readOnly bool) diskStore {
-	return &tempDiskStore{
-		items:    make(map[string][]byte),
-		readOnly: readOnly,
-	}
-}
-
-func (t *tempDiskStore) Get(key []byte) []byte {
-	return t.items[string(key)]
-}
-
-var ErrReadOnly = errors.New("read only")
-
-func (t *tempDiskStore) Put(key []byte, value []byte) error {
-	if t.readOnly {
-		return ErrReadOnly
-	}
-	t.items[string(key)] = value
+func (b tempBucket) Put(k, v []byte) error {
+	b[string(k)] = v
 	return nil
 }
 
-func (t *tempDiskStore) ForEach(f func(k, v []byte) error) error {
-	for k, v := range t.items {
+func (b tempBucket) ForEach(f func(k, v []byte) error) error {
+	for k, v := range b {
 		if err := f([]byte(k), v); err != nil {
 			return err
 		}
@@ -46,16 +30,23 @@ func (t *tempDiskStore) ForEach(f func(k, v []byte) error) error {
 	return nil
 }
 
-func (t *tempDiskStore) Delete(key []byte) error {
-	if t.readOnly {
-		return ErrReadOnly
+func (b tempBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
+	for k, v := range b {
+		if len(k) < len(prefix) {
+			continue
+		}
+		if k[:len(prefix)] == string(prefix) {
+			if err := f([]byte(k), v); err != nil {
+				return err
+			}
+		}
 	}
-	delete(t.items, string(key))
 	return nil
 }
 
-func (t *tempDiskStore) Writable() bool {
-	return !t.readOnly
+func (b tempBucket) Delete(k []byte) error {
+	delete(b, string(k))
+	return nil
 }
 
 // ---------------------------
@@ -78,8 +69,14 @@ func randCachePoints(size int) []*CachePoint {
 }
 
 func tempPointCache(t *testing.T) *PointCache {
-	pc := newPointCache(newTempDiskStore(false), newSharedInMemCache())
-	return pc
+	bucket := make(tempBucket)
+	return &PointCache{
+		bucket: bucket,
+		ReadOnlyPointCache: ReadOnlyPointCache{
+			bucket:      bucket,
+			sharedCache: newSharedInMemCache(),
+		},
+	}
 }
 
 func TestPointCache_GetPoint(t *testing.T) {
@@ -102,7 +99,8 @@ func TestPointCache_GetPoint(t *testing.T) {
 		pc.SetPoint(cachePoint.ShardPoint)
 		pc.Flush()
 		pc2 := tempPointCache(t)
-		pc2.bucket = pc.bucket
+		// pc2.bucket = pc.bucket
+		pc2.ReadOnlyPointCache.bucket = pc.bucket
 		p, err := pc2.GetPoint(cachePoint.NodeId)
 		require.NoError(t, err)
 		require.Equal(t, cachePoint.NodeId, p.NodeId)
@@ -124,7 +122,8 @@ func TestPointCache_GetPointByUUID(t *testing.T) {
 		pc.SetPoint(cachePoint.ShardPoint)
 		pc.Flush()
 		pc2 := tempPointCache(t)
-		pc2.bucket = pc.bucket
+		// pc2.bucket = pc.bucket
+		pc2.ReadOnlyPointCache.bucket = pc.bucket
 		p, err := pc2.GetPointByUUID(cachePoint.Id)
 		require.NoError(t, err)
 		require.Equal(t, cachePoint.NodeId, p.NodeId)
@@ -156,7 +155,7 @@ func TestPointCache_Neighbours(t *testing.T) {
 	// calls, that is the call (1) gets neighbours from cache and stores as a
 	// list on the point, (2) just re-uses the list from the point.
 	for i := 0; i < 2; i++ {
-		err := pc.WithReadOnlyPointNeighbours(randPoints[0], func(neighbours []*CachePoint) error {
+		err := pc.WithPointNeighbours(randPoints[0], true, func(neighbours []*CachePoint) error {
 			require.Len(t, neighbours, 3)
 			require.Equal(t, randPoints[1].NodeId, neighbours[0].NodeId)
 			require.Equal(t, randPoints[2].NodeId, neighbours[1].NodeId)

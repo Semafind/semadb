@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"go.etcd.io/bbolt"
+	"github.com/semafind/semadb/diskstore"
 )
 
 // BackupBBolt backs up a bbolt database using a read only transaction into the
 // same directory. The backup is named with the current unix timestamp.
-func BackupBBolt(db *bbolt.DB, backupFrequency, backupCount int) error {
+func BackupBBolt(db diskstore.DiskStore, backupFrequency, backupCount int) error {
 	// ---------------------------
 	dbDir := filepath.Dir(db.Path())
 	dbName := filepath.Base(db.Path())
@@ -55,9 +55,7 @@ func BackupBBolt(db *bbolt.DB, backupFrequency, backupCount int) error {
 	// Perform backup if the last backup is older than the minimum backup frequency
 	if currentUnixTime-lastestBackupTime >= int64(backupFrequency) {
 		backupFile := filepath.Join(dbDir, fmt.Sprintf("%v-%s.backup", currentUnixTime, dbName))
-		err := db.View(func(tx *bbolt.Tx) error {
-			return tx.CopyFile(backupFile, 0644)
-		})
+		err := db.BackupToFile(backupFile)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("could not create backup: %w", err))
 		} else {

@@ -13,11 +13,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/internal/loadhdf5"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/bbolt"
 )
 
 var sampleCol models.Collection = models.Collection{
@@ -31,8 +31,7 @@ var sampleCol models.Collection = models.Collection{
 }
 
 func getVectorCount(shard *Shard) (count int) {
-	shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSBUCKETKEY)
+	shard.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		b.ForEach(func(k, v []byte) error {
 			if k[len(k)-1] == 'v' {
 				count++
@@ -46,8 +45,7 @@ func getVectorCount(shard *Shard) (count int) {
 }
 
 func getPointEdgeCount(shard *Shard, nodeId uint64) (count int) {
-	shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSBUCKETKEY)
+	shard.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		n := b.Get(cache.NodeKey(nodeId, 'e'))
 		count = len(n) / 8
 		return nil
@@ -61,8 +59,7 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	queue := make([]uint64, 0)
 	queue = append(queue, shard.startId)
 	cm := cache.NewManager(-1)
-	err := shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSBUCKETKEY)
+	err := shard.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		err := cm.WithReadOnly("checkConnectivity", b, func(pc cache.ReadOnlyCache) error {
 			for len(queue) > 0 {
 				pointId := queue[0]
@@ -75,7 +72,7 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 				if err != nil {
 					return err
 				}
-				err = pc.WithReadOnlyPointNeighbours(point, func(neighbours []*cache.CachePoint) error {
+				err = pc.WithPointNeighbours(point, true, func(neighbours []*cache.CachePoint) error {
 					for _, neighbour := range neighbours {
 						queue = append(queue, neighbour.NodeId)
 					}
@@ -96,8 +93,7 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
 	nodeCount := 0
 	pointCount := 0
-	shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSBUCKETKEY)
+	shard.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		b.ForEach(func(k, v []byte) error {
 			if k[0] == 'n' && k[len(k)-1] == 'i' {
 				pointId := uuid.UUID(v)
@@ -133,8 +129,7 @@ func checkPointCount(t *testing.T, shard *Shard, expected int) {
 }
 
 func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
-	shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSBUCKETKEY)
+	shard.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		// Check that the point ids are not in the database
 		for _, id := range pointIds {
 			nodeIdBytes := b.Get(cache.PointKey(id, 'i'))
@@ -163,8 +158,7 @@ func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 
 func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
 	var maxId uint64
-	shard.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSBUCKETKEY)
+	shard.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		b.ForEach(func(k, v []byte) error {
 			if k[0] == 'n' && k[len(k)-1] == 'i' {
 				nodeId := cache.BytesToUint64(k[1 : len(k)-1])
@@ -618,9 +612,8 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 			require.NoError(t, err)
 			// ---------------------------
 			maxPoints := min(numPoints, len(vecCol.Vectors))
-			err = shard.db.Update(func(tx *bbolt.Tx) error {
-				buc := tx.Bucket(POINTSBUCKETKEY)
-				return shard.cacheManager.With(shard.dbFile, buc, func(pc cache.ReadWriteCache) error {
+			err = shard.db.Write(POINTSBUCKETKEY, func(b diskstore.Bucket) error {
+				return shard.cacheManager.With(shard.dbFile, b, func(pc cache.ReadWriteCache) error {
 					startTime := time.Now()
 					for i := 0; i < maxPoints; i++ {
 						// Create a random point
@@ -638,9 +631,8 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 			require.NoError(t, err)
 			// ---------------------------
 			// Perform search
-			err = shard.db.View(func(tx *bbolt.Tx) error {
-				buc := tx.Bucket(POINTSBUCKETKEY)
-				return shard.cacheManager.WithReadOnly(shard.dbFile, buc, func(pc cache.ReadOnlyCache) error {
+			err = shard.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
+				return shard.cacheManager.WithReadOnly(shard.dbFile, b, func(pc cache.ReadOnlyCache) error {
 					startTime := time.Now()
 					for i := 0; i < maxPoints; i++ {
 						query := vecCol.Vectors[i]

@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/shard/cache"
-	"go.etcd.io/bbolt"
 )
 
 /* When we use internal integer ids (uint64), we can use more efficient data
@@ -26,7 +26,7 @@ import (
 // goal is to ensure the node Ids don't spiral out of control after many
 // deletions and insertions.
 type IdCounter struct {
-	bucket        *bbolt.Bucket
+	bucket        diskstore.Bucket
 	freeIdsKey    []byte
 	nextFreeIdKey []byte
 	// ---------------------------
@@ -34,7 +34,7 @@ type IdCounter struct {
 	nextFreeId uint64
 }
 
-func NewIdCounter(bucket *bbolt.Bucket, freeIdsKey []byte, nextFreeIdKey []byte) (*IdCounter, error) {
+func NewIdCounter(bucket diskstore.Bucket, freeIdsKey []byte, nextFreeIdKey []byte) (*IdCounter, error) {
 	// ---------------------------
 	freeIdsBytes := bucket.Get(freeIdsKey)
 	freeIdsMap := make(map[uint64]struct{})

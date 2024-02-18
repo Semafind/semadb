@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 )
 
@@ -56,7 +57,7 @@ func NodeKey(id uint64, suffix byte) []byte {
 
 // ---------------------------
 
-func getNode(b diskStore, nodeId uint64) (ShardPoint, error) {
+func getNode(b diskstore.ReadOnlyBucket, nodeId uint64) (ShardPoint, error) {
 	// ---------------------------
 	shardPoint := ShardPoint{NodeId: nodeId}
 	// ---------------------------
@@ -88,7 +89,7 @@ func getNode(b diskStore, nodeId uint64) (ShardPoint, error) {
 	return shardPoint, nil
 }
 
-func getPointByUUID(b diskStore, id uuid.UUID) (ShardPoint, error) {
+func getPointByUUID(b diskstore.ReadOnlyBucket, id uuid.UUID) (ShardPoint, error) {
 	// ---------------------------
 	// Get node id
 	nodeIdBytes := b.Get(PointKey(id, 'i'))
@@ -107,7 +108,7 @@ func getPointByUUID(b diskStore, id uuid.UUID) (ShardPoint, error) {
 	return sp, nil
 }
 
-func setPointEdges(b diskStore, point ShardPoint) error {
+func setPointEdges(b diskstore.Bucket, point ShardPoint) error {
 	// ---------------------------
 	// Set edges
 	if err := b.Put(NodeKey(point.NodeId, 'e'), edgeListToBytes(point.edges)); err != nil {
@@ -117,7 +118,7 @@ func setPointEdges(b diskStore, point ShardPoint) error {
 	return nil
 }
 
-func setPoint(b diskStore, point ShardPoint) error {
+func setPoint(b diskstore.Bucket, point ShardPoint) error {
 	// ---------------------------
 	/* Sharing suffix keys with the same point id does not work because the
 	 * underlying array the slice points to gets modified and badger does not
@@ -154,7 +155,7 @@ func setPoint(b diskStore, point ShardPoint) error {
 	return nil
 }
 
-func deletePoint(b diskStore, point ShardPoint) error {
+func deletePoint(b diskstore.Bucket, point ShardPoint) error {
 	// ---------------------------
 	// Delete vector
 	if err := b.Delete(NodeKey(point.NodeId, 'v')); err != nil {
@@ -183,13 +184,13 @@ func deletePoint(b diskStore, point ShardPoint) error {
 }
 
 // Returns the metadata of a point. It creates a copy of the metadata bytes.
-func getPointMetadata(b diskStore, nodeId uint64) ([]byte, error) {
+func getPointMetadata(b diskstore.ReadOnlyBucket, nodeId uint64) ([]byte, error) {
 	// ---------------------------
 	// Get metadata
 	metadataVal := b.Get(NodeKey(nodeId, 'm'))
 	// Again we return a copy because the bytes value is only valid during the
 	// transaction and the returned value may be stored in a long-term shared
-	// cache. This assumes the diskstore behaves like bbolt.
+	// cache. This assumes the diskstore.Bucket behaves like bbolt.
 	mdata := make([]byte, len(metadataVal))
 	copy(mdata, metadataVal)
 	// ---------------------------
@@ -199,7 +200,7 @@ func getPointMetadata(b diskStore, nodeId uint64) ([]byte, error) {
 // This function is used to check if the edges of a point are valid. It is
 // called after a delete operation to make sure that the edges pointing to the
 // deleted items are removed.
-func scanPointEdges(b diskStore, deleteSet map[uint64]struct{}) ([]uint64, error) {
+func scanPointEdges(b diskstore.ReadOnlyBucket, deleteSet map[uint64]struct{}) ([]uint64, error) {
 	// ---------------------------
 	// We set capacity to the length of the delete set because we guess there is
 	// at least one node pointing to each deleted node.

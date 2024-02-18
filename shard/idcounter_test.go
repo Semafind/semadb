@@ -4,25 +4,25 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/shard"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/bbolt"
 )
 
-func tempDB(t *testing.T) *bbolt.DB {
-	dbpath := filepath.Join(t.TempDir(), "sharddb.bbolt")
-	db, err := bbolt.Open(dbpath, 0666, nil)
+func tempDB(t *testing.T) diskstore.DiskStore {
+	dbpath := filepath.Join(t.TempDir(), "test.bbolt")
+	db, err := diskstore.Open(dbpath)
 	require.NoError(t, err)
 	return db
 }
 
-func withCounter(t *testing.T, db *bbolt.DB, f func(*shard.IdCounter)) {
+func withCounter(t *testing.T, db diskstore.DiskStore, f func(*shard.IdCounter)) {
 	if db == nil {
 		db = tempDB(t)
-	}
-	db.Update(func(tx *bbolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte("testing"))
+		err := db.CreateBucketsIfNotExists([]string{"testing"})
 		require.NoError(t, err)
+	}
+	db.Write("testing", func(b diskstore.Bucket) error {
 		counter, err := shard.NewIdCounter(b, []byte("freeIds"), []byte("nextFreeId"))
 		require.NoError(t, err)
 		f(counter)

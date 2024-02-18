@@ -12,16 +12,16 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/utils"
-	"go.etcd.io/bbolt"
 )
 
 type Shard struct {
 	dbFile     string
-	db         *bbolt.DB
+	db         diskstore.DiskStore
 	collection models.Collection
 	distFn     distance.DistFunc
 	// Start point is the entry point to the graph. It is used to bootstrap the
@@ -42,8 +42,8 @@ type Shard struct {
 // ---------------------------
 const CURRENTSHARDVERSION = 1
 
-var POINTSBUCKETKEY = []byte("points")
-var INTERNALBUCKETKEY = []byte("internal")
+var POINTSBUCKETKEY = "points"
+var INTERNALBUCKETKEY = "internal"
 
 // ---------------------------
 var STARTIDKEY = []byte("startId")
@@ -57,7 +57,7 @@ var SHARDVERSIONKEY = []byte("shardVersion")
 
 func NewShard(dbFile string, collection models.Collection, cacheManager *cache.Manager) (*Shard, error) {
 	// ---------------------------
-	db, err := bbolt.Open(dbFile, 0644, &bbolt.Options{Timeout: 1 * time.Minute})
+	db, err := diskstore.Open(dbFile)
 	if err != nil {
 		return nil, fmt.Errorf("could not open shard db: %w", err)
 	}
@@ -66,19 +66,18 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 		// 0 means no cache, every operation will get blank cache and discard it
 		cacheManager = cache.NewManager(0)
 	}
+	// ---------------------------
+	if err := db.CreateBucketsIfNotExists([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY}); err != nil {
+		return nil, fmt.Errorf("could not create shard buckets: %w", err)
+	}
+	// ---------------------------
 	var startId uint64
 	var maxNodeId uint64
-	err = db.Update(func(tx *bbolt.Tx) error {
+	err = db.WriteMultiple([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY}, func(buckets []diskstore.Bucket) error {
 		// ---------------------------
 		// Setup buckets
-		bPoints, err := tx.CreateBucketIfNotExists(POINTSBUCKETKEY)
-		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
-		bInternal, err := tx.CreateBucketIfNotExists(INTERNALBUCKETKEY)
-		if err != nil {
-			return fmt.Errorf("create bucket: %s", err)
-		}
+		bPoints := buckets[0]
+		bInternal := buckets[1]
 		// ---------------------------
 		// Get or set shard version
 		sv := bInternal.Get(SHARDVERSIONKEY)
@@ -186,10 +185,9 @@ func (s *Shard) Backup(backupFrequency, backupCount int) error {
 
 // ---------------------------
 
-func changePointCount(tx *bbolt.Tx, change int) error {
-	bInternal := tx.Bucket(INTERNALBUCKETKEY)
+func changePointCount(bucket diskstore.Bucket, change int) error {
 	// ---------------------------
-	countBytes := bInternal.Get(POINTCOUNTKEY)
+	countBytes := bucket.Get(POINTCOUNTKEY)
 	var count uint64
 	if countBytes != nil {
 		count = cache.BytesToUint64(countBytes)
@@ -201,7 +199,7 @@ func changePointCount(tx *bbolt.Tx, change int) error {
 	}
 	// ---------------------------
 	countBytes = cache.Uint64ToBytes(uint64(newCount))
-	if err := bInternal.Put(POINTCOUNTKEY, countBytes); err != nil {
+	if err := bucket.Put(POINTCOUNTKEY, countBytes); err != nil {
 		return fmt.Errorf("could not change point count: %w", err)
 	}
 	return nil
@@ -213,19 +211,24 @@ type shardInfo struct {
 }
 
 func (s *Shard) Info() (si shardInfo, err error) {
-	err = s.db.View(func(tx *bbolt.Tx) error {
-		bInternal := tx.Bucket(INTERNALBUCKETKEY)
+	// ---------------------------
+	dbSize, err := s.db.SizeInBytes()
+	if err != nil {
+		return
+	}
+	si.Size = dbSize
+	// ---------------------------
+	err = s.db.Read(INTERNALBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		// ---------------------------
 		// The reason we use a point count is because a single point has
 		// multiple key value pairs in the points bucket. This is easier to
 		// manage than counting the number of keys in the points bucket which
 		// may change over time.
-		countBytes := bInternal.Get(POINTCOUNTKEY)
+		countBytes := b.Get(POINTCOUNTKEY)
 		if countBytes != nil {
 			si.PointCount = cache.BytesToUint64(countBytes)
 		}
 		// ---------------------------
-		si.Size = tx.Size()
 		return nil
 	})
 	return
@@ -330,10 +333,11 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 	// Insert points
 	// Remember, Bolt allows only one read-write transaction at a time
 	var txTime time.Time
-	err := s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSBUCKETKEY)
+	err := s.db.WriteMultiple([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY}, func(buckets []diskstore.Bucket) error {
+		bPoints := buckets[0]
+		bInternal := buckets[1]
 		// ---------------------------
-		nodeCounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY), FREENODEIDSKEY, NEXTFREENODEIDKEY)
+		nodeCounter, err := NewIdCounter(bInternal, FREENODEIDSKEY, NEXTFREENODEIDKEY)
 		if err != nil {
 			return fmt.Errorf("could not create id counter: %w", err)
 		}
@@ -352,7 +356,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		 * that failure to bbolt to abort the transaction. If we start workers
 		 * first, we can synchronise on the final error, in other words we can't
 		 * check the error before submitting the jobs. */
-		err = s.cacheManager.With(s.dbFile, b, func(pc cache.ReadWriteCache) error {
+		err = s.cacheManager.With(s.dbFile, bPoints, func(pc cache.ReadWriteCache) error {
 			/* In this funky case there are actually multiple goroutines
 			 * operating on the same cache. As opposed to multiple requests
 			 * queuing to get access to the shared cache. */
@@ -387,7 +391,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		}
 		// ---------------------------
 		// Update point count accordingly
-		if err := changePointCount(tx, len(points)); err != nil {
+		if err := changePointCount(bInternal, len(points)); err != nil {
 			return fmt.Errorf("could not update point count for insertion: %w", err)
 		}
 		// ---------------------------
@@ -416,8 +420,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 	// throughout this function
 	updatedIds := make([]uuid.UUID, 0, len(points))
 	// ---------------------------
-	err := s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSBUCKETKEY)
+	err := s.db.Write(POINTSBUCKETKEY, func(b diskstore.Bucket) error {
 		// ---------------------------
 		err := s.cacheManager.With(s.dbFile, b, func(pc cache.ReadWriteCache) error {
 			updateSet := make(map[uuid.UUID]*cache.CachePoint, len(points))
@@ -479,8 +482,7 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 	// search set. Recall that the start point is only used to bootstrap the
 	// search, and is not included in the results.
 	results := make([]SearchPoint, 0, k+1)
-	err := s.db.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSBUCKETKEY)
+	err := s.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		err := s.cacheManager.WithReadOnly(s.dbFile, b, func(pc cache.ReadOnlyCache) error {
 			startTime := time.Now()
 			searchSet, _, err := s.greedySearch(pc, s.startId, query, k, s.collection.Parameters.SearchSize)
@@ -613,14 +615,15 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 	deletedIds := make([]uuid.UUID, 0, len(deleteSet))
 	deletedNodeIds := make(map[uint64]struct{}, len(deleteSet))
 	// ---------------------------
-	err := s.db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(POINTSBUCKETKEY)
+	err := s.db.WriteMultiple([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY}, func(buckets []diskstore.Bucket) error {
+		bPoints := buckets[0]
+		bInternal := buckets[1]
 		// ---------------------------
-		nodeCounter, err := NewIdCounter(tx.Bucket(INTERNALBUCKETKEY), FREENODEIDSKEY, NEXTFREENODEIDKEY)
+		nodeCounter, err := NewIdCounter(bInternal, FREENODEIDSKEY, NEXTFREENODEIDKEY)
 		if err != nil {
 			return fmt.Errorf("could not create id counter: %w", err)
 		}
-		err = s.cacheManager.With(s.dbFile, b, func(pc cache.ReadWriteCache) error {
+		err = s.cacheManager.With(s.dbFile, bPoints, func(pc cache.ReadWriteCache) error {
 			// ---------------------------
 			for pointId := range deleteSet {
 				point, err := pc.GetPointByUUID(pointId)
@@ -666,7 +669,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		}
 		// ---------------------------
 		// Update point count accordingly
-		if err := changePointCount(tx, -len(deletedIds)); err != nil {
+		if err := changePointCount(bInternal, -len(deletedIds)); err != nil {
 			return fmt.Errorf("could not change point count for deletion: %w", err)
 		}
 		// ---------------------------

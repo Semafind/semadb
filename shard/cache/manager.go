@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/diskstore"
 )
 
 // The cache manager allows us to reuse the same cache for multiple operations
@@ -75,11 +76,7 @@ func (m *Manager) checkAndPrune() {
 	}
 }
 
-func (m *Manager) with(name string, bucket diskStore, readOnly bool, f func(c *PointCache) error) error {
-	// ---------------------------
-	if bucket.Writable() && readOnly {
-		return fmt.Errorf("read only cache for %s cannot be used with a writable bucket", name)
-	}
+func (m *Manager) with(name string, readOnly bool, f func(cacheToUse *sharedInMemCache) error) error {
 	// ---------------------------
 	// We start with manager lock so others don't try to create the same cache
 	m.mu.Lock()
@@ -143,8 +140,7 @@ func (m *Manager) with(name string, bucket diskStore, readOnly bool, f func(c *P
 			log.Debug().Str("name", name).Bool("readOnly", readOnly).Msg("Reusing cache")
 			defer m.checkAndPrune()
 		}
-		pc := newPointCache(bucket, cacheToUse)
-		if err := f(pc); err != nil {
+		if err := f(cacheToUse); err != nil {
 			/* Something went wrong, we'll scrap the cache and delete it from the
 			 * manager. */
 			cacheToUse.scrapped = true
@@ -172,8 +168,7 @@ func (m *Manager) with(name string, bucket diskStore, readOnly bool, f func(c *P
 	// By unlocking after we have the cache lock, we guarantee that the cache
 	// will not be scrapped by another goroutine.
 	m.mu.Unlock()
-	pc := newPointCache(bucket, s)
-	if err := f(pc); err != nil {
+	if err := f(s); err != nil {
 		s.scrapped = true
 		m.mu.Lock()
 		delete(m.sharedCaches, name)
@@ -183,17 +178,28 @@ func (m *Manager) with(name string, bucket diskStore, readOnly bool, f func(c *P
 	return nil
 }
 
-func (m *Manager) With(name string, bucket diskStore, f func(c ReadWriteCache) error) error {
+func (m *Manager) With(name string, bucket diskstore.Bucket, f func(c ReadWriteCache) error) error {
 	// ---------------------------
-	return m.with(name, bucket, false, func(c *PointCache) error {
-		return f(c)
+	return m.with(name, false, func(cacheToUse *sharedInMemCache) error {
+		pc := &PointCache{
+			ReadOnlyPointCache: ReadOnlyPointCache{
+				bucket:      bucket,
+				sharedCache: cacheToUse,
+			},
+			bucket: bucket,
+		}
+		return f(pc)
 	})
 }
 
-func (m *Manager) WithReadOnly(name string, bucket diskStore, f func(c ReadOnlyCache) error) error {
+func (m *Manager) WithReadOnly(name string, bucket diskstore.ReadOnlyBucket, f func(c ReadOnlyCache) error) error {
 	// ---------------------------
-	return m.with(name, bucket, true, func(c *PointCache) error {
-		return f(c)
+	return m.with(name, true, func(cacheToUse *sharedInMemCache) error {
+		pc := &ReadOnlyPointCache{
+			bucket:      bucket,
+			sharedCache: cacheToUse,
+		}
+		return f(pc)
 	})
 }
 
