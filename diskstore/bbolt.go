@@ -42,15 +42,15 @@ func (b bboltBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error 
 
 // ---------------------------
 
-type BBoltDiskStore struct {
+type bboltDiskStore struct {
 	bboltDB *bbolt.DB
 }
 
-func (ds BBoltDiskStore) Path() string {
+func (ds bboltDiskStore) Path() string {
 	return ds.bboltDB.Path()
 }
 
-func (ds BBoltDiskStore) CreateBucketsIfNotExists(bucketName []string) error {
+func (ds bboltDiskStore) CreateBucketsIfNotExists(bucketName []string) error {
 	return ds.bboltDB.Update(func(tx *bbolt.Tx) error {
 		for _, name := range bucketName {
 			_, err := tx.CreateBucketIfNotExists([]byte(name))
@@ -62,7 +62,7 @@ func (ds BBoltDiskStore) CreateBucketsIfNotExists(bucketName []string) error {
 	})
 }
 
-func (ds BBoltDiskStore) Read(bucketName string, f func(ReadOnlyBucket) error) error {
+func (ds bboltDiskStore) Read(bucketName string, f func(ReadOnlyBucket) error) error {
 	return ds.bboltDB.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		if b == nil {
@@ -72,7 +72,7 @@ func (ds BBoltDiskStore) Read(bucketName string, f func(ReadOnlyBucket) error) e
 	})
 }
 
-func (ds BBoltDiskStore) Write(bucketName string, f func(Bucket) error) error {
+func (ds bboltDiskStore) Write(bucketName string, f func(Bucket) error) error {
 	return ds.bboltDB.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(bucketName))
 		if b == nil {
@@ -82,12 +82,12 @@ func (ds BBoltDiskStore) Write(bucketName string, f func(Bucket) error) error {
 	})
 }
 
-func (ds BBoltDiskStore) BackupToFile(path string) error {
+func (ds bboltDiskStore) BackupToFile(path string) error {
 	return ds.bboltDB.View(func(tx *bbolt.Tx) error {
 		return tx.CopyFile(path, 0644)
 	})
 }
 
-func (ds BBoltDiskStore) Close() error {
+func (ds bboltDiskStore) Close() error {
 	return ds.bboltDB.Close()
 }

@@ -37,12 +37,12 @@ type DiskStore interface {
 // empty to use memory.
 func Open(path string) (DiskStore, error) {
 	if path == "" {
-		return NewMemDiskStore(), nil
+		return newMemDiskStore(), nil
 	}
 	// ---------------------------
 	bboltDB, err := bbolt.Open(path, 0644, &bbolt.Options{Timeout: 1 * time.Minute})
 	if err != nil {
 		return nil, fmt.Errorf("could not open db %s: %w", path, err)
 	}
-	return BBoltDiskStore{bboltDB: bboltDB}, nil
+	return bboltDiskStore{bboltDB: bboltDB}, nil
 }

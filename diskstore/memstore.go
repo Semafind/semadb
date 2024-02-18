@@ -2,18 +2,18 @@ package diskstore
 
 import "fmt"
 
-type MemBucket map[string][]byte
+type memBucket map[string][]byte
 
-func (b MemBucket) Get(k []byte) []byte {
+func (b memBucket) Get(k []byte) []byte {
 	return b[string(k)]
 }
 
-func (b MemBucket) Put(k, v []byte) error {
+func (b memBucket) Put(k, v []byte) error {
 	b[string(k)] = v
 	return nil
 }
 
-func (b MemBucket) ForEach(f func(k, v []byte) error) error {
+func (b memBucket) ForEach(f func(k, v []byte) error) error {
 	for k, v := range b {
 		if err := f([]byte(k), v); err != nil {
 			return err
@@ -22,7 +22,7 @@ func (b MemBucket) ForEach(f func(k, v []byte) error) error {
 	return nil
 }
 
-func (b MemBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
+func (b memBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
 	for k, v := range b {
 		if len(k) < len(prefix) {
 			continue
@@ -36,36 +36,36 @@ func (b MemBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
 	return nil
 }
 
-func (b MemBucket) Delete(k []byte) error {
+func (b memBucket) Delete(k []byte) error {
 	delete(b, string(k))
 	return nil
 }
 
-type MemDiskStore struct {
-	buckets map[string]MemBucket
+type memDiskStore struct {
+	buckets map[string]memBucket
 }
 
-func NewMemDiskStore() *MemDiskStore {
-	return &MemDiskStore{
-		buckets: make(map[string]MemBucket),
+func newMemDiskStore() *memDiskStore {
+	return &memDiskStore{
+		buckets: make(map[string]memBucket),
 	}
 }
 
-func (ds *MemDiskStore) Path() string {
+func (ds *memDiskStore) Path() string {
 	return "memory"
 }
 
-func (ds *MemDiskStore) CreateBucketsIfNotExists(bucketNames []string) error {
+func (ds *memDiskStore) CreateBucketsIfNotExists(bucketNames []string) error {
 	for _, name := range bucketNames {
 		if _, ok := ds.buckets[name]; ok {
 			continue
 		}
-		ds.buckets[name] = make(MemBucket)
+		ds.buckets[name] = make(memBucket)
 	}
 	return nil
 }
 
-func (ds *MemDiskStore) Read(bucketName string, f func(ReadOnlyBucket) error) error {
+func (ds *memDiskStore) Read(bucketName string, f func(ReadOnlyBucket) error) error {
 	b, ok := ds.buckets[bucketName]
 	if !ok {
 		return fmt.Errorf("bucket %s does not exist", bucketName)
@@ -73,7 +73,7 @@ func (ds *MemDiskStore) Read(bucketName string, f func(ReadOnlyBucket) error) er
 	return f(b)
 }
 
-func (ds *MemDiskStore) Write(bucketName string, f func(Bucket) error) error {
+func (ds *memDiskStore) Write(bucketName string, f func(Bucket) error) error {
 	b, ok := ds.buckets[bucketName]
 	if !ok {
 		return fmt.Errorf("bucket %s does not exist", bucketName)
@@ -81,11 +81,11 @@ func (ds *MemDiskStore) Write(bucketName string, f func(Bucket) error) error {
 	return f(b)
 }
 
-func (ds *MemDiskStore) BackupToFile(path string) error {
+func (ds *memDiskStore) BackupToFile(path string) error {
 	return fmt.Errorf("not supported")
 }
 
-func (ds *MemDiskStore) Close() error {
+func (ds *memDiskStore) Close() error {
 	clear(ds.buckets)
 	return nil
 }

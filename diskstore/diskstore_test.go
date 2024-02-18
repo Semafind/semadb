@@ -10,9 +10,8 @@ import (
 
 func tempDiskStore(t *testing.T, path string, inMemory bool) diskstore.DiskStore {
 	if inMemory {
-		return diskstore.NewMemDiskStore()
-	}
-	if path == "" {
+		path = ""
+	} else if path == "" {
 		path = filepath.Join(t.TempDir(), "test.db")
 	}
 	ds, err := diskstore.Open(path)
