@@ -56,6 +56,19 @@ func main() {
 	// ---------------------------
 	httpServer := httpapi.RunHTTPServer(clusterNode, cfg.HttpApi, reg)
 	// ---------------------------
+	// Conditional imports are not possible in Go, so we comment this out.
+	// import _ "net/http/pprof" and then start the pprof server
+	// access using http://localhost:8070/debug/pprof/
+	// Useful commands:
+	// go tool pprof -http=:8000 http://localhost:8071/debug/pprof/profile?seconds=20
+	// go tool pprof -http=:8000 http://localhost:8071/debug/pprof/heap
+	// ---------------------------
+	// go func() {
+	// 	debugPort := cfg.HttpApi.HttpPort - 10
+	// 	err := http.ListenAndServe(":"+strconv.Itoa(debugPort), nil)
+	// 	log.Info().Err(err).Msg("pprof")
+	// }()
+	// ---------------------------
 	quit := make(chan os.Signal, 1)
 	// kill (no param) default send syscanll.SIGTERM
 	// kill -2 is syscall.SIGINT
