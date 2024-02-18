@@ -73,6 +73,30 @@ func (ds *memDiskStore) Read(bucketName string, f func(ReadOnlyBucket) error) er
 	return f(b)
 }
 
+func (ds *memDiskStore) ReadMultiple(bucketNames []string, f func([]ReadOnlyBucket) error) error {
+	buckets := make([]ReadOnlyBucket, len(bucketNames))
+	for i, name := range bucketNames {
+		b, ok := ds.buckets[name]
+		if !ok {
+			return fmt.Errorf("bucket %s does not exist", name)
+		}
+		buckets[i] = b
+	}
+	return f(buckets)
+}
+
+func (ds *memDiskStore) WriteMultiple(bucketNames []string, f func([]Bucket) error) error {
+	buckets := make([]Bucket, len(bucketNames))
+	for i, name := range bucketNames {
+		b, ok := ds.buckets[name]
+		if !ok {
+			return fmt.Errorf("bucket %s does not exist", name)
+		}
+		buckets[i] = b
+	}
+	return f(buckets)
+}
+
 func (ds *memDiskStore) Write(bucketName string, f func(Bucket) error) error {
 	b, ok := ds.buckets[bucketName]
 	if !ok {

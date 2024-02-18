@@ -82,6 +82,34 @@ func (ds bboltDiskStore) Write(bucketName string, f func(Bucket) error) error {
 	})
 }
 
+func (ds bboltDiskStore) ReadMultiple(bucketNames []string, f func([]ReadOnlyBucket) error) error {
+	return ds.bboltDB.View(func(tx *bbolt.Tx) error {
+		buckets := make([]ReadOnlyBucket, len(bucketNames))
+		for i, name := range bucketNames {
+			b := tx.Bucket([]byte(name))
+			if b == nil {
+				return fmt.Errorf("bucket %s does not exist", name)
+			}
+			buckets[i] = bboltBucket{bb: b}
+		}
+		return f(buckets)
+	})
+}
+
+func (ds bboltDiskStore) WriteMultiple(bucketNames []string, f func([]Bucket) error) error {
+	return ds.bboltDB.Update(func(tx *bbolt.Tx) error {
+		buckets := make([]Bucket, len(bucketNames))
+		for i, name := range bucketNames {
+			b := tx.Bucket([]byte(name))
+			if b == nil {
+				return fmt.Errorf("bucket %s does not exist", name)
+			}
+			buckets[i] = bboltBucket{bb: b}
+		}
+		return f(buckets)
+	})
+}
+
 func (ds bboltDiskStore) BackupToFile(path string) error {
 	return ds.bboltDB.View(func(tx *bbolt.Tx) error {
 		return tx.CopyFile(path, 0644)

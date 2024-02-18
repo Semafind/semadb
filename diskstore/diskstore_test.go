@@ -82,6 +82,33 @@ func Test_ReadWriteRead(t *testing.T) {
 	}
 }
 
+func Test_WriteReadMultiple(t *testing.T) {
+	for _, inMemory := range []bool{true, false} {
+		t.Run("inMemory", func(t *testing.T) {
+			ds := tempDiskStore(t, "", inMemory)
+			err := ds.CreateBucketsIfNotExists([]string{"bucket1", "bucket2"})
+			require.NoError(t, err)
+			err = ds.WriteMultiple([]string{"bucket1", "bucket2"}, func(buckets []diskstore.Bucket) error {
+				require.Len(t, buckets, 2)
+				require.NoError(t, buckets[0].Put([]byte("wizard"), []byte("gandalf")))
+				require.NoError(t, buckets[1].Put([]byte("hobbit"), []byte("frodo")))
+				return nil
+			})
+			require.NoError(t, err)
+			err = ds.ReadMultiple([]string{"bucket1", "bucket2"}, func(buckets []diskstore.ReadOnlyBucket) error {
+				require.Len(t, buckets, 2)
+				require.Equal(t, []byte("gandalf"), buckets[0].Get([]byte("wizard")))
+				require.Equal(t, []byte("frodo"), buckets[1].Get([]byte("hobbit")))
+				require.Nil(t, buckets[0].Get([]byte("hobbit")))
+				require.Nil(t, buckets[1].Get([]byte("wizard")))
+				return nil
+			})
+			require.NoError(t, err)
+			require.NoError(t, ds.Close())
+		})
+	}
+}
+
 func Test_Persistance(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	ds := tempDiskStore(t, path, false)
