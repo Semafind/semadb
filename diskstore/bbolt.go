@@ -116,6 +116,15 @@ func (ds bboltDiskStore) BackupToFile(path string) error {
 	})
 }
 
+func (ds bboltDiskStore) SizeInBytes() (int64, error) {
+	var size int64
+	err := ds.bboltDB.View(func(tx *bbolt.Tx) error {
+		size = tx.Size()
+		return nil
+	})
+	return size, err
+}
+
 func (ds bboltDiskStore) Close() error {
 	return ds.bboltDB.Close()
 }

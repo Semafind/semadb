@@ -109,6 +109,10 @@ func (ds *memDiskStore) BackupToFile(path string) error {
 	return fmt.Errorf("not supported")
 }
 
+func (ds *memDiskStore) SizeInBytes() (int64, error) {
+	return 0, nil
+}
+
 func (ds *memDiskStore) Close() error {
 	clear(ds.buckets)
 	return nil

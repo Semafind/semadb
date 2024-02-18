@@ -32,6 +32,7 @@ type DiskStore interface {
 	ReadMultiple(bucketNames []string, f func([]ReadOnlyBucket) error) error
 	WriteMultiple(bucketNames []string, f func([]Bucket) error) error
 	BackupToFile(path string) error
+	SizeInBytes() (int64, error)
 	Close() error
 }
 
