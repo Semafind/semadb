@@ -34,6 +34,28 @@ func Test_NoBuckets(t *testing.T) {
 	}
 }
 
+func Test_BucketRecreation(t *testing.T) {
+	for _, inMemory := range []bool{true, false} {
+		t.Run("inMemory", func(t *testing.T) {
+			ds := tempDiskStore(t, "", inMemory)
+			err := ds.CreateBucketsIfNotExists([]string{"bucket"})
+			require.NoError(t, err)
+			err = ds.Write("bucket", func(b diskstore.Bucket) error {
+				return b.Put([]byte("wizard"), []byte("gandalf"))
+			})
+			require.NoError(t, err)
+			err = ds.CreateBucketsIfNotExists([]string{"bucket"})
+			require.NoError(t, err)
+			err = ds.Read("bucket", func(b diskstore.ReadOnlyBucket) error {
+				require.Equal(t, []byte("gandalf"), b.Get([]byte("wizard")))
+				return nil
+			})
+			require.NoError(t, err)
+			require.NoError(t, ds.Close())
+		})
+	}
+}
+
 func Test_ReadWriteRead(t *testing.T) {
 	for _, inMemory := range []bool{true, false} {
 		t.Run("inMemory", func(t *testing.T) {
