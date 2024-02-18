@@ -1,10 +1,46 @@
 package diskstore
 
 import (
+	"bytes"
 	"fmt"
 
 	"go.etcd.io/bbolt"
 )
+
+type bboltBucket struct {
+	bb *bbolt.Bucket
+}
+
+func (b bboltBucket) Get(k []byte) []byte {
+	// Not huge fan of this b.bb business but it's explicit.
+	return b.bb.Get(k)
+}
+
+func (b bboltBucket) Put(k, v []byte) error {
+	return b.bb.Put(k, v)
+}
+
+func (b bboltBucket) Delete(k []byte) error {
+	return b.bb.Delete(k)
+}
+
+func (b bboltBucket) ForEach(f func(k, v []byte) error) error {
+	return b.bb.ForEach(func(k, v []byte) error {
+		return f(k, v)
+	})
+}
+
+func (b bboltBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
+	c := b.bb.Cursor()
+	for k, v := c.Seek(prefix); k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next() {
+		if err := f(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ---------------------------
 
 type BBoltDiskStore struct {
 	bboltDB *bbolt.DB
@@ -32,7 +68,7 @@ func (ds BBoltDiskStore) Read(bucketName string, f func(ReadOnlyBucket) error) e
 		if b == nil {
 			return fmt.Errorf("bucket %s does not exist", bucketName)
 		}
-		return f(b)
+		return f(bboltBucket{bb: b})
 	})
 }
 
@@ -42,7 +78,7 @@ func (ds BBoltDiskStore) Write(bucketName string, f func(Bucket) error) error {
 		if b == nil {
 			return fmt.Errorf("bucket %s does not exist", bucketName)
 		}
-		return f(b)
+		return f(bboltBucket{bb: b})
 	})
 }
 

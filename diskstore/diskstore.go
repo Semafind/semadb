@@ -10,6 +10,7 @@ import (
 type ReadOnlyBucket interface {
 	Get([]byte) []byte
 	ForEach(func(k, v []byte) error) error
+	PrefixScan(prefix []byte, f func(k, v []byte) error) error
 }
 
 // A bucket is like a kvstore, it can be used to store key-value pairs. We call

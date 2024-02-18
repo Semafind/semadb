@@ -162,3 +162,32 @@ func Test_ForEach(t *testing.T) {
 		})
 	}
 }
+
+func Test_PrefixScan(t *testing.T) {
+	for _, inMemory := range []bool{true, false} {
+		t.Run("inMemory", func(t *testing.T) {
+			ds := tempDiskStore(t, "", inMemory)
+			err := ds.CreateBucketsIfNotExists([]string{"bucket"})
+			require.NoError(t, err)
+			err = ds.Write("bucket", func(b diskstore.Bucket) error {
+				err := b.Put([]byte("wizard"), []byte("gandalf"))
+				require.NoError(t, err)
+				err = b.Put([]byte("hobbit"), []byte("frodo"))
+				require.NoError(t, err)
+				return nil
+			})
+			require.NoError(t, err)
+			err = ds.Read("bucket", func(b diskstore.ReadOnlyBucket) error {
+				err := b.PrefixScan([]byte("w"), func(k, v []byte) error {
+					require.Equal(t, []byte("wizard"), k)
+					require.Equal(t, []byte("gandalf"), v)
+					return nil
+				})
+				require.NoError(t, err)
+				return nil
+			})
+			require.NoError(t, err)
+			require.NoError(t, ds.Close())
+		})
+	}
+}

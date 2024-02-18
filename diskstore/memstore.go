@@ -22,6 +22,20 @@ func (b MemBucket) ForEach(f func(k, v []byte) error) error {
 	return nil
 }
 
+func (b MemBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
+	for k, v := range b {
+		if len(k) < len(prefix) {
+			continue
+		}
+		if k[:len(prefix)] == string(prefix) {
+			if err := f([]byte(k), v); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (b MemBucket) Delete(k []byte) error {
 	delete(b, string(k))
 	return nil
