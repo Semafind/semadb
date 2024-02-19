@@ -213,10 +213,12 @@ type InsertPointsResponse struct {
 func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	// ---------------------------
 	var req InsertPointsRequest
+	startTime := time.Now()
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	log.Debug().Str("bindTime", time.Since(startTime).String()).Msg("InsertPoints bind")
 	// ---------------------------
 	// Get corresponding collection
 	collection := c.MustGet("collection").(models.Collection)
