@@ -178,26 +178,29 @@ func (m *Manager) with(name string, readOnly bool, f func(cacheToUse *sharedInMe
 	return nil
 }
 
-func (m *Manager) With(name string, bucket diskstore.Bucket, f func(c ReadWriteCache) error) error {
+func (m *Manager) With(name string, pointsBucket, graphBucket diskstore.Bucket, f func(c ReadWriteCache) error) error {
 	// ---------------------------
 	return m.with(name, false, func(cacheToUse *sharedInMemCache) error {
 		pc := &PointCache{
 			ReadOnlyPointCache: ReadOnlyPointCache{
-				bucket:      bucket,
-				sharedCache: cacheToUse,
+				pointsBucket: pointsBucket,
+				graphBucket:  graphBucket,
+				sharedCache:  cacheToUse,
 			},
-			bucket: bucket,
+			pointsBucket: pointsBucket,
+			graphBucket:  graphBucket,
 		}
 		return f(pc)
 	})
 }
 
-func (m *Manager) WithReadOnly(name string, bucket diskstore.ReadOnlyBucket, f func(c ReadOnlyCache) error) error {
+func (m *Manager) WithReadOnly(name string, pointsBucket, graphBucket diskstore.ReadOnlyBucket, f func(c ReadOnlyCache) error) error {
 	// ---------------------------
 	return m.with(name, true, func(cacheToUse *sharedInMemCache) error {
 		pc := &ReadOnlyPointCache{
-			bucket:      bucket,
-			sharedCache: cacheToUse,
+			pointsBucket: pointsBucket,
+			graphBucket:  graphBucket,
+			sharedCache:  cacheToUse,
 		}
 		return f(pc)
 	})

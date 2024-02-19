@@ -35,13 +35,15 @@ type ReadWriteCache interface {
  * possible in Go. The types in question are ReadOnlyBucket and Bucket. */
 
 type ReadOnlyPointCache struct {
-	bucket      diskstore.ReadOnlyBucket
-	sharedCache *sharedInMemCache
+	pointsBucket diskstore.ReadOnlyBucket
+	graphBucket  diskstore.ReadOnlyBucket
+	sharedCache  *sharedInMemCache
 }
 
 type PointCache struct {
 	ReadOnlyPointCache
-	bucket diskstore.Bucket // This takes precedence over the read only bucket.
+	pointsBucket diskstore.Bucket // This takes precedence over the read only bucket.
+	graphBucket  diskstore.Bucket
 }
 
 func (pc *ReadOnlyPointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
@@ -52,7 +54,7 @@ func (pc *ReadOnlyPointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 		return point, nil
 	}
 	// ---------------------------
-	point, err := getNode(pc.bucket, nodeId)
+	point, err := getNode(pc.graphBucket, nodeId)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +69,7 @@ func (pc *ReadOnlyPointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 func (pc *ReadOnlyPointCache) GetPointByUUID(pointId uuid.UUID) (*CachePoint, error) {
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
-	point, err := getPointByUUID(pc.bucket, pointId)
+	point, err := getPointByUUID(pc.pointsBucket, pc.graphBucket, pointId)
 	if err != nil {
 		return nil, err
 	}
@@ -157,18 +159,23 @@ func (pc *ReadOnlyPointCache) GetMetadata(nodeId uint64) ([]byte, error) {
 	// getPointMetadata function returns an empty slice so this operation will
 	// only run once.
 	if cp.Metadata == nil {
-		mdata, err := getPointMetadata(pc.bucket, nodeId)
+		mdata, err := getPointMetadata(pc.pointsBucket, nodeId)
 		if err != nil {
 			return nil, err
 		}
 		cp.Metadata = mdata
 		pc.sharedCache.estimatedSize.Add(int64(len(cp.Metadata)))
+		pointId, err := getPointUUIDByNodeId(pc.pointsBucket, nodeId)
+		if err != nil {
+			return nil, err
+		}
+		cp.Id = pointId
 	}
 	return cp.Metadata, nil
 }
 
 func (pc *PointCache) EdgeScan(deleteSet map[uint64]struct{}) ([]uint64, error) {
-	return scanPointEdges(pc.bucket, deleteSet)
+	return scanPointEdges(pc.graphBucket, deleteSet)
 }
 
 func (pc *PointCache) Flush() error {
@@ -176,7 +183,7 @@ func (pc *PointCache) Flush() error {
 	defer pc.sharedCache.pointsMu.Unlock()
 	for _, point := range pc.sharedCache.points {
 		if point.isDeleted {
-			if err := deletePoint(pc.bucket, point.ShardPoint); err != nil {
+			if err := deletePoint(pc.pointsBucket, pc.graphBucket, point.ShardPoint); err != nil {
 				return err
 			}
 			delete(pc.sharedCache.points, point.NodeId)
@@ -184,7 +191,7 @@ func (pc *PointCache) Flush() error {
 			continue
 		}
 		if point.isDirty {
-			if err := setPoint(pc.bucket, point.ShardPoint); err != nil {
+			if err := setPoint(pc.pointsBucket, pc.graphBucket, point.ShardPoint); err != nil {
 				return err
 			}
 			// Only one goroutine flushes the point cache so we are not locking
@@ -194,7 +201,7 @@ func (pc *PointCache) Flush() error {
 			continue
 		}
 		if point.isEdgeDirty {
-			if err := setPointEdges(pc.bucket, point.ShardPoint); err != nil {
+			if err := setPointEdges(pc.graphBucket, point.ShardPoint); err != nil {
 				return err
 			}
 			point.isEdgeDirty = false

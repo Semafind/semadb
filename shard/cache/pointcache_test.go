@@ -69,12 +69,15 @@ func randCachePoints(size int) []*CachePoint {
 }
 
 func tempPointCache(t *testing.T) *PointCache {
-	bucket := make(tempBucket)
+	pointsBucket := make(tempBucket)
+	graphBucket := make(tempBucket)
 	return &PointCache{
-		bucket: bucket,
+		pointsBucket: pointsBucket,
+		graphBucket:  graphBucket,
 		ReadOnlyPointCache: ReadOnlyPointCache{
-			bucket:      bucket,
-			sharedCache: newSharedInMemCache(),
+			pointsBucket: pointsBucket,
+			graphBucket:  graphBucket,
+			sharedCache:  newSharedInMemCache(),
 		},
 	}
 }
@@ -100,7 +103,8 @@ func TestPointCache_GetPoint(t *testing.T) {
 		pc.Flush()
 		pc2 := tempPointCache(t)
 		// pc2.bucket = pc.bucket
-		pc2.ReadOnlyPointCache.bucket = pc.bucket
+		pc2.ReadOnlyPointCache.pointsBucket = pc.pointsBucket
+		pc2.ReadOnlyPointCache.graphBucket = pc.graphBucket
 		p, err := pc2.GetPoint(cachePoint.NodeId)
 		require.NoError(t, err)
 		require.Equal(t, cachePoint.NodeId, p.NodeId)
@@ -123,7 +127,8 @@ func TestPointCache_GetPointByUUID(t *testing.T) {
 		pc.Flush()
 		pc2 := tempPointCache(t)
 		// pc2.bucket = pc.bucket
-		pc2.ReadOnlyPointCache.bucket = pc.bucket
+		pc2.ReadOnlyPointCache.pointsBucket = pc.pointsBucket
+		pc2.ReadOnlyPointCache.graphBucket = pc.graphBucket
 		p, err := pc2.GetPointByUUID(cachePoint.Id)
 		require.NoError(t, err)
 		require.Equal(t, cachePoint.NodeId, p.NodeId)

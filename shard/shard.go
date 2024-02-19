@@ -42,8 +42,14 @@ type Shard struct {
 // ---------------------------
 const CURRENTSHARDVERSION = 1
 
-var POINTSBUCKETKEY = "points"
-var INTERNALBUCKETKEY = "internal"
+/* Points store the actual data points, graphIndex stores the similarity graph
+ * and internal stores the shard metadata such as point count. We partition like
+ * this because graph traversal is read-heavy operation, if everything is bundled
+ * together, the disk cache pulls in more pages. It's also logically easier to
+ * manage. */
+const POINTSBUCKETKEY = "points"
+const GRAPHINDEXBUCKETKEY = "graphIndex"
+const INTERNALBUCKETKEY = "internal"
 
 // ---------------------------
 var STARTIDKEY = []byte("startId")
@@ -67,17 +73,18 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 		cacheManager = cache.NewManager(0)
 	}
 	// ---------------------------
-	if err := db.CreateBucketsIfNotExists([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY}); err != nil {
+	if err := db.CreateBucketsIfNotExists([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY, GRAPHINDEXBUCKETKEY}); err != nil {
 		return nil, fmt.Errorf("could not create shard buckets: %w", err)
 	}
 	// ---------------------------
 	var startId uint64
 	var maxNodeId uint64
-	err = db.WriteMultiple([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY}, func(buckets []diskstore.Bucket) error {
+	err = db.WriteMultiple([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY, GRAPHINDEXBUCKETKEY}, func(buckets []diskstore.Bucket) error {
 		// ---------------------------
 		// Setup buckets
 		bPoints := buckets[0]
 		bInternal := buckets[1]
+		bGraph := buckets[2]
 		// ---------------------------
 		// Get or set shard version
 		sv := bInternal.Get(SHARDVERSIONKEY)
@@ -129,7 +136,7 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 					Vector: randVector,
 				},
 			}
-			err := cacheManager.With(dbFile, bPoints, func(pc cache.ReadWriteCache) error {
+			err := cacheManager.With(dbFile, bPoints, bGraph, func(pc cache.ReadWriteCache) error {
 				log.Debug().Uint64("id", startId).Str("UUID", randPoint.Id.String()).Msg("creating start point")
 				pc.SetPoint(randPoint)
 				if err := pc.Flush(); err != nil {
@@ -333,9 +340,10 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 	// Insert points
 	// Remember, Bolt allows only one read-write transaction at a time
 	var txTime time.Time
-	err := s.db.WriteMultiple([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY}, func(buckets []diskstore.Bucket) error {
+	err := s.db.WriteMultiple([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY, GRAPHINDEXBUCKETKEY}, func(buckets []diskstore.Bucket) error {
 		bPoints := buckets[0]
 		bInternal := buckets[1]
+		bGraph := buckets[2]
 		// ---------------------------
 		nodeCounter, err := NewIdCounter(bInternal, FREENODEIDSKEY, NEXTFREENODEIDKEY)
 		if err != nil {
@@ -356,7 +364,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		 * that failure to bbolt to abort the transaction. If we start workers
 		 * first, we can synchronise on the final error, in other words we can't
 		 * check the error before submitting the jobs. */
-		err = s.cacheManager.With(s.dbFile, bPoints, func(pc cache.ReadWriteCache) error {
+		err = s.cacheManager.With(s.dbFile, bPoints, bGraph, func(pc cache.ReadWriteCache) error {
 			/* In this funky case there are actually multiple goroutines
 			 * operating on the same cache. As opposed to multiple requests
 			 * queuing to get access to the shared cache. */
@@ -420,9 +428,11 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 	// throughout this function
 	updatedIds := make([]uuid.UUID, 0, len(points))
 	// ---------------------------
-	err := s.db.Write(POINTSBUCKETKEY, func(b diskstore.Bucket) error {
+	err := s.db.WriteMultiple([]string{POINTSBUCKETKEY, GRAPHINDEXBUCKETKEY}, func(buckets []diskstore.Bucket) error {
+		pointsBucket := buckets[0]
+		graphBucket := buckets[1]
 		// ---------------------------
-		err := s.cacheManager.With(s.dbFile, b, func(pc cache.ReadWriteCache) error {
+		err := s.cacheManager.With(s.dbFile, pointsBucket, graphBucket, func(pc cache.ReadWriteCache) error {
 			updateSet := make(map[uuid.UUID]*cache.CachePoint, len(points))
 			updateNodeIds := make(map[uint64]struct{}, len(points))
 			// ---------------------------
@@ -482,8 +492,12 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 	// search set. Recall that the start point is only used to bootstrap the
 	// search, and is not included in the results.
 	results := make([]SearchPoint, 0, k+1)
-	err := s.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
-		err := s.cacheManager.WithReadOnly(s.dbFile, b, func(pc cache.ReadOnlyCache) error {
+	err := s.db.ReadMultiple([]string{POINTSBUCKETKEY, GRAPHINDEXBUCKETKEY}, func(buckets []diskstore.ReadOnlyBucket) error {
+		// ---------------------------
+		pointsBucket := buckets[0]
+		graphBucket := buckets[1]
+		// ---------------------------
+		err := s.cacheManager.WithReadOnly(s.dbFile, pointsBucket, graphBucket, func(pc cache.ReadOnlyCache) error {
 			startTime := time.Now()
 			searchSet, _, err := s.greedySearch(pc, s.startId, query, k, s.collection.Parameters.SearchSize)
 			log.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("SearchPoints - GreedySearch")
@@ -615,15 +629,16 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 	deletedIds := make([]uuid.UUID, 0, len(deleteSet))
 	deletedNodeIds := make(map[uint64]struct{}, len(deleteSet))
 	// ---------------------------
-	err := s.db.WriteMultiple([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY}, func(buckets []diskstore.Bucket) error {
+	err := s.db.WriteMultiple([]string{POINTSBUCKETKEY, INTERNALBUCKETKEY, GRAPHINDEXBUCKETKEY}, func(buckets []diskstore.Bucket) error {
 		bPoints := buckets[0]
 		bInternal := buckets[1]
+		bGraph := buckets[2]
 		// ---------------------------
 		nodeCounter, err := NewIdCounter(bInternal, FREENODEIDSKEY, NEXTFREENODEIDKEY)
 		if err != nil {
 			return fmt.Errorf("could not create id counter: %w", err)
 		}
-		err = s.cacheManager.With(s.dbFile, bPoints, func(pc cache.ReadWriteCache) error {
+		err = s.cacheManager.With(s.dbFile, bPoints, bGraph, func(pc cache.ReadWriteCache) error {
 			// ---------------------------
 			for pointId := range deleteSet {
 				point, err := pc.GetPointByUUID(pointId)

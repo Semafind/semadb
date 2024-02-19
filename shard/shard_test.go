@@ -31,7 +31,7 @@ var sampleCol models.Collection = models.Collection{
 }
 
 func getVectorCount(shard *Shard) (count int) {
-	shard.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
+	shard.db.Read(GRAPHINDEXBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		b.ForEach(func(k, v []byte) error {
 			if k[len(k)-1] == 'v' {
 				count++
@@ -45,7 +45,7 @@ func getVectorCount(shard *Shard) (count int) {
 }
 
 func getPointEdgeCount(shard *Shard, nodeId uint64) (count int) {
-	shard.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
+	shard.db.Read(GRAPHINDEXBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
 		n := b.Get(cache.NodeKey(nodeId, 'e'))
 		count = len(n) / 8
 		return nil
@@ -59,8 +59,10 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	queue := make([]uint64, 0)
 	queue = append(queue, shard.startId)
 	cm := cache.NewManager(-1)
-	err := shard.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
-		err := cm.WithReadOnly("checkConnectivity", b, func(pc cache.ReadOnlyCache) error {
+	err := shard.db.ReadMultiple([]string{POINTSBUCKETKEY, GRAPHINDEXBUCKETKEY}, func(buckets []diskstore.ReadOnlyBucket) error {
+		pointsBucket := buckets[0]
+		graphBucket := buckets[1]
+		err := cm.WithReadOnly("checkConnectivity", pointsBucket, graphBucket, func(pc cache.ReadOnlyCache) error {
 			for len(queue) > 0 {
 				pointId := queue[0]
 				queue = queue[1:]
@@ -612,8 +614,10 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 			require.NoError(t, err)
 			// ---------------------------
 			maxPoints := min(numPoints, len(vecCol.Vectors))
-			err = shard.db.Write(POINTSBUCKETKEY, func(b diskstore.Bucket) error {
-				return shard.cacheManager.With(shard.dbFile, b, func(pc cache.ReadWriteCache) error {
+			err = shard.db.WriteMultiple([]string{POINTSBUCKETKEY, GRAPHINDEXBUCKETKEY}, func(buckets []diskstore.Bucket) error {
+				pointsBucket := buckets[0]
+				graphBucket := buckets[1]
+				return shard.cacheManager.With(shard.dbFile, pointsBucket, graphBucket, func(pc cache.ReadWriteCache) error {
 					startTime := time.Now()
 					for i := 0; i < maxPoints; i++ {
 						// Create a random point
@@ -631,8 +635,10 @@ func TestShard_InsertSinglePoint(t *testing.T) {
 			require.NoError(t, err)
 			// ---------------------------
 			// Perform search
-			err = shard.db.Read(POINTSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
-				return shard.cacheManager.WithReadOnly(shard.dbFile, b, func(pc cache.ReadOnlyCache) error {
+			err = shard.db.ReadMultiple([]string{POINTSBUCKETKEY, GRAPHINDEXBUCKETKEY}, func(buckets []diskstore.ReadOnlyBucket) error {
+				pointsBucket := buckets[0]
+				graphBucket := buckets[1]
+				return shard.cacheManager.WithReadOnly(shard.dbFile, pointsBucket, graphBucket, func(pc cache.ReadOnlyCache) error {
 					startTime := time.Now()
 					for i := 0; i < maxPoints; i++ {
 						query := vecCol.Vectors[i]
