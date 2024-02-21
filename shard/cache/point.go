@@ -65,6 +65,10 @@ func NodeKey(id uint64, suffix byte) []byte {
 	return key[:]
 }
 
+func NodeIdFromKey(key []byte) uint64 {
+	return binary.LittleEndian.Uint64(key[1 : len(key)-1])
+}
+
 // ---------------------------
 
 func getNode(graphBucket diskstore.ReadOnlyBucket, nodeId uint64) (ShardPoint, error) {
@@ -205,34 +209,57 @@ func getPointMetadata(pointsBucket diskstore.ReadOnlyBucket, nodeId uint64) ([]b
 	return mdata, nil
 }
 
-// This function is used to check if the edges of a point are valid. It is
-// called after a delete operation to make sure that the edges pointing to the
-// deleted items are removed.
-func scanPointEdges(graphBucket diskstore.ReadOnlyBucket, deleteSet map[uint64]struct{}) ([]uint64, error) {
+// This function is used to check if the edges of a point are valid. That is,
+// are any of the nodes have edges to deletedSet.
+func scanPointEdges(graphBucket diskstore.ReadOnlyBucket, deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error) {
 	// ---------------------------
+	/* toPrune is a list of nodes that have edges to nodes in the delete set.
+	 * toSave are nodes that have no inbound edges left.
+	 * For example, A -> B -> C, if B is in the delete set, A is in toPrune and C
+	 * is in toSave. */
 	// We set capacity to the length of the delete set because we guess there is
 	// at least one node pointing to each deleted node.
-	toPrune := make([]uint64, 0, len(deleteSet))
+	toPrune = make([]uint64, 0, len(deleteSet))
+	validNodes := make(map[uint64]struct{})
+	hasInbound := make(map[uint64]struct{})
 	// ---------------------------
 	// Scan all edges
-	err := graphBucket.ForEach(func(k, v []byte) error {
+	err = graphBucket.ForEach(func(k, v []byte) error {
 		if k[len(k)-1] == 'e' {
 			// Check if the point is in the delete set
-			nodeId := binary.LittleEndian.Uint64(k[1 : len(k)-1])
+			nodeId := NodeIdFromKey(k)
 			if _, ok := deleteSet[nodeId]; ok {
 				return nil
 			}
+			// We skip the start node because it will never need saving
+			if nodeId != 1 {
+				validNodes[nodeId] = struct{}{}
+			}
 			// Check if the edges are in the delete set
 			edges := bytesToEdgeList(v)
+			addedToPrune := false
 			for _, edgeId := range edges {
-				if _, ok := deleteSet[edgeId]; ok {
-					toPrune = append(toPrune, nodeId)
-					return nil
+				hasInbound[edgeId] = struct{}{}
+				if !addedToPrune {
+					if _, ok := deleteSet[edgeId]; ok {
+						toPrune = append(toPrune, nodeId)
+						addedToPrune = true
+					}
 				}
 			}
 		}
 		return nil
 	})
+	if err != nil {
+		return
+	}
 	// ---------------------------
-	return toPrune, err
+	toSave = make([]uint64, 0)
+	for nodeId := range validNodes {
+		if _, ok := hasInbound[nodeId]; !ok {
+			toSave = append(toSave, nodeId)
+		}
+	}
+	// ---------------------------
+	return
 }

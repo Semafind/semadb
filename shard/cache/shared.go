@@ -64,6 +64,15 @@ func (p *CachePoint) AddNeighbour(neighbour *CachePoint) int {
 	return len(p.edges)
 }
 
+func (p *CachePoint) AddNeighbourIfNotExists(neighbour *CachePoint) int {
+	for _, n := range p.neighbours {
+		if n.NodeId == neighbour.NodeId {
+			return len(p.edges)
+		}
+	}
+	return p.AddNeighbour(neighbour)
+}
+
 func (p *CachePoint) Delete() {
 	p.isDeleted = true
 }

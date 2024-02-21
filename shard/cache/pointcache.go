@@ -25,7 +25,7 @@ type ReadOnlyCache interface {
 type ReadWriteCache interface {
 	ReadOnlyCache
 	SetPoint(ShardPoint) (*CachePoint, error)
-	EdgeScan(map[uint64]struct{}) ([]uint64, error)
+	EdgeScan(deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error)
 	Flush() error
 }
 
@@ -51,6 +51,9 @@ func (pc *ReadOnlyPointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 	defer pc.sharedCache.pointsMu.Unlock()
 	// ---------------------------
 	if point, ok := pc.sharedCache.points[nodeId]; ok {
+		if point.isDeleted {
+			return nil, fmt.Errorf("point is deleted")
+		}
 		return point, nil
 	}
 	// ---------------------------
@@ -174,7 +177,7 @@ func (pc *ReadOnlyPointCache) GetMetadata(nodeId uint64) ([]byte, error) {
 	return cp.Metadata, nil
 }
 
-func (pc *PointCache) EdgeScan(deleteSet map[uint64]struct{}) ([]uint64, error) {
+func (pc *PointCache) EdgeScan(deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error) {
 	return scanPointEdges(pc.graphBucket, deleteSet)
 }
 
