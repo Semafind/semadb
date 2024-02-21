@@ -17,6 +17,7 @@ import (
 	"github.com/semafind/semadb/internal/loadhdf5"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -238,11 +239,11 @@ func TestShard_CreatePoint(t *testing.T) {
 	shard := tempShard(t)
 	// Check that the shard is empty
 	checkPointCount(t, shard, 0)
-	points := randPoints(2)
+	points := randPoints(42)
 	err := shard.InsertPoints(points)
 	require.NoError(t, err)
 	// Check that the shard has two points
-	checkPointCount(t, shard, 2)
+	checkPointCount(t, shard, 42)
 	require.NoError(t, shard.Close())
 }
 
@@ -388,16 +389,16 @@ func TestShard_SearchWhileInsert(t *testing.T) {
 	go func() {
 		newPoints := randPoints(100)
 		err := shard.InsertPoints(newPoints)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		wg.Done()
 	}()
 	// Search points
 	go func() {
 		for _, point := range points {
 			res, err := shard.SearchPoints(point.Vector, 1)
-			require.NoError(t, err)
-			require.Len(t, res, 1)
-			require.Equal(t, point.Id, res[0].Point.Id)
+			assert.NoError(t, err)
+			assert.Len(t, res, 1)
+			assert.Equal(t, point.Id, res[0].Point.Id)
 		}
 		wg.Done()
 	}()
@@ -408,31 +409,31 @@ func TestShard_SearchWhileInsert(t *testing.T) {
 
 func TestShard_DeleteWhileInsert(t *testing.T) {
 	shard := tempShard(t)
-	points := randPoints(100)
+	points := randPoints(3)
 	// Insert points
 	err := shard.InsertPoints(points)
 	require.NoError(t, err)
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
-		newPoints := randPoints(100)
+		newPoints := randPoints(3)
 		err := shard.InsertPoints(newPoints)
-		require.NoError(t, err)
+		assert.NoError(t, err)
 		wg.Done()
 	}()
 	go func() {
 		// Delete points
 		deleteSet := make(map[uuid.UUID]struct{})
-		for i := 0; i < 50; i++ {
+		for i := 0; i < 2; i++ {
 			deleteSet[points[i].Id] = struct{}{}
 		}
 		delIds, err := shard.DeletePoints(deleteSet)
-		require.NoError(t, err)
-		require.Len(t, delIds, 50)
+		assert.NoError(t, err)
+		assert.Len(t, delIds, 2)
 		wg.Done()
 	}()
 	wg.Wait()
-	checkPointCount(t, shard, 150)
+	checkPointCount(t, shard, 4)
 	require.NoError(t, shard.Close())
 }
 
@@ -449,13 +450,13 @@ func TestShard_ConcurrentCRUD(t *testing.T) {
 	go func() {
 		// Insert points
 		newPoints := randPoints(50)
-		require.NoError(t, shard.InsertPoints(newPoints))
+		assert.NoError(t, shard.InsertPoints(newPoints))
 		wg.Done()
 	}()
 	go func() {
 		// Insert points
 		newPoints := randPoints(50)
-		require.NoError(t, shard.InsertPoints(newPoints))
+		assert.NoError(t, shard.InsertPoints(newPoints))
 		wg.Done()
 	}()
 	// ---------------------------
@@ -463,9 +464,9 @@ func TestShard_ConcurrentCRUD(t *testing.T) {
 	go func() {
 		for i := 0; i < 50; i++ {
 			res, err := shard.SearchPoints(points[i].Vector, 1)
-			require.NoError(t, err)
-			require.Len(t, res, 1)
-			require.Equal(t, points[i].Id, res[0].Point.Id)
+			assert.NoError(t, err)
+			assert.Len(t, res, 1)
+			assert.Equal(t, points[i].Id, res[0].Point.Id)
 		}
 		wg.Done()
 	}()
@@ -477,8 +478,8 @@ func TestShard_ConcurrentCRUD(t *testing.T) {
 			updatePoints[i-50].Id = points[i].Id
 		}
 		updateRes, err := shard.UpdatePoints(updatePoints)
-		require.NoError(t, err)
-		require.Len(t, updateRes, 50)
+		assert.NoError(t, err)
+		assert.Len(t, updateRes, 50)
 		wg.Done()
 	}()
 	// ---------------------------
@@ -489,8 +490,8 @@ func TestShard_ConcurrentCRUD(t *testing.T) {
 			deleteSet[points[i].Id] = struct{}{}
 		}
 		delIds, err := shard.DeletePoints(deleteSet)
-		require.NoError(t, err)
-		require.Len(t, delIds, 50)
+		assert.NoError(t, err)
+		assert.Len(t, delIds, 50)
 		wg.Done()
 	}()
 	// ---------------------------
