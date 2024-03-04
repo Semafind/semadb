@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -42,6 +43,7 @@ func main() {
 	setupLogging(cfg)
 	// ---------------------------
 	log.Info().Str("version", "0.0.1").Msg("Starting semadb")
+	log.Info().Int("cpu_count", runtime.NumCPU()).Msg("Detected CPU count")
 	// ---------------------------
 	reg := prometheus.NewRegistry()
 	// reg.MustRegister(collectors.NewGoCollector())
