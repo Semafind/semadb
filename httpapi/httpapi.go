@@ -8,16 +8,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
+	"github.com/semafind/semadb/httpapi/middleware"
+	httpv1 "github.com/semafind/semadb/httpapi/v1"
 	"github.com/semafind/semadb/models"
 )
-
-// ---------------------------
-
-func pongHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"message": "pong from semadb",
-	})
-}
 
 // ---------------------------
 
@@ -59,22 +53,9 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.
 		router.Use(WhiteListIPMiddleware(cfg.WhiteListIPs))
 	}
 	// ---------------------------
-	v1 := router.Group("/v1", AppHeaderMiddleware(cfg))
-	v1.GET("/ping", pongHandler)
+	v1 := router.Group("/v1", middleware.AppHeaderMiddleware(cfg.UserPlans))
 	// ---------------------------
-	// https://stackoverflow.blog/2020/03/02/best-practices-for-rest-api-design/
-	semaDBHandlers := NewSemaDBHandlers(cnode)
-	v1.POST("/collections", semaDBHandlers.CreateCollection)
-	v1.GET("/collections", semaDBHandlers.ListCollections)
-	colRoutes := v1.Group("/collections/:collectionId", semaDBHandlers.CollectionURIMiddleware())
-	colRoutes.GET("", semaDBHandlers.GetCollection)
-	colRoutes.DELETE("", semaDBHandlers.DeleteCollection)
-	// We're batching point requests for peformance reasons. Alternatively we
-	// can provide points/:pointId endpoint in the future.
-	colRoutes.POST("/points", semaDBHandlers.InsertPoints)
-	colRoutes.PUT("/points", semaDBHandlers.UpdatePoints)
-	colRoutes.DELETE("/points", semaDBHandlers.DeletePoints)
-	colRoutes.POST("/points/search", semaDBHandlers.SearchPoints)
+	httpv1.SetupV1Handlers(cnode, v1)
 	return router
 }
 

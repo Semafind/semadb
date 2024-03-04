@@ -1,4 +1,4 @@
-package httpapi
+package v1
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/semafind/semadb/cluster"
+	"github.com/semafind/semadb/httpapi/middleware"
 	"github.com/semafind/semadb/models"
 	"github.com/stretchr/testify/require"
 )
@@ -70,22 +71,20 @@ func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode
 }
 
 func setupTestRouter(t *testing.T, nodeS ClusterNodeState) *gin.Engine {
-	httpConfig := HttpApiConfig{
-		Debug:    true,
-		HttpHost: "localhost",
-		HttpPort: 8081,
-		UserPlans: map[string]models.UserPlan{
-			"BASIC": {
-				Name:                    "BASIC",
-				MaxCollections:          1,
-				MaxCollectionPointCount: 2,
-				MaxMetadataSize:         100,
-				ShardBackupFrequency:    60,
-				ShardBackupCount:        3,
-			},
+	router := gin.New()
+	userPlans := map[string]models.UserPlan{
+		"BASIC": {
+			Name:                    "BASIC",
+			MaxCollections:          1,
+			MaxCollectionPointCount: 2,
+			MaxMetadataSize:         100,
+			ShardBackupFrequency:    60,
+			ShardBackupCount:        3,
 		},
 	}
-	return setupRouter(setupClusterNode(t, nodeS), httpConfig, nil)
+	v1 := router.Group("/v1", middleware.AppHeaderMiddleware(userPlans))
+	SetupV1Handlers(setupClusterNode(t, nodeS), v1)
+	return router
 }
 
 func makeRequest(t *testing.T, router *gin.Engine, method string, endpoint string, body any) *httptest.ResponseRecorder {

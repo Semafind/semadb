@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -11,35 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/httpapi/middleware"
 )
-
-// ---------------------------
-/* Common headers */
-type AppHeaders struct {
-	UserId string `header:"X-User-Id" binding:"required"`
-	PlanId string `header:"X-Plan-Id" binding:"required"`
-}
-
-func AppHeaderMiddleware(config HttpApiConfig) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var appHeaders AppHeaders
-		if err := c.ShouldBindHeader(&appHeaders); err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		c.Set("appHeaders", appHeaders)
-		log.Debug().Interface("appHeaders", appHeaders).Msg("AppHeaderMiddleware")
-		// Extract user plan
-		userPlan, ok := config.UserPlans[appHeaders.PlanId]
-		if !ok {
-			errmsg := fmt.Sprintf("unknown user plan %s", appHeaders.PlanId)
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errmsg})
-			return
-		}
-		c.Set("userPlan", userPlan)
-		c.Next()
-	}
-}
 
 // ---------------------------
 
@@ -86,7 +58,7 @@ func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
 		// Extract app headers if any
 		appH, ok := c.Keys["appHeaders"]
 		if ok {
-			appHeaders := appH.(AppHeaders)
+			appHeaders := appH.(middleware.AppHeaders)
 			// We are not logging the user ID for privacy reasons
 			logEvent = logEvent.Str("planId", appHeaders.PlanId)
 		}

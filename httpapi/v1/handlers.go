@@ -1,4 +1,4 @@
-package httpapi
+package v1
 
 import (
 	"errors"
@@ -10,16 +10,39 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
+	"github.com/semafind/semadb/httpapi/middleware"
 	"github.com/semafind/semadb/models"
 	"github.com/vmihailenco/msgpack/v5"
 )
+
+func pongHandler(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"message": "pong from semadb",
+	})
+}
+
+// ---------------------------
 
 type SemaDBHandlers struct {
 	clusterNode *cluster.ClusterNode
 }
 
-func NewSemaDBHandlers(clusterNode *cluster.ClusterNode) *SemaDBHandlers {
-	return &SemaDBHandlers{clusterNode: clusterNode}
+// Requires middleware.AppHeaderMiddleware to be used
+func SetupV1Handlers(clusterNode *cluster.ClusterNode, rgroup *gin.RouterGroup) {
+	rgroup.GET("/ping", pongHandler)
+	semaDBHandlers := &SemaDBHandlers{clusterNode: clusterNode}
+	// https://stackoverflow.blog/2020/03/02/best-practices-for-rest-api-design/
+	rgroup.POST("/collections", semaDBHandlers.CreateCollection)
+	rgroup.GET("/collections", semaDBHandlers.ListCollections)
+	colRoutes := rgroup.Group("/collections/:collectionId", semaDBHandlers.CollectionURIMiddleware())
+	colRoutes.GET("", semaDBHandlers.GetCollection)
+	colRoutes.DELETE("", semaDBHandlers.DeleteCollection)
+	// We're batching point requests for peformance reasons. Alternatively we
+	// can provide points/:pointId endpoint in the future.
+	colRoutes.POST("/points", semaDBHandlers.InsertPoints)
+	colRoutes.PUT("/points", semaDBHandlers.UpdatePoints)
+	colRoutes.DELETE("/points", semaDBHandlers.DeletePoints)
+	colRoutes.POST("/points/search", semaDBHandlers.SearchPoints)
 }
 
 // ---------------------------
@@ -36,7 +59,7 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	appHeaders := c.MustGet("appHeaders").(AppHeaders)
+	appHeaders := c.MustGet("appHeaders").(middleware.AppHeaders)
 	// ---------------------------
 	vamanaCollection := models.Collection{
 		UserId:     appHeaders.UserId,
@@ -78,7 +101,7 @@ type ListCollectionsResponse struct {
 }
 
 func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
-	appHeaders := c.MustGet("appHeaders").(AppHeaders)
+	appHeaders := c.MustGet("appHeaders").(middleware.AppHeaders)
 	// ---------------------------
 	collections, err := sdbh.clusterNode.ListCollections(appHeaders.UserId)
 	if err != nil {
@@ -109,7 +132,7 @@ func (sdbh *SemaDBHandlers) CollectionURIMiddleware() gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		appHeaders := c.MustGet("appHeaders").(AppHeaders)
+		appHeaders := c.MustGet("appHeaders").(middleware.AppHeaders)
 		collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserId, uri.CollectionId)
 		if err == cluster.ErrNotFound {
 			errMsg := fmt.Sprintf("collection %s not found", uri.CollectionId)
