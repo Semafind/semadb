@@ -184,7 +184,11 @@ func (sm *ShardManager) DeleteCollectionShards(collection models.Collection) ([]
 	// deletion of the collection makes these shards inaccessible anyway. It is
 	// a cleanup problem if a shard is not deleted.
 	collectionDir := filepath.Join(sm.cfg.RootDir, "userCollections", collection.UserId, collection.Id)
-	// List all shards in the collection directory
+	// List all shards in the collection directory if it exists
+	if _, err := os.Stat(collectionDir); os.IsNotExist(err) {
+		log.Debug().Str("collectionDir", collectionDir).Msg("Collection directory does not exist, skipping shard deletion")
+		return nil, nil
+	}
 	shardDirs, err := os.ReadDir(collectionDir)
 	if err != nil {
 		return nil, fmt.Errorf("could not list shards: %w", err)
