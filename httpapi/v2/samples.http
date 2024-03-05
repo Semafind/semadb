@@ -1,0 +1,134 @@
+@package = BASIC
+@baseUrl = http://localhost:8081/v2
+@userId = alice
+@collectionId = abc
+@pointId = faefe2b1-cf85-48db-9621-94b833ee9cc9
+
+###
+
+# GetMetrics
+GET http://localhost:8091/metrics HTTP/1.1
+
+###
+
+# Ping
+GET {{baseUrl}}/ping HTTP/1.1
+X-User-Id: {{userId}}
+X-Plan-Id: {{package}}
+
+###
+
+# CreateCollection
+POST {{baseUrl}}/collections HTTP/1.1
+Content-Type: application/json
+X-User-Id: {{userId}}
+X-Plan-Id: {{package}}
+
+{
+    "id": "{{collectionId}}",
+    "indexSchema": {
+        "vectorVamana": {
+            "vector": {
+                "vectorSize": 2,
+                "distanceMetric": "euclidean",
+                "searchSize": 75,
+                "degreeBound": 64,
+                "alpha": 1.2
+            }
+        },
+        "integer": {
+            "age": {}
+        }
+    }
+}
+
+###
+
+# ListCollections
+GET {{baseUrl}}/collections HTTP/1.1
+X-User-Id: {{userId}}
+X-Plan-Id: {{package}}
+
+###
+
+# GetCollection
+GET {{baseUrl}}/collections/{{collectionId}} HTTP/1.1
+X-User-Id: {{userId}}
+X-Plan-Id: {{package}}
+
+###
+
+# DeleteCollection
+DELETE {{baseUrl}}/collections/{{collectionId}} HTTP/1.1
+X-User-Id: {{userId}}
+X-Plan-Id: {{package}}
+
+###
+
+# InsertPoints
+POST {{baseUrl}}/collections/{{collectionId}}/points HTTP/1.1
+Content-Type: application/json
+X-User-Id: {{userId}}
+X-Plan-Id: {{package}}
+
+{
+    "points": [
+        {
+            "id": "{{pointId}}",
+            "vector": [1, 2],
+            "metadata": {
+                "foo": "bar"
+            }
+        },
+        {
+            "vector": [3, 4]
+        }
+    ]
+}
+
+###
+
+# UpdatePoints
+PUT {{baseUrl}}/collections/{{collectionId}}/points HTTP/1.1
+Content-Type: application/json
+X-User-Id: {{userId}}
+X-Plan-Id: {{package}}
+
+{
+    "points": [
+        {
+            "id": "{{pointId}}",
+            "vector": [6, 7],
+            "metadata": {
+                "wizard": "gandalf"
+            }
+        }
+    ]
+}
+
+###
+
+# SearchPoints
+POST {{baseUrl}}/collections/{{collectionId}}/points/search HTTP/1.1
+Content-Type: application/json
+X-User-Id: {{userId}}
+X-Plan-Id: {{package}}
+
+{
+    "vector": [1, 2],
+    "limit": 10
+}
+
+###
+
+# DeletePoints
+DELETE {{baseUrl}}/collections/{{collectionId}}/points HTTP/1.1
+Content-Type: application/json
+X-User-Id: {{userId}}
+X-Plan-Id: {{package}}
+
+{
+    "ids": [
+        "{{pointId}}"
+    ]
+}

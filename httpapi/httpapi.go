@@ -10,6 +10,7 @@ import (
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
 	httpv1 "github.com/semafind/semadb/httpapi/v1"
+	httpv2 "github.com/semafind/semadb/httpapi/v2"
 	"github.com/semafind/semadb/models"
 )
 
@@ -54,8 +55,10 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.
 	}
 	// ---------------------------
 	v1 := router.Group("/v1", middleware.AppHeaderMiddleware(cfg.UserPlans))
-	// ---------------------------
 	httpv1.SetupV1Handlers(cnode, v1)
+	// ---------------------------
+	v2 := router.Group("/v2", middleware.AppHeaderMiddleware(cfg.UserPlans))
+	httpv2.SetupV2Handlers(cnode, v2)
 	return router
 }
 
