@@ -22,15 +22,21 @@ type Bucket interface {
 	Delete([]byte) error
 }
 
+type ReadOnlyBucketManager interface {
+	ReadBucket(bucketName string) (ReadOnlyBucket, error)
+}
+
+type BucketManager interface {
+	ReadOnlyBucketManager
+	WriteBucket(bucketName string) (Bucket, error)
+}
+
 // A disk storage layer abstracts multiple buckets.
 type DiskStore interface {
 	// The path to where the store is located. It may be a file or a directory.
 	Path() string
-	CreateBucketsIfNotExists(bucketNames []string) error
-	Read(bucketName string, f func(ReadOnlyBucket) error) error
-	Write(bucketName string, f func(Bucket) error) error
-	ReadMultiple(bucketNames []string, f func([]ReadOnlyBucket) error) error
-	WriteMultiple(bucketNames []string, f func([]Bucket) error) error
+	Read(f func(ReadOnlyBucketManager) error) error
+	Write(f func(BucketManager) error) error
 	BackupToFile(path string) error
 	SizeInBytes() (int64, error)
 	Close() error

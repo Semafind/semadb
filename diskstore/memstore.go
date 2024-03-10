@@ -41,13 +41,32 @@ func (b memBucket) Delete(k []byte) error {
 	return nil
 }
 
+type bucketMap map[string]memBucket
+
+func (bm bucketMap) ReadBucket(bucketName string) (ReadOnlyBucket, error) {
+	b, ok := bm[bucketName]
+	if !ok {
+		return nil, fmt.Errorf("bucket %s does not exist", bucketName)
+	}
+	return b, nil
+}
+
+func (bm bucketMap) WriteBucket(bucketName string) (Bucket, error) {
+	b, ok := bm[bucketName]
+	if !ok {
+		b = make(memBucket)
+		bm[bucketName] = b
+	}
+	return b, nil
+}
+
 type memDiskStore struct {
-	buckets map[string]memBucket
+	buckets bucketMap
 }
 
 func newMemDiskStore() *memDiskStore {
 	return &memDiskStore{
-		buckets: make(map[string]memBucket),
+		buckets: make(bucketMap),
 	}
 }
 
@@ -55,54 +74,12 @@ func (ds *memDiskStore) Path() string {
 	return "memory"
 }
 
-func (ds *memDiskStore) CreateBucketsIfNotExists(bucketNames []string) error {
-	for _, name := range bucketNames {
-		if _, ok := ds.buckets[name]; ok {
-			continue
-		}
-		ds.buckets[name] = make(memBucket)
-	}
-	return nil
+func (ds *memDiskStore) Read(f func(ReadOnlyBucketManager) error) error {
+	return f(ds.buckets)
 }
 
-func (ds *memDiskStore) Read(bucketName string, f func(ReadOnlyBucket) error) error {
-	b, ok := ds.buckets[bucketName]
-	if !ok {
-		return fmt.Errorf("bucket %s does not exist", bucketName)
-	}
-	return f(b)
-}
-
-func (ds *memDiskStore) ReadMultiple(bucketNames []string, f func([]ReadOnlyBucket) error) error {
-	buckets := make([]ReadOnlyBucket, len(bucketNames))
-	for i, name := range bucketNames {
-		b, ok := ds.buckets[name]
-		if !ok {
-			return fmt.Errorf("bucket %s does not exist", name)
-		}
-		buckets[i] = b
-	}
-	return f(buckets)
-}
-
-func (ds *memDiskStore) WriteMultiple(bucketNames []string, f func([]Bucket) error) error {
-	buckets := make([]Bucket, len(bucketNames))
-	for i, name := range bucketNames {
-		b, ok := ds.buckets[name]
-		if !ok {
-			return fmt.Errorf("bucket %s does not exist", name)
-		}
-		buckets[i] = b
-	}
-	return f(buckets)
-}
-
-func (ds *memDiskStore) Write(bucketName string, f func(Bucket) error) error {
-	b, ok := ds.buckets[bucketName]
-	if !ok {
-		return fmt.Errorf("bucket %s does not exist", bucketName)
-	}
-	return f(b)
+func (ds *memDiskStore) Write(f func(BucketManager) error) error {
+	return f(ds.buckets)
 }
 
 func (ds *memDiskStore) BackupToFile(path string) error {

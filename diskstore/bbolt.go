@@ -42,6 +42,28 @@ func (b bboltBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error 
 
 // ---------------------------
 
+type bboltBucketManager struct {
+	tx *bbolt.Tx
+}
+
+func (bm bboltBucketManager) ReadBucket(bucketName string) (ReadOnlyBucket, error) {
+	bucket := bm.tx.Bucket([]byte(bucketName))
+	if bucket == nil {
+		return nil, fmt.Errorf("bucket %s does not exist", bucketName)
+	}
+	return bboltBucket{bb: bucket}, nil
+}
+
+func (bm bboltBucketManager) WriteBucket(bucketName string) (Bucket, error) {
+	bucket, err := bm.tx.CreateBucketIfNotExists([]byte(bucketName))
+	if err != nil {
+		return nil, fmt.Errorf("could not create bucket %s: %w", bucketName, err)
+	}
+	return bboltBucket{bb: bucket}, nil
+}
+
+// ---------------------------
+
 type bboltDiskStore struct {
 	bboltDB *bbolt.DB
 }
@@ -50,63 +72,17 @@ func (ds bboltDiskStore) Path() string {
 	return ds.bboltDB.Path()
 }
 
-func (ds bboltDiskStore) CreateBucketsIfNotExists(bucketName []string) error {
-	return ds.bboltDB.Update(func(tx *bbolt.Tx) error {
-		for _, name := range bucketName {
-			_, err := tx.CreateBucketIfNotExists([]byte(name))
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-func (ds bboltDiskStore) Read(bucketName string, f func(ReadOnlyBucket) error) error {
+func (ds bboltDiskStore) Read(f func(ReadOnlyBucketManager) error) error {
 	return ds.bboltDB.View(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(bucketName))
-		if b == nil {
-			return fmt.Errorf("bucket %s does not exist", bucketName)
-		}
-		return f(bboltBucket{bb: b})
+		bm := bboltBucketManager{tx: tx}
+		return f(bm)
 	})
 }
 
-func (ds bboltDiskStore) Write(bucketName string, f func(Bucket) error) error {
+func (ds bboltDiskStore) Write(f func(BucketManager) error) error {
 	return ds.bboltDB.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket([]byte(bucketName))
-		if b == nil {
-			return fmt.Errorf("bucket %s does not exist", bucketName)
-		}
-		return f(bboltBucket{bb: b})
-	})
-}
-
-func (ds bboltDiskStore) ReadMultiple(bucketNames []string, f func([]ReadOnlyBucket) error) error {
-	return ds.bboltDB.View(func(tx *bbolt.Tx) error {
-		buckets := make([]ReadOnlyBucket, len(bucketNames))
-		for i, name := range bucketNames {
-			b := tx.Bucket([]byte(name))
-			if b == nil {
-				return fmt.Errorf("bucket %s does not exist", name)
-			}
-			buckets[i] = bboltBucket{bb: b}
-		}
-		return f(buckets)
-	})
-}
-
-func (ds bboltDiskStore) WriteMultiple(bucketNames []string, f func([]Bucket) error) error {
-	return ds.bboltDB.Update(func(tx *bbolt.Tx) error {
-		buckets := make([]Bucket, len(bucketNames))
-		for i, name := range bucketNames {
-			b := tx.Bucket([]byte(name))
-			if b == nil {
-				return fmt.Errorf("bucket %s does not exist", name)
-			}
-			buckets[i] = bboltBucket{bb: b}
-		}
-		return f(buckets)
+		bm := bboltBucketManager{tx: tx}
+		return f(bm)
 	})
 }
 
