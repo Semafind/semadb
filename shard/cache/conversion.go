@@ -8,6 +8,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+// TODO: Refactor into own package
+
 var float32ToBytes func([]float32) []byte = float32ToBytesSafe
 var bytesToFloat32 func([]byte) []float32 = bytesToFloat32Safe
 

@@ -78,5 +78,5 @@ func (p *CachePoint) Delete() {
 }
 
 func (cp *CachePoint) estimateSize() int64 {
-	return int64(len(cp.edges)*8 + len(cp.Vector)*4 + len(cp.Metadata))
+	return int64(len(cp.edges)*8 + len(cp.Vector)*4)
 }

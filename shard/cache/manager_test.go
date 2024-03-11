@@ -14,7 +14,7 @@ func TestManager_Prune(t *testing.T) {
 	t.Run("No space", func(t *testing.T) {
 		m := NewManager(1)
 		// We'll create some points and check if the shared cache is pruned correctly
-		err := m.With("test", make(tempBucket), make(tempBucket), func(c ReadWriteCache) error {
+		err := m.With("test", make(tempBucket), func(c ReadWriteCache) error {
 			randPoints := randCachePoints(10)
 			for _, p := range randPoints {
 				c.SetPoint(p.ShardPoint)
@@ -27,7 +27,7 @@ func TestManager_Prune(t *testing.T) {
 	t.Run("With space", func(t *testing.T) {
 		m := NewManager(1000000)
 		// We'll create some points and check if the shared cache is pruned correctly
-		err := m.With("test", make(tempBucket), make(tempBucket), func(c ReadWriteCache) error {
+		err := m.With("test", make(tempBucket), func(c ReadWriteCache) error {
 			randPoints := randCachePoints(10)
 			for _, p := range randPoints {
 				c.SetPoint(p.ShardPoint)
@@ -42,7 +42,7 @@ func TestManager_Prune(t *testing.T) {
 func TestManager_Release(t *testing.T) {
 	m := NewManager(-1)
 	// We'll create some points and check if the shared cache is pruned correctly
-	err := m.With("test", make(tempBucket), make(tempBucket), func(c ReadWriteCache) error {
+	err := m.With("test", make(tempBucket), func(c ReadWriteCache) error {
 		// The cache should continue to exist during operation even if it is
 		// release, i.e. the point is valid but not shared caches map anymore.
 		m.Release("test")
@@ -62,7 +62,7 @@ func TestManager_CacheReuse(t *testing.T) {
 	m := NewManager(-1)
 	randPoints := randCachePoints(10)
 	// We'll create some points first
-	err := m.With("test", make(tempBucket), make(tempBucket), func(c ReadWriteCache) error {
+	err := m.With("test", make(tempBucket), func(c ReadWriteCache) error {
 		for _, p := range randPoints {
 			c.SetPoint(p.ShardPoint)
 		}
@@ -72,7 +72,7 @@ func TestManager_CacheReuse(t *testing.T) {
 	require.Len(t, m.sharedCaches, 1)
 	// By giving a new blank bucket, we are checking if the GetPoint never hits
 	// the disk
-	err = m.WithReadOnly("test", make(tempBucket), make(tempBucket), func(c ReadOnlyCache) error {
+	err = m.WithReadOnly("test", make(tempBucket), func(c ReadOnlyCache) error {
 		for _, p := range randPoints {
 			_, err := c.GetPoint(p.NodeId)
 			require.NoError(t, err)
@@ -86,12 +86,12 @@ func TestManager_CacheReuse(t *testing.T) {
 func TestManager_SharedReadWhileWrite(t *testing.T) {
 	m := NewManager(-1)
 	randPoints := randCachePoints(10)
-	err := m.With("test", make(tempBucket), make(tempBucket), func(c ReadWriteCache) error {
+	err := m.With("test", make(tempBucket), func(c ReadWriteCache) error {
 		for _, p := range randPoints {
 			c.SetPoint(p.ShardPoint)
 		}
 		// While we are writing, let's access it as a read-only cache
-		err := m.WithReadOnly("test", make(tempBucket), make(tempBucket), func(c ReadOnlyCache) error {
+		err := m.WithReadOnly("test", make(tempBucket), func(c ReadOnlyCache) error {
 			_, err := c.GetPoint(randPoints[0].NodeId)
 			// We shouldn't be able to see the writes yet
 			require.Error(t, err)
@@ -112,7 +112,7 @@ func TestManager_ScrappedCache(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func() {
 			defer wg.Done()
-			err := m.With("test", make(tempBucket), make(tempBucket), func(c ReadWriteCache) error {
+			err := m.With("test", make(tempBucket), func(c ReadWriteCache) error {
 				randPoints := randCachePoints(10)
 				for _, p := range randPoints {
 					c.SetPoint(p.ShardPoint)
@@ -123,7 +123,7 @@ func TestManager_ScrappedCache(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			err := m.WithReadOnly("test", make(tempBucket), make(tempBucket), func(c ReadOnlyCache) error {
+			err := m.WithReadOnly("test", make(tempBucket), func(c ReadOnlyCache) error {
 				// We shouldn't be able to see the writes at all
 				for i := 0; i < 10; i++ {
 					_, err := c.GetPoint(uint64(i))

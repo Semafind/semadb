@@ -1,13 +1,13 @@
 package cache
 
+// TODO: rename file to nodes.go
+
 import (
 	"encoding/binary"
 	"errors"
 	"fmt"
 
-	"github.com/google/uuid"
 	"github.com/semafind/semadb/diskstore"
-	"github.com/semafind/semadb/models"
 )
 
 /* The reason we have a ShardPoint struct is because we need to store the node
@@ -15,47 +15,33 @@ import (
  * uint64 ids helps us use more efficient data structures compared to raw UUIDs
  * when traversing the graph. */
 
+// TODO: Rename shard point to node and NodeId to Id
 // Represents a single point in the shard graph structure.
 type ShardPoint struct {
 	NodeId uint64
-	models.Point
-	edges []uint64
+	Vector []float32
+	edges  []uint64
 }
 
 var ErrNotFound = errors.New("not found")
 
 // ---------------------------
 /* What is a node vs a point? A point is a unit of data that is stored in the
- * shard as the user sees. They have unique UUIDs. A node wraps a point to be
+ * shard as the user sees. They have unique UUIDs. A node is graph node that is
  * indexed in a graph structure. A node has a unique node id and edges to other
  * nodes. */
 
-/* We split points and graph index because during similarity search we don't need
- * metadata or the UUID mapping. This speeds up the search by not pulling
- * unnecessary data.
- *
- * It is important to still keep unique keys across the two buckets in case they
- * share a bucket, which is possible.
- */
-
+// TODO: Remove n prefix in storage map
 /* Storage map:
- * pointsBucket:
- * - n<node_id>i: point UUID
- * - n<node_id>m: metadata
- * - p<point_uuid>i: node id
  * graphBucket:
  * - n<node_id>v: vector
  * - n<node_id>e: edges
+ *
+ * We are placing vector and edges as suffixes so when we fetch one, the other
+ * is likely to be cached by the memory mapped file as they would in the same
+ * page.
  */
 // ---------------------------
-
-func PointKey(id uuid.UUID, suffix byte) []byte {
-	key := [18]byte{}
-	key[0] = 'p'
-	copy(key[1:], id[:])
-	key[17] = suffix
-	return key[:]
-}
 
 func NodeKey(id uint64, suffix byte) []byte {
 	key := [10]byte{}
@@ -92,34 +78,6 @@ func getNode(graphBucket diskstore.ReadOnlyBucket, nodeId uint64) (ShardPoint, e
 	return shardPoint, nil
 }
 
-func getPointUUIDByNodeId(pointsBucket diskstore.ReadOnlyBucket, nodeId uint64) (uuid.UUID, error) {
-	// ---------------------------
-	// Get point id
-	pointIdBytes := pointsBucket.Get(NodeKey(nodeId, 'i'))
-	if pointIdBytes == nil {
-		return uuid.Nil, fmt.Errorf("could not get point id %d", nodeId)
-	}
-	// ---------------------------
-	return uuid.FromBytes(pointIdBytes)
-}
-
-func getPointByUUID(pointsBucket, graphBucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (ShardPoint, error) {
-	// ---------------------------
-	// Get node id
-	nodeIdBytes := pointsBucket.Get(PointKey(pointId, 'i'))
-	if nodeIdBytes == nil {
-		return ShardPoint{}, fmt.Errorf("could not get node id from pointId %s", pointId)
-	}
-	nodeId := BytesToUint64(nodeIdBytes)
-	// ---------------------------
-	sp, err := getNode(graphBucket, nodeId)
-	if err != nil {
-		return ShardPoint{}, err
-	}
-	sp.Id = pointId // getNode doesn't return the point id
-	return sp, nil
-}
-
 func setPointEdges(graphBucket diskstore.Bucket, point ShardPoint) error {
 	// ---------------------------
 	// Set edges
@@ -130,7 +88,7 @@ func setPointEdges(graphBucket diskstore.Bucket, point ShardPoint) error {
 	return nil
 }
 
-func setPoint(pointsBucket, graphBucket diskstore.Bucket, point ShardPoint) error {
+func setPoint(graphBucket diskstore.Bucket, point ShardPoint) error {
 	// ---------------------------
 	/* Sharing suffix keys with the same point id does not work because the
 	 * underlying array the slice points to gets modified and badger does not
@@ -146,28 +104,10 @@ func setPoint(pointsBucket, graphBucket diskstore.Bucket, point ShardPoint) erro
 		return fmt.Errorf("could not set edge: %w", err)
 	}
 	// ---------------------------
-	// Set external UUID
-	if err := pointsBucket.Put(PointKey(point.Id, 'i'), Uint64ToBytes(point.NodeId)); err != nil {
-		return fmt.Errorf("could not set point id: %w", err)
-	}
-	if err := pointsBucket.Put(NodeKey(point.NodeId, 'i'), point.Id[:]); err != nil {
-		return fmt.Errorf("could not set node id: %w", err)
-	}
-	// ---------------------------
-	// Set metadata if any
-	if len(point.Metadata) > 0 {
-		if err := pointsBucket.Put(NodeKey(point.NodeId, 'm'), point.Metadata); err != nil {
-			return fmt.Errorf("could not set metadata: %w", err)
-		}
-	} else {
-		if err := pointsBucket.Delete(NodeKey(point.NodeId, 'm')); err != nil {
-			return fmt.Errorf("could not delete metadata on nil: %w", err)
-		}
-	}
 	return nil
 }
 
-func deletePoint(pointsBucket, graphBucket diskstore.Bucket, point ShardPoint) error {
+func deletePoint(graphBucket diskstore.Bucket, point ShardPoint) error {
 	// ---------------------------
 	// Delete vector
 	if err := graphBucket.Delete(NodeKey(point.NodeId, 'v')); err != nil {
@@ -179,34 +119,7 @@ func deletePoint(pointsBucket, graphBucket diskstore.Bucket, point ShardPoint) e
 		return fmt.Errorf("could not delete edges: %w", err)
 	}
 	// ---------------------------
-	// Delete metadata
-	if err := pointsBucket.Delete(NodeKey(point.NodeId, 'm')); err != nil {
-		return fmt.Errorf("could not delete metadata: %w", err)
-	}
-	// ---------------------------
-	// Delete external UUID
-	if err := pointsBucket.Delete(PointKey(point.Id, 'i')); err != nil {
-		return fmt.Errorf("could not delete point id: %w", err)
-	}
-	if err := pointsBucket.Delete(NodeKey(point.NodeId, 'i')); err != nil {
-		return fmt.Errorf("could not delete node id: %w", err)
-	}
-	// ---------------------------
 	return nil
-}
-
-// Returns the metadata of a point. It creates a copy of the metadata bytes.
-func getPointMetadata(pointsBucket diskstore.ReadOnlyBucket, nodeId uint64) ([]byte, error) {
-	// ---------------------------
-	// Get metadata
-	metadataVal := pointsBucket.Get(NodeKey(nodeId, 'm'))
-	// Again we return a copy because the bytes value is only valid during the
-	// transaction and the returned value may be stored in a long-term shared
-	// cache. This assumes the diskstore.Bucket behaves like bbolt.
-	mdata := make([]byte, len(metadataVal))
-	copy(mdata, metadataVal)
-	// ---------------------------
-	return mdata, nil
 }
 
 // This function is used to check if the edges of a point are valid. That is,
