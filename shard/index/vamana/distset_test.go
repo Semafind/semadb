@@ -12,7 +12,7 @@ func randDistElems(queryVector []float32, dists ...float32) []*cache.CachePoint 
 	elems := make([]*cache.CachePoint, len(dists))
 	for i, dist := range dists {
 		elems[i] = &cache.CachePoint{
-			ShardPoint: cache.ShardPoint{
+			GraphNode: cache.GraphNode{
 				NodeId: uint64(i),
 				Vector: []float32{queryVector[0] + dist, queryVector[1] + dist},
 			},

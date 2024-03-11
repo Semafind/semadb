@@ -58,7 +58,7 @@ func Dispatch(
 	var indexWg sync.WaitGroup
 	dec := msgpack.NewDecoder(nil)
 	// ---------------------------
-	vectorQ := make(map[string]chan cache.ShardPoint)
+	vectorQ := make(map[string]chan cache.GraphNode)
 	// ---------------------------
 outer:
 	for change := range changes {
@@ -122,9 +122,9 @@ outer:
 				// e.g. index/vamana/myvector/insert
 				qName := bucketName + "/" + op
 				if queue, ok := vectorQ[qName]; ok {
-					queue <- cache.ShardPoint{NodeId: change.NodeId, Vector: vector}
+					queue <- cache.GraphNode{NodeId: change.NodeId, Vector: vector}
 				} else {
-					newQ := make(chan cache.ShardPoint)
+					newQ := make(chan cache.GraphNode)
 					log.Debug().Str("component", "indexDispatch").Str("queue", qName).Msg("creating new queue")
 					vectorQ[qName] = newQ
 					bucket, err := bm.WriteBucket(bucketName)
@@ -153,7 +153,7 @@ outer:
 							cancel(fmt.Errorf("could not perform vector index %s for %s: %w", iprop.Type, iprop.Name, err))
 						}
 					}()
-					newQ <- cache.ShardPoint{NodeId: change.NodeId, Vector: vector}
+					newQ <- cache.GraphNode{NodeId: change.NodeId, Vector: vector}
 				}
 				// ---------------------------
 			} // End of property type switch

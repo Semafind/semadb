@@ -17,7 +17,7 @@ func TestManager_Prune(t *testing.T) {
 		err := m.With("test", make(tempBucket), func(c ReadWriteCache) error {
 			randPoints := randCachePoints(10)
 			for _, p := range randPoints {
-				c.SetPoint(p.ShardPoint)
+				c.SetPoint(p.GraphNode)
 			}
 			return nil
 		})
@@ -30,7 +30,7 @@ func TestManager_Prune(t *testing.T) {
 		err := m.With("test", make(tempBucket), func(c ReadWriteCache) error {
 			randPoints := randCachePoints(10)
 			for _, p := range randPoints {
-				c.SetPoint(p.ShardPoint)
+				c.SetPoint(p.GraphNode)
 			}
 			return nil
 		})
@@ -48,7 +48,7 @@ func TestManager_Release(t *testing.T) {
 		m.Release("test")
 		randPoints := randCachePoints(10)
 		for _, p := range randPoints {
-			c.SetPoint(p.ShardPoint)
+			c.SetPoint(p.GraphNode)
 		}
 		return nil
 	})
@@ -64,7 +64,7 @@ func TestManager_CacheReuse(t *testing.T) {
 	// We'll create some points first
 	err := m.With("test", make(tempBucket), func(c ReadWriteCache) error {
 		for _, p := range randPoints {
-			c.SetPoint(p.ShardPoint)
+			c.SetPoint(p.GraphNode)
 		}
 		return nil
 	})
@@ -88,7 +88,7 @@ func TestManager_SharedReadWhileWrite(t *testing.T) {
 	randPoints := randCachePoints(10)
 	err := m.With("test", make(tempBucket), func(c ReadWriteCache) error {
 		for _, p := range randPoints {
-			c.SetPoint(p.ShardPoint)
+			c.SetPoint(p.GraphNode)
 		}
 		// While we are writing, let's access it as a read-only cache
 		err := m.WithReadOnly("test", make(tempBucket), func(c ReadOnlyCache) error {
@@ -115,7 +115,7 @@ func TestManager_ScrappedCache(t *testing.T) {
 			err := m.With("test", make(tempBucket), func(c ReadWriteCache) error {
 				randPoints := randCachePoints(10)
 				for _, p := range randPoints {
-					c.SetPoint(p.ShardPoint)
+					c.SetPoint(p.GraphNode)
 				}
 				return oops
 			})

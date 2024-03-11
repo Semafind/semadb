@@ -10,14 +10,8 @@ import (
 	"github.com/semafind/semadb/diskstore"
 )
 
-/* The reason we have a ShardPoint struct is because we need to store the node
- * id in the database. The node id is not part of the point struct. Having
- * uint64 ids helps us use more efficient data structures compared to raw UUIDs
- * when traversing the graph. */
-
-// TODO: Rename shard point to node and NodeId to Id
-// Represents a single point in the shard graph structure.
-type ShardPoint struct {
+// Represents a single point / node in the shard graph structure.
+type GraphNode struct {
 	NodeId uint64
 	Vector []float32
 	edges  []uint64
@@ -31,7 +25,6 @@ var ErrNotFound = errors.New("not found")
  * indexed in a graph structure. A node has a unique node id and edges to other
  * nodes. */
 
-// TODO: Remove n prefix in storage map
 /* Storage map:
  * graphBucket:
  * - n<node_id>v: vector
@@ -57,65 +50,65 @@ func NodeIdFromKey(key []byte) uint64 {
 
 // ---------------------------
 
-func getNode(graphBucket diskstore.ReadOnlyBucket, nodeId uint64) (ShardPoint, error) {
+func getNode(graphBucket diskstore.ReadOnlyBucket, nodeId uint64) (GraphNode, error) {
 	// ---------------------------
-	shardPoint := ShardPoint{NodeId: nodeId}
+	node := GraphNode{NodeId: nodeId}
 	// ---------------------------
 	// Get vector
 	vecVal := graphBucket.Get(NodeKey(nodeId, 'v'))
 	if vecVal == nil {
-		return shardPoint, fmt.Errorf("could not get vector %d", nodeId)
+		return node, fmt.Errorf("could not get vector %d", nodeId)
 	}
-	shardPoint.Vector = bytesToFloat32(vecVal)
+	node.Vector = bytesToFloat32(vecVal)
 	// ---------------------------
 	// Get edges
 	edgeVal := graphBucket.Get(NodeKey(nodeId, 'e'))
 	if edgeVal == nil {
-		return shardPoint, fmt.Errorf("could not get edges %d", nodeId)
+		return node, fmt.Errorf("could not get edges %d", nodeId)
 	}
-	shardPoint.edges = bytesToEdgeList(edgeVal)
+	node.edges = bytesToEdgeList(edgeVal)
 	// ---------------------------
-	return shardPoint, nil
+	return node, nil
 }
 
-func setPointEdges(graphBucket diskstore.Bucket, point ShardPoint) error {
+func setNodeEdges(graphBucket diskstore.Bucket, node GraphNode) error {
 	// ---------------------------
 	// Set edges
-	if err := graphBucket.Put(NodeKey(point.NodeId, 'e'), edgeListToBytes(point.edges)); err != nil {
+	if err := graphBucket.Put(NodeKey(node.NodeId, 'e'), edgeListToBytes(node.edges)); err != nil {
 		return fmt.Errorf("could not set edge: %w", err)
 	}
 	// ---------------------------
 	return nil
 }
 
-func setPoint(graphBucket diskstore.Bucket, point ShardPoint) error {
+func setNode(graphBucket diskstore.Bucket, node GraphNode) error {
 	// ---------------------------
 	/* Sharing suffix keys with the same point id does not work because the
 	 * underlying array the slice points to gets modified and badger does not
 	 * like that. For example, suffixedKey[17] = 'e' and re-use, will not work. */
 	// ---------------------------
 	// Set vector
-	if err := graphBucket.Put(NodeKey(point.NodeId, 'v'), float32ToBytes(point.Vector)); err != nil {
+	if err := graphBucket.Put(NodeKey(node.NodeId, 'v'), float32ToBytes(node.Vector)); err != nil {
 		return fmt.Errorf("could not set vector: %w", err)
 	}
 	// ---------------------------
 	// Set edges
-	if err := graphBucket.Put(NodeKey(point.NodeId, 'e'), edgeListToBytes(point.edges)); err != nil {
+	if err := graphBucket.Put(NodeKey(node.NodeId, 'e'), edgeListToBytes(node.edges)); err != nil {
 		return fmt.Errorf("could not set edge: %w", err)
 	}
 	// ---------------------------
 	return nil
 }
 
-func deletePoint(graphBucket diskstore.Bucket, point ShardPoint) error {
+func deleteNode(graphBucket diskstore.Bucket, node GraphNode) error {
 	// ---------------------------
 	// Delete vector
-	if err := graphBucket.Delete(NodeKey(point.NodeId, 'v')); err != nil {
+	if err := graphBucket.Delete(NodeKey(node.NodeId, 'v')); err != nil {
 		return fmt.Errorf("could not delete vector: %w", err)
 	}
 	// ---------------------------
 	// Delete edges
-	if err := graphBucket.Delete(NodeKey(point.NodeId, 'e')); err != nil {
+	if err := graphBucket.Delete(NodeKey(node.NodeId, 'e')); err != nil {
 		return fmt.Errorf("could not delete edges: %w", err)
 	}
 	// ---------------------------
@@ -124,7 +117,7 @@ func deletePoint(graphBucket diskstore.Bucket, point ShardPoint) error {
 
 // This function is used to check if the edges of a point are valid. That is,
 // are any of the nodes have edges to deletedSet.
-func scanPointEdges(graphBucket diskstore.ReadOnlyBucket, deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error) {
+func scanNodeEdges(graphBucket diskstore.ReadOnlyBucket, deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error) {
 	// ---------------------------
 	/* toPrune is a list of nodes that have edges to nodes in the delete set.
 	 * toSave are nodes that have no inbound edges left.

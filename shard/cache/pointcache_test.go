@@ -53,7 +53,7 @@ func randCachePoints(size int) []*CachePoint {
 	ps := make([]*CachePoint, size)
 	for i := 0; i < size; i++ {
 		ps[i] = &CachePoint{
-			ShardPoint: ShardPoint{
+			GraphNode: GraphNode{
 				NodeId: uint64(i + 1),
 				Vector: []float32{1, 2, 3},
 			},
@@ -90,7 +90,7 @@ func TestPointCache_GetPoint(t *testing.T) {
 	t.Run("From disk", func(t *testing.T) {
 		pc := tempPointCache()
 		cachePoint := randCachePoints(1)[0]
-		pc.SetPoint(cachePoint.ShardPoint)
+		pc.SetPoint(cachePoint.GraphNode)
 		pc.Flush()
 		pc2 := tempPointCache()
 		// pc2.bucket = pc.bucket
@@ -106,7 +106,7 @@ func TestPointCache_SetPoint(t *testing.T) {
 	pc := tempPointCache()
 	randPoints := randCachePoints(10)
 	for _, p := range randPoints {
-		pc.SetPoint(p.ShardPoint)
+		pc.SetPoint(p.GraphNode)
 	}
 	require.Len(t, pc.sharedCache.points, 10)
 	require.Greater(t, pc.sharedCache.estimatedSize.Load(), int64(0))
@@ -119,7 +119,7 @@ func TestPointCache_Neighbours(t *testing.T) {
 	randPoints[0].AddNeighbour(randPoints[2])
 	randPoints[0].AddNeighbour(randPoints[3])
 	for _, p := range randPoints {
-		pc.SetPoint(p.ShardPoint)
+		pc.SetPoint(p.GraphNode)
 	}
 	// ---------------------------
 	// We run this twice to see if the cached neighbours are persisted across
@@ -141,7 +141,7 @@ func TestPointCache_Flush(t *testing.T) {
 	pc := tempPointCache()
 	randPoints := randCachePoints(10)
 	for _, p := range randPoints {
-		pc.SetPoint(p.ShardPoint)
+		pc.SetPoint(p.GraphNode)
 	}
 	// We'll have some edge dirty and deleted points too
 	pc.sharedCache.points[1].isDirty = false

@@ -38,7 +38,7 @@ func newSharedInMemCache() *sharedInMemCache {
 // whether it needs to be flushed to the database. Access to the point via the
 // cache is protected by a mutex.
 type CachePoint struct {
-	ShardPoint
+	GraphNode
 	isDirty     bool
 	isEdgeDirty bool
 	isDeleted   bool

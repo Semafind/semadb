@@ -21,7 +21,7 @@ type ReadOnlyCache interface {
 
 type ReadWriteCache interface {
 	ReadOnlyCache
-	SetPoint(ShardPoint) (*CachePoint, error)
+	SetPoint(GraphNode) (*CachePoint, error)
 	EdgeScan(deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error)
 	Flush() error
 }
@@ -57,7 +57,7 @@ func (pc *ReadOnlyPointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 		return nil, err
 	}
 	newPoint := &CachePoint{
-		ShardPoint: point,
+		GraphNode: point,
 	}
 	pc.sharedCache.points[nodeId] = newPoint
 	pc.sharedCache.estimatedSize.Add(newPoint.estimateSize())
@@ -118,12 +118,12 @@ func (pc *ReadOnlyPointCache) WithPointNeighbours(point *CachePoint, readOnly bo
 	return fn(point.neighbours)
 }
 
-func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
+func (pc *PointCache) SetPoint(point GraphNode) (*CachePoint, error) {
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
 	newPoint := &CachePoint{
-		ShardPoint: point,
-		isDirty:    true,
+		GraphNode: point,
+		isDirty:   true,
 	}
 	if newPoint.NodeId == 0 {
 		return nil, fmt.Errorf("node id cannot be 0")
@@ -134,7 +134,7 @@ func (pc *PointCache) SetPoint(point ShardPoint) (*CachePoint, error) {
 }
 
 func (pc *PointCache) EdgeScan(deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error) {
-	return scanPointEdges(pc.graphBucket, deleteSet)
+	return scanNodeEdges(pc.graphBucket, deleteSet)
 }
 
 func (pc *PointCache) Flush() error {
@@ -142,7 +142,7 @@ func (pc *PointCache) Flush() error {
 	defer pc.sharedCache.pointsMu.Unlock()
 	for _, point := range pc.sharedCache.points {
 		if point.isDeleted {
-			if err := deletePoint(pc.graphBucket, point.ShardPoint); err != nil {
+			if err := deleteNode(pc.graphBucket, point.GraphNode); err != nil {
 				return err
 			}
 			delete(pc.sharedCache.points, point.NodeId)
@@ -150,7 +150,7 @@ func (pc *PointCache) Flush() error {
 			continue
 		}
 		if point.isDirty {
-			if err := setPoint(pc.graphBucket, point.ShardPoint); err != nil {
+			if err := setNode(pc.graphBucket, point.GraphNode); err != nil {
 				return err
 			}
 			// Only one goroutine flushes the point cache so we are not locking
@@ -160,7 +160,7 @@ func (pc *PointCache) Flush() error {
 			continue
 		}
 		if point.isEdgeDirty {
-			if err := setPointEdges(pc.graphBucket, point.ShardPoint); err != nil {
+			if err := setNodeEdges(pc.graphBucket, point.GraphNode); err != nil {
 				return err
 			}
 			point.isEdgeDirty = false

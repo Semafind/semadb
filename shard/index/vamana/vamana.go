@@ -70,7 +70,7 @@ func (v *indexVamana) setupStartNode(pc cache.ReadWriteCache) error {
 		randVector[i] *= norm
 	}
 	// Create start point
-	randPoint := cache.ShardPoint{
+	randPoint := cache.GraphNode{
 		NodeId: STARTID,
 		Vector: randVector,
 	}
@@ -80,7 +80,7 @@ func (v *indexVamana) setupStartNode(pc cache.ReadWriteCache) error {
 	return nil
 }
 
-func (v *indexVamana) Insert(ctx context.Context, cancel context.CancelCauseFunc, bucket diskstore.Bucket, pointQueue <-chan cache.ShardPoint) error {
+func (v *indexVamana) Insert(ctx context.Context, cancel context.CancelCauseFunc, bucket diskstore.Bucket, pointQueue <-chan cache.GraphNode) error {
 	return v.cacheManager.With(v.cacheName, bucket, func(pc cache.ReadWriteCache) error {
 		// ---------------------------
 		if err := v.setupStartNode(pc); err != nil {
@@ -123,10 +123,10 @@ func (v *indexVamana) Insert(ctx context.Context, cancel context.CancelCauseFunc
 
 // Updates the index by first pruning the inbound edges of the updated points and
 // then re-inserting the updated points.
-func (v *indexVamana) Update(ctx context.Context, cancel context.CancelCauseFunc, bucket diskstore.Bucket, pointQueue <-chan cache.ShardPoint) error {
+func (v *indexVamana) Update(ctx context.Context, cancel context.CancelCauseFunc, bucket diskstore.Bucket, pointQueue <-chan cache.GraphNode) error {
 	return v.cacheManager.With(v.cacheName, bucket, func(pc cache.ReadWriteCache) error {
 		// ---------------------------
-		updatedPoints := make([]cache.ShardPoint, 0, 100)
+		updatedPoints := make([]cache.GraphNode, 0, 100)
 		updatedNodeIds := make(map[uint64]struct{})
 		/* We collect all updates from the channel so we can perform prune in one
 		 * go across all the updated points. */
@@ -160,7 +160,7 @@ func (v *indexVamana) Update(ctx context.Context, cancel context.CancelCauseFunc
 	})
 }
 
-func (v *indexVamana) Delete(ctx context.Context, cancel context.CancelCauseFunc, bucket diskstore.Bucket, pointQueue <-chan cache.ShardPoint) error {
+func (v *indexVamana) Delete(ctx context.Context, cancel context.CancelCauseFunc, bucket diskstore.Bucket, pointQueue <-chan cache.GraphNode) error {
 	return v.cacheManager.With(v.cacheName, bucket, func(pc cache.ReadWriteCache) error {
 		deletedNodeIds := make(map[uint64]struct{})
 		/* We collect all ids from the channel so we can perform prune in one
