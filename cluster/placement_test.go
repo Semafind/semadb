@@ -2,7 +2,6 @@ package cluster
 
 import (
 	"fmt"
-	"math/rand"
 	"testing"
 
 	"github.com/google/uuid"
@@ -13,12 +12,9 @@ import (
 func randPoints(size int) []models.Point {
 	points := make([]models.Point, size)
 	for i := 0; i < size; i++ {
-		randVector := make([]float32, 2)
-		randVector[0] = rand.Float32()
-		randVector[1] = rand.Float32()
 		points[i] = models.Point{
-			Id:     uuid.New(),
-			Vector: randVector,
+			Id:   uuid.New(),
+			Data: []byte("12345678"),
 		}
 	}
 	return points
@@ -32,7 +28,7 @@ func randShardInfo(size int64) shardInfo {
 }
 
 func Test_distributePoints(t *testing.T) {
-	maxShardSize := int64(16) // 16 bytes is the size of a single point
+	maxShardSize := int64(16 + 8) // 16 bytes (UUID) + 8 bytes (Data) is the size of a single point
 	maxShardPointCount := int64(1)
 	testCases := []struct {
 		shardCount      int

@@ -2,7 +2,6 @@ package cluster
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"net/http"
 	"net/rpc"
@@ -137,35 +136,6 @@ func openNodeDB(dbPath string) (diskstore.DiskStore, error) {
 	db, err := diskstore.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("could not open db %s: %w", dbPath, err)
-	}
-	// ---------------------------
-	// Check if user collections bucket exists
-	if err := db.CreateBucketsIfNotExists([]string{INTERNALBUCKETKEY, USERCOLSBUCKETKEY}); err != nil {
-		return nil, fmt.Errorf("could not create user collections bucket in nodedb: %w", err)
-	}
-	err = db.Write(INTERNALBUCKETKEY, func(b diskstore.Bucket) error {
-		// ---------------------------
-		versionBytes := b.Get(NODEVERSIONKEY)
-		if versionBytes == nil {
-			// There is no version key, so this is a new database
-			var vb [8]byte
-			binary.LittleEndian.PutUint64(vb[:], CURRRENTNODEVERSION)
-			if err := b.Put(NODEVERSIONKEY, vb[:]); err != nil {
-				return fmt.Errorf("could not set node version: %w", err)
-			}
-		} else {
-			// There is a version key, so check it
-			version := binary.LittleEndian.Uint64(versionBytes)
-			if version != CURRRENTNODEVERSION {
-				// In the future we can add code to migrate the database
-				return fmt.Errorf("cluster node version mismatch: %d != %d", version, CURRRENTNODEVERSION)
-			}
-		}
-		// ---------------------------
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not create user collections bucket: %w", err)
 	}
 	// ---------------------------
 	return db, nil

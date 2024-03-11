@@ -54,7 +54,12 @@ func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, repl
 		return fmt.Errorf("could not marshal collection: %w", err)
 	}
 	// ---------------------------
-	err = c.nodedb.Write(USERCOLSBUCKETKEY, func(b diskstore.Bucket) error {
+	err = c.nodedb.Write(func(bm diskstore.BucketManager) error {
+		// ---------------------------
+		b, err := bm.WriteBucket(USERCOLSBUCKETKEY)
+		if err != nil {
+			return fmt.Errorf("could not get write user collections bucket: %w", err)
+		}
 		// ---------------------------
 		key := []byte(args.Collection.UserId + DBDELIMITER + args.Collection.Id)
 		if b.Get(key) != nil {
@@ -65,7 +70,7 @@ func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, repl
 		// Check user quota
 		prefix := []byte(args.Collection.UserId + DBDELIMITER)
 		count := 0
-		err := b.PrefixScan(prefix, func(k, _ []byte) error {
+		err = b.PrefixScan(prefix, func(k, _ []byte) error {
 			count++
 			return nil
 		})
@@ -100,7 +105,13 @@ func (c *ClusterNode) RPCDeleteCollection(args *RPCDeleteCollectionRequest, repl
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCDeleteCollection", args, reply)
 	}
-	err := c.nodedb.Write(USERCOLSBUCKETKEY, func(b diskstore.Bucket) error {
+	err := c.nodedb.Write(func(bm diskstore.BucketManager) error {
+		// ---------------------------
+		b, err := bm.WriteBucket(USERCOLSBUCKETKEY)
+		if err != nil {
+			return fmt.Errorf("could not get write user collections bucket: %w", err)
+		}
+		// ---------------------------
 		if err := b.Delete([]byte(args.Collection.UserId + DBDELIMITER + args.Collection.Id)); err != nil {
 			return fmt.Errorf("could not delete collection: %w", err)
 		}
@@ -126,10 +137,15 @@ func (c *ClusterNode) RPCListCollections(args *RPCListCollectionsRequest, reply 
 		return c.internalRoute("ClusterNode.RPCListCollections", args, reply)
 	}
 	reply.Collections = make([]models.Collection, 0)
-	err := c.nodedb.Read(USERCOLSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
+	err := c.nodedb.Read(func(bm diskstore.ReadOnlyBucketManager) error {
+		// ---------------------------
+		b, err := bm.ReadBucket(USERCOLSBUCKETKEY)
+		if err != nil {
+			return fmt.Errorf("could not get read user collections bucket: %w", err)
+		}
 		// ---------------------------
 		prefix := []byte(args.UserId + DBDELIMITER)
-		err := b.PrefixScan(prefix, func(k, v []byte) error {
+		err = b.PrefixScan(prefix, func(k, v []byte) error {
 			var col models.Collection
 			if err := msgpack.Unmarshal(v, &col); err != nil {
 				return fmt.Errorf("could not unmarshal collection %s: %w", k, err)
@@ -160,7 +176,12 @@ func (c *ClusterNode) RPCGetCollection(args *RPCGetCollectionRequest, reply *RPC
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCGetCollection", args, reply)
 	}
-	err := c.nodedb.Read(USERCOLSBUCKETKEY, func(b diskstore.ReadOnlyBucket) error {
+	err := c.nodedb.Read(func(bm diskstore.ReadOnlyBucketManager) error {
+		// ---------------------------
+		b, err := bm.ReadBucket(USERCOLSBUCKETKEY)
+		if err != nil {
+			return fmt.Errorf("could not get read user collections bucket: %w", err)
+		}
 		// ---------------------------
 		key := []byte(args.UserId + DBDELIMITER + args.CollectionId)
 		value := b.Get(key)
@@ -194,7 +215,12 @@ func (c *ClusterNode) RPCCreateShard(args *RPCCreateShardRequest, reply *RPCCrea
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCCreateShard", args, reply)
 	}
-	err := c.nodedb.Write(USERCOLSBUCKETKEY, func(b diskstore.Bucket) error {
+	err := c.nodedb.Write(func(bm diskstore.BucketManager) error {
+		// ---------------------------
+		b, err := bm.WriteBucket(USERCOLSBUCKETKEY)
+		if err != nil {
+			return fmt.Errorf("could not get write user collections bucket: %w", err)
+		}
 		// ---------------------------
 		key := []byte(args.UserId + DBDELIMITER + args.CollectionId)
 		value := b.Get(key)

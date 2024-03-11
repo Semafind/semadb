@@ -25,7 +25,7 @@ func distributePoints(shards []shardInfo, points []models.Point, maxShardSize, m
 		runningSize := shards[i].Size
 		runningPointCount := shards[i].PointCount
 		for ; j < len(points); j++ {
-			runningSize += int64(len(points[j].Metadata) + len(points[j].Vector)*4 + 8) // 8 bytes for id
+			runningSize += int64(len(points[j].Data) + len(points[j].Id))
 			runningPointCount++
 			if runningSize > maxShardSize || runningPointCount > maxShardPointCount {
 				break
