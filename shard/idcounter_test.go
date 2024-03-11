@@ -19,10 +19,10 @@ func tempDB(t *testing.T) diskstore.DiskStore {
 func withCounter(t *testing.T, db diskstore.DiskStore, f func(*shard.IdCounter)) {
 	if db == nil {
 		db = tempDB(t)
-		err := db.CreateBucketsIfNotExists([]string{"testing"})
-		require.NoError(t, err)
 	}
-	db.Write("testing", func(b diskstore.Bucket) error {
+	db.Write(func(bm diskstore.BucketManager) error {
+		b, err := bm.WriteBucket("testing")
+		require.NoError(t, err)
 		counter, err := shard.NewIdCounter(b, []byte("freeIds"), []byte("nextFreeId"))
 		require.NoError(t, err)
 		f(counter)
@@ -33,8 +33,8 @@ func withCounter(t *testing.T, db diskstore.DiskStore, f func(*shard.IdCounter))
 func TestCounterBlank(t *testing.T) {
 	// ---------------------------
 	withCounter(t, nil, func(counter *shard.IdCounter) {
-		require.Equal(t, uint64(1), counter.NextId())
 		require.Equal(t, uint64(2), counter.NextId())
+		require.Equal(t, uint64(3), counter.NextId())
 	})
 }
 
@@ -42,14 +42,14 @@ func TestCounterPersistance(t *testing.T) {
 	// ---------------------------
 	db := tempDB(t)
 	withCounter(t, db, func(counter *shard.IdCounter) {
-		require.Equal(t, uint64(1), counter.NextId())
 		require.Equal(t, uint64(2), counter.NextId())
+		require.Equal(t, uint64(3), counter.NextId())
 		require.NoError(t, counter.Flush())
 	})
 	// ---------------------------
 	withCounter(t, db, func(counter *shard.IdCounter) {
-		require.Equal(t, uint64(3), counter.NextId())
 		require.Equal(t, uint64(4), counter.NextId())
+		require.Equal(t, uint64(5), counter.NextId())
 	})
 }
 
@@ -57,14 +57,14 @@ func TestCounterFreeing(t *testing.T) {
 	// ---------------------------
 	db := tempDB(t)
 	withCounter(t, db, func(counter *shard.IdCounter) {
-		require.Equal(t, uint64(1), counter.NextId())
 		require.Equal(t, uint64(2), counter.NextId())
-		counter.FreeId(1)
+		require.Equal(t, uint64(3), counter.NextId())
+		counter.FreeId(2)
 		require.NoError(t, counter.Flush())
 	})
 	// ---------------------------
 	withCounter(t, db, func(counter *shard.IdCounter) {
-		require.Equal(t, uint64(1), counter.NextId())
-		require.Equal(t, uint64(3), counter.NextId())
+		require.Equal(t, uint64(2), counter.NextId())
+		require.Equal(t, uint64(4), counter.NextId())
 	})
 }

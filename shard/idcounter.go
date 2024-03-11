@@ -49,7 +49,9 @@ func NewIdCounter(bucket diskstore.Bucket, freeIdsKey []byte, nextFreeIdKey []by
 		freeIds = append(freeIds, freeId)
 	}
 	// ---------------------------
-	nextFreeId := uint64(1) // we start from 1 because 0 can be used for nil
+	// We start from 2 because 0 can be used for nil and 1 is used graph root /
+	// start node.
+	nextFreeId := uint64(2)
 	nextFreeIdBytes := bucket.Get(nextFreeIdKey)
 	if nextFreeIdBytes != nil {
 		nextFreeId = cache.BytesToUint64(nextFreeIdBytes)

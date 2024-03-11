@@ -1,4 +1,4 @@
-package shard
+package vamana
 
 import (
 	"fmt"

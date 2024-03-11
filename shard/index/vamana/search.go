@@ -1,20 +1,21 @@
-package shard
+package vamana
 
 import (
 	"fmt"
 
+	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/shard/cache"
 )
 
-func (s *Shard) greedySearch(pc cache.ReadOnlyCache, startPointId uint64, query []float32, k int, searchSize int) (DistSet, DistSet, error) {
+func greedySearch(pc cache.ReadOnlyCache, query []float32, k int, searchSize int, distFn distance.DistFunc, maxNodeId uint) (DistSet, DistSet, error) {
 	// ---------------------------
 	// Initialise distance set
-	searchSet := NewDistSet(query, searchSize, uint(s.maxNodeId.Load()), s.distFn)
+	searchSet := NewDistSet(query, searchSize, maxNodeId, distFn)
 	// The faster visited set is only used for the search and we release it
 	// after we're done. This does not affect the items stored in the search
 	// set.
 	defer searchSet.Release()
-	visitedSet := NewDistSet(query, searchSize*2, 0, s.distFn)
+	visitedSet := NewDistSet(query, searchSize*2, 0, distFn)
 	// Check that the search size is greater than k
 	if searchSize < k {
 		return searchSet, visitedSet, fmt.Errorf("searchSize (%d) must be greater than k (%d)", searchSize, k)
@@ -24,7 +25,7 @@ func (s *Shard) greedySearch(pc cache.ReadOnlyCache, startPointId uint64, query 
 	// point is not part of the database but an entry point to the graph.
 	// Upstream search function filters it out but we return it here so the
 	// graph can be constructed correctly.
-	sp, err := pc.GetPoint(startPointId)
+	sp, err := pc.GetPoint(STARTID)
 	if err != nil {
 		return searchSet, visitedSet, fmt.Errorf("failed to get start point: %w", err)
 	}
@@ -61,7 +62,7 @@ func (s *Shard) greedySearch(pc cache.ReadOnlyCache, startPointId uint64, query 
 	return searchSet, visitedSet, nil
 }
 
-func (s *Shard) robustPrune(point *cache.CachePoint, candidateSet DistSet, alpha float32, degreeBound int) {
+func robustPrune(point *cache.CachePoint, candidateSet DistSet, alpha float32, degreeBound int, distFn distance.DistFunc) {
 	// ---------------------------
 	point.ClearNeighbours() // Reset edges / neighbours
 	// ---------------------------
@@ -71,7 +72,7 @@ func (s *Shard) robustPrune(point *cache.CachePoint, candidateSet DistSet, alpha
 		closestElem := candidateSet.items[i]
 		// Exclude the point itself, this might happen in case we are updating.
 		// It is worth checking if this is the case.
-		if closestElem.pruneRemoved || closestElem.point.Id == point.Id {
+		if closestElem.pruneRemoved || closestElem.point.NodeId == point.NodeId {
 			continue
 		}
 		edgeCount := point.AddNeighbour(closestElem.point)
@@ -86,7 +87,7 @@ func (s *Shard) robustPrune(point *cache.CachePoint, candidateSet DistSet, alpha
 				continue
 			}
 			// ---------------------------
-			if alpha*s.distFn(closestElem.point.Vector, nextElem.point.Vector) < nextElem.distance {
+			if alpha*distFn(closestElem.point.Vector, nextElem.point.Vector) < nextElem.distance {
 				candidateSet.items[j].pruneRemoved = true
 			}
 		}

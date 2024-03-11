@@ -1,11 +1,9 @@
-package shard
+package vamana
 
 import (
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/semafind/semadb/distance"
-	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/stretchr/testify/require"
 )
@@ -16,10 +14,7 @@ func randDistElems(queryVector []float32, dists ...float32) []*cache.CachePoint 
 		elems[i] = &cache.CachePoint{
 			ShardPoint: cache.ShardPoint{
 				NodeId: uint64(i),
-				Point: models.Point{
-					Id:     uuid.New(),
-					Vector: []float32{queryVector[0] + dist, queryVector[1] + dist},
-				},
+				Vector: []float32{queryVector[0] + dist, queryVector[1] + dist},
 			},
 		}
 	}
@@ -38,12 +33,12 @@ func TestDistSet_Add(t *testing.T) {
 	require.Equal(t, 3, ds.Len())
 	wantOrder := []uint{0, 1, 2}
 	for i, elem := range ds.items {
-		require.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
+		require.Equal(t, elems[wantOrder[i]].NodeId, elem.point.NodeId)
 	}
 	ds.Sort()
 	wantOrder = []uint{2, 0, 1}
 	for i, elem := range ds.items {
-		require.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
+		require.Equal(t, elems[wantOrder[i]].NodeId, elem.point.NodeId)
 	}
 }
 
@@ -56,7 +51,7 @@ func TestDistSet_Add_Duplicate(t *testing.T) {
 	ds.Sort()
 	wantOrder := []uint{2, 0, 1}
 	for i, elem := range ds.items {
-		require.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
+		require.Equal(t, elems[wantOrder[i]].NodeId, elem.point.NodeId)
 	}
 }
 
@@ -67,6 +62,6 @@ func TestDistSet_AddWithLimit(t *testing.T) {
 	require.Equal(t, 2, ds.Len())
 	wantOrder := []uint{2, 0}
 	for i, elem := range ds.items {
-		require.Equal(t, elems[wantOrder[i]].Id, elem.point.Id)
+		require.Equal(t, elems[wantOrder[i]].NodeId, elem.point.NodeId)
 	}
 }
