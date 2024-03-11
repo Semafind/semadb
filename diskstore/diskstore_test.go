@@ -31,10 +31,12 @@ func Test_NoBuckets(t *testing.T) {
 		t.Run("inMemory", func(t *testing.T) {
 			ds := tempDiskStore(t, "", inMemory)
 			err := ds.Read(func(bm diskstore.ReadOnlyBucketManager) error {
-				_, err := bm.ReadBucket("bucket")
-				return err
+				b, err := bm.ReadBucket("bucket")
+				require.NoError(t, err)
+				require.Nil(t, b.Get([]byte("wizard")))
+				return nil
 			})
-			require.Error(t, err)
+			require.NoError(t, err)
 			require.NoError(t, ds.Close())
 		})
 	}

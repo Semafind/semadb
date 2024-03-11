@@ -13,6 +13,22 @@ type ReadOnlyBucket interface {
 	PrefixScan(prefix []byte, f func(k, v []byte) error) error
 }
 
+type emptyReadOnlyBucket struct{}
+
+func (emptyReadOnlyBucket) Get(k []byte) []byte {
+	return nil
+}
+
+func (emptyReadOnlyBucket) ForEach(f func(k, v []byte) error) error {
+	return nil
+}
+
+func (emptyReadOnlyBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
+	return nil
+}
+
+// ---------------------------
+
 // A bucket is like a kvstore, it can be used to store key-value pairs. We call
 // it a bucket because usually a single kvstore layer is used to store multiple
 // buckets.

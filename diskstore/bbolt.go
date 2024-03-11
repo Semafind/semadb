@@ -49,7 +49,11 @@ type bboltBucketManager struct {
 func (bm bboltBucketManager) ReadBucket(bucketName string) (ReadOnlyBucket, error) {
 	bucket := bm.tx.Bucket([]byte(bucketName))
 	if bucket == nil {
-		return nil, fmt.Errorf("bucket %s does not exist", bucketName)
+		// We changed to returning an empty bucket to mirror the write case.
+		// That is, when writing we automatically create a bucket, when reading
+		// we automatically return an empty bucket.
+		return emptyReadOnlyBucket{}, nil
+		// return nil, fmt.Errorf("bucket %s does not exist", bucketName)
 	}
 	return bboltBucket{bb: bucket}, nil
 }

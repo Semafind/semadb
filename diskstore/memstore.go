@@ -46,7 +46,7 @@ type bucketMap map[string]memBucket
 func (bm bucketMap) ReadBucket(bucketName string) (ReadOnlyBucket, error) {
 	b, ok := bm[bucketName]
 	if !ok {
-		return nil, fmt.Errorf("bucket %s does not exist", bucketName)
+		return emptyReadOnlyBucket{}, nil
 	}
 	return b, nil
 }
