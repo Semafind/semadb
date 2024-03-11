@@ -1,7 +1,5 @@
 package cache
 
-// TODO: rename file to nodes.go
-
 import (
 	"encoding/binary"
 	"errors"
