@@ -181,21 +181,25 @@ func (m *Manager) with(name string, readOnly bool, f func(cacheToUse *sharedInMe
 func (m *Manager) With(name string, graphBucket diskstore.Bucket, f func(c ReadWriteCache) error) error {
 	// ---------------------------
 	return m.with(name, false, func(cacheToUse *sharedInMemCache) error {
-		pc := &PointCache{
-			ReadOnlyPointCache: ReadOnlyPointCache{
+		pc := &pointCache{
+			readOnlyPointCache: readOnlyPointCache{
 				graphBucket: graphBucket,
 				sharedCache: cacheToUse,
 			},
 			graphBucket: graphBucket,
 		}
-		return f(pc)
+		if err := f(pc); err != nil {
+			return err
+		}
+		// Automatic flush here, the user doesn't need to call it.
+		return pc.flush()
 	})
 }
 
 func (m *Manager) WithReadOnly(name string, graphBucket diskstore.ReadOnlyBucket, f func(c ReadOnlyCache) error) error {
 	// ---------------------------
 	return m.with(name, true, func(cacheToUse *sharedInMemCache) error {
-		pc := &ReadOnlyPointCache{
+		pc := &readOnlyPointCache{
 			graphBucket: graphBucket,
 			sharedCache: cacheToUse,
 		}

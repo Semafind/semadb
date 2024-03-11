@@ -23,7 +23,7 @@ type ReadWriteCache interface {
 	ReadOnlyCache
 	SetPoint(GraphNode) (*CachePoint, error)
 	EdgeScan(deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error)
-	Flush() error
+	flush() error
 }
 
 // ---------------------------
@@ -31,17 +31,17 @@ type ReadWriteCache interface {
 /* This duplication appeared mainly because union of interface types is not
  * possible in Go. The types in question are ReadOnlyBucket and Bucket. */
 
-type ReadOnlyPointCache struct {
+type readOnlyPointCache struct {
 	graphBucket diskstore.ReadOnlyBucket
 	sharedCache *sharedInMemCache
 }
 
-type PointCache struct {
-	ReadOnlyPointCache
+type pointCache struct {
+	readOnlyPointCache
 	graphBucket diskstore.Bucket // This takes precedence over the read only bucket.
 }
 
-func (pc *ReadOnlyPointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
+func (pc *readOnlyPointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
 	// ---------------------------
@@ -66,7 +66,7 @@ func (pc *ReadOnlyPointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 
 // Operate with a lock on the point neighbours. If the neighbours are not
 // loaded, load them from the database.
-func (pc *ReadOnlyPointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn func([]*CachePoint) error) error {
+func (pc *readOnlyPointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn func([]*CachePoint) error) error {
 	/* We have to lock here because we can't have another goroutine changing the
 	 * edges while we are using them. The read only case mainly occurs in
 	 * searching whereas the writes happen for pruning edges. By using
@@ -118,7 +118,7 @@ func (pc *ReadOnlyPointCache) WithPointNeighbours(point *CachePoint, readOnly bo
 	return fn(point.neighbours)
 }
 
-func (pc *PointCache) SetPoint(point GraphNode) (*CachePoint, error) {
+func (pc *pointCache) SetPoint(point GraphNode) (*CachePoint, error) {
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
 	newPoint := &CachePoint{
@@ -133,11 +133,11 @@ func (pc *PointCache) SetPoint(point GraphNode) (*CachePoint, error) {
 	return newPoint, nil
 }
 
-func (pc *PointCache) EdgeScan(deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error) {
+func (pc *pointCache) EdgeScan(deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error) {
 	return scanNodeEdges(pc.graphBucket, deleteSet)
 }
 
-func (pc *PointCache) Flush() error {
+func (pc *pointCache) flush() error {
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
 	for _, point := range pc.sharedCache.points {

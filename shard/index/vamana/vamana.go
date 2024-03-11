@@ -110,13 +110,6 @@ func (v *indexVamana) Insert(ctx context.Context, cancel context.CancelCauseFunc
 			return nil
 		}
 		// ---------------------------
-		startTime = time.Now()
-		if err := pc.Flush(); err != nil {
-			return fmt.Errorf("could not flush point cache: %w", err)
-		}
-		// ---------------------------
-		v.logger.Debug().Str("duration", time.Since(startTime).String()).Msg("IndexVamana - Flush")
-		// ---------------------------
 		return nil
 	})
 }
@@ -156,7 +149,7 @@ func (v *indexVamana) Update(ctx context.Context, cancel context.CancelCauseFunc
 			}
 		}
 		// ---------------------------
-		return pc.Flush()
+		return nil
 	})
 }
 
@@ -201,7 +194,7 @@ func (v *indexVamana) Delete(ctx context.Context, cancel context.CancelCauseFunc
 		if err := v.removeInboundEdges(pc, deletedNodeIds); err != nil {
 			return fmt.Errorf("could not remove inbound edges: %w", err)
 		}
-		return pc.Flush()
+		return nil
 	})
 }
 

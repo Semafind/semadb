@@ -62,11 +62,11 @@ func randCachePoints(size int) []*CachePoint {
 	return ps
 }
 
-func tempPointCache() *PointCache {
+func tempPointCache() *pointCache {
 	graphBucket := make(tempBucket)
-	return &PointCache{
+	return &pointCache{
 		graphBucket: graphBucket,
-		ReadOnlyPointCache: ReadOnlyPointCache{
+		readOnlyPointCache: readOnlyPointCache{
 			graphBucket: graphBucket,
 			sharedCache: newSharedInMemCache(),
 		},
@@ -91,10 +91,10 @@ func TestPointCache_GetPoint(t *testing.T) {
 		pc := tempPointCache()
 		cachePoint := randCachePoints(1)[0]
 		pc.SetPoint(cachePoint.GraphNode)
-		pc.Flush()
+		pc.flush()
 		pc2 := tempPointCache()
 		// pc2.bucket = pc.bucket
-		pc2.ReadOnlyPointCache.graphBucket = pc.graphBucket
+		pc2.readOnlyPointCache.graphBucket = pc.graphBucket
 		p, err := pc2.GetPoint(cachePoint.NodeId)
 		require.NoError(t, err)
 		require.Equal(t, cachePoint.NodeId, p.NodeId)
@@ -148,7 +148,7 @@ func TestPointCache_Flush(t *testing.T) {
 	pc.sharedCache.points[2].isDirty = false
 	pc.sharedCache.points[2].isEdgeDirty = true
 	pc.sharedCache.points[3].isDeleted = true
-	require.NoError(t, pc.Flush())
+	require.NoError(t, pc.flush())
 	// ---------------------------
 	for _, p := range randPoints {
 		if p.NodeId == 3 {
