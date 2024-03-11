@@ -1,4 +1,4 @@
-package cache
+package conversion
 
 import (
 	"encoding/binary"
@@ -8,10 +8,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// TODO: Refactor into own package
-
-var float32ToBytes func([]float32) []byte = float32ToBytesSafe
-var bytesToFloat32 func([]byte) []float32 = bytesToFloat32Safe
+var Float32ToBytes func([]float32) []byte = float32ToBytesSafe
+var BytesToFloat32 func([]byte) []float32 = bytesToFloat32Safe
 
 /* On the topic of endianness. Digging into unsafe package is not ideal but one
  * of the main bottle necks of a disk based vector database like SemaDB is
@@ -53,8 +51,8 @@ func init() {
 	isLittleEndian := *(*byte)(unsafe.Pointer(&i)) == 0xCD
 	log.Info().Bool("isLittleEndian", isLittleEndian).Msg("Endianness")
 	if isLittleEndian {
-		float32ToBytes = float32ToBytesRaw
-		bytesToFloat32 = bytesToFloat32Raw
+		Float32ToBytes = float32ToBytesRaw
+		BytesToFloat32 = bytesToFloat32Raw
 	}
 }
 
@@ -99,7 +97,7 @@ func bytesToFloat32Raw(b []byte) []float32 {
 	// return unsafe.Slice((*float32)(unsafe.Pointer(&b[0])), len(b)/4)
 }
 
-func edgeListToBytes(edges []uint64) []byte {
+func EdgeListToBytes(edges []uint64) []byte {
 	b := make([]byte, len(edges)*8)
 	for i, e := range edges {
 		binary.LittleEndian.PutUint64(b[i*8:], e)
@@ -107,7 +105,7 @@ func edgeListToBytes(edges []uint64) []byte {
 	return b
 }
 
-func bytesToEdgeList(b []byte) []uint64 {
+func BytesToEdgeList(b []byte) []uint64 {
 	edges := make([]uint64, len(b)/8)
 	for i := range edges {
 		edges[i] = binary.LittleEndian.Uint64(b[i*8:])

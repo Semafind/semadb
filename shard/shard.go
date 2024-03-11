@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
@@ -117,7 +118,7 @@ func changePointCount(bucket diskstore.Bucket, change int) error {
 	countBytes := bucket.Get(POINTCOUNTKEY)
 	var count uint64
 	if countBytes != nil {
-		count = cache.BytesToUint64(countBytes)
+		count = conversion.BytesToUint64(countBytes)
 	}
 	// ---------------------------
 	newCount := int(count) + change
@@ -125,7 +126,7 @@ func changePointCount(bucket diskstore.Bucket, change int) error {
 		return fmt.Errorf("point count cannot be negative")
 	}
 	// ---------------------------
-	countBytes = cache.Uint64ToBytes(uint64(newCount))
+	countBytes = conversion.Uint64ToBytes(uint64(newCount))
 	if err := bucket.Put(POINTCOUNTKEY, countBytes); err != nil {
 		return fmt.Errorf("could not change point count: %w", err)
 	}
@@ -157,7 +158,7 @@ func (s *Shard) Info() (si shardInfo, err error) {
 		// may change over time.
 		countBytes := b.Get(POINTCOUNTKEY)
 		if countBytes != nil {
-			si.PointCount = cache.BytesToUint64(countBytes)
+			si.PointCount = conversion.BytesToUint64(countBytes)
 		}
 		// ---------------------------
 		return nil

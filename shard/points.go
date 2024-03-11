@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
@@ -46,7 +47,7 @@ func SetPoint(bucket diskstore.Bucket, point ShardPoint) error {
 	if err := bucket.Put(cache.NodeKey(point.NodeId, 'i'), point.Id[:]); err != nil {
 		return fmt.Errorf("could not set point id: %w", err)
 	}
-	if err := bucket.Put(PointKey(point.Id, 'i'), cache.Uint64ToBytes(point.NodeId)); err != nil {
+	if err := bucket.Put(PointKey(point.Id, 'i'), conversion.Uint64ToBytes(point.NodeId)); err != nil {
 		return fmt.Errorf("could not set node id: %w", err)
 	}
 	// ---------------------------
@@ -73,7 +74,7 @@ func GetPointNodeIdByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (u
 	if nodeIdBytes == nil {
 		return 0, ErrPointDoesNotExist
 	}
-	nodeId := cache.BytesToUint64(nodeIdBytes)
+	nodeId := conversion.BytesToUint64(nodeIdBytes)
 	return nodeId, nil
 }
 

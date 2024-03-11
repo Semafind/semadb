@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
-	"github.com/semafind/semadb/shard/cache"
 )
 
 /* When we use internal integer ids (uint64), we can use more efficient data
@@ -40,7 +40,7 @@ func NewIdCounter(bucket diskstore.Bucket, freeIdsKey []byte, nextFreeIdKey []by
 	freeIdsMap := make(map[uint64]struct{})
 	if freeIdsBytes != nil {
 		for i := 0; i < len(freeIdsBytes); i += 8 {
-			freeId := cache.BytesToUint64(freeIdsBytes[i : i+8])
+			freeId := conversion.BytesToUint64(freeIdsBytes[i : i+8])
 			freeIdsMap[freeId] = struct{}{}
 		}
 	}
@@ -54,7 +54,7 @@ func NewIdCounter(bucket diskstore.Bucket, freeIdsKey []byte, nextFreeIdKey []by
 	nextFreeId := uint64(2)
 	nextFreeIdBytes := bucket.Get(nextFreeIdKey)
 	if nextFreeIdBytes != nil {
-		nextFreeId = cache.BytesToUint64(nextFreeIdBytes)
+		nextFreeId = conversion.BytesToUint64(nextFreeIdBytes)
 	}
 	// ---------------------------
 	log.Debug().Uint64("nextFreeId", nextFreeId).Int("freeIds", len(freeIds)).Msg("NewIdCounter")
@@ -88,14 +88,11 @@ func (ic *IdCounter) FreeId(id uint64) {
 }
 
 func (ic *IdCounter) Flush() error {
-	if err := ic.bucket.Put(ic.nextFreeIdKey, cache.Uint64ToBytes(ic.nextFreeId)); err != nil {
+	if err := ic.bucket.Put(ic.nextFreeIdKey, conversion.Uint64ToBytes(ic.nextFreeId)); err != nil {
 		return fmt.Errorf("could not set next free id: %w", err)
 	}
 	// ---------------------------
-	freeIdsBytes := make([]byte, len(ic.freeIds)*8)
-	for i, freeId := range ic.freeIds {
-		copy(freeIdsBytes[i*8:], cache.Uint64ToBytes(freeId))
-	}
+	freeIdsBytes := conversion.EdgeListToBytes(ic.freeIds)
 	if err := ic.bucket.Put(ic.freeIdsKey, freeIdsBytes); err != nil {
 		return fmt.Errorf("could not set free ids: %w", err)
 	}

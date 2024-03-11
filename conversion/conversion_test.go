@@ -1,4 +1,4 @@
-package cache
+package conversion
 
 import (
 	"fmt"
@@ -69,14 +69,14 @@ func Benchmark_float32ToBytes(b *testing.B) {
 	}
 }
 
-func Test_edgeListToBytes(t *testing.T) {
+func Test_EdgeListToBytes(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		randSize := rand.Intn(10)
 		randEdges := make([]uint64, randSize)
 		for j := 0; j < randSize; j++ {
 			randEdges[j] = rand.Uint64()
 		}
-		b := edgeListToBytes(randEdges)
-		require.Equal(t, randEdges, bytesToEdgeList(b))
+		b := EdgeListToBytes(randEdges)
+		require.Equal(t, randEdges, BytesToEdgeList(b))
 	}
 }

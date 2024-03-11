@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 )
 
@@ -59,14 +60,14 @@ func getNode(graphBucket diskstore.ReadOnlyBucket, nodeId uint64) (GraphNode, er
 	if vecVal == nil {
 		return node, fmt.Errorf("could not get vector %d", nodeId)
 	}
-	node.Vector = bytesToFloat32(vecVal)
+	node.Vector = conversion.BytesToFloat32(vecVal)
 	// ---------------------------
 	// Get edges
 	edgeVal := graphBucket.Get(NodeKey(nodeId, 'e'))
 	if edgeVal == nil {
 		return node, fmt.Errorf("could not get edges %d", nodeId)
 	}
-	node.edges = bytesToEdgeList(edgeVal)
+	node.edges = conversion.BytesToEdgeList(edgeVal)
 	// ---------------------------
 	return node, nil
 }
@@ -74,7 +75,7 @@ func getNode(graphBucket diskstore.ReadOnlyBucket, nodeId uint64) (GraphNode, er
 func setNodeEdges(graphBucket diskstore.Bucket, node GraphNode) error {
 	// ---------------------------
 	// Set edges
-	if err := graphBucket.Put(NodeKey(node.NodeId, 'e'), edgeListToBytes(node.edges)); err != nil {
+	if err := graphBucket.Put(NodeKey(node.NodeId, 'e'), conversion.EdgeListToBytes(node.edges)); err != nil {
 		return fmt.Errorf("could not set edge: %w", err)
 	}
 	// ---------------------------
@@ -88,12 +89,12 @@ func setNode(graphBucket diskstore.Bucket, node GraphNode) error {
 	 * like that. For example, suffixedKey[17] = 'e' and re-use, will not work. */
 	// ---------------------------
 	// Set vector
-	if err := graphBucket.Put(NodeKey(node.NodeId, 'v'), float32ToBytes(node.Vector)); err != nil {
+	if err := graphBucket.Put(NodeKey(node.NodeId, 'v'), conversion.Float32ToBytes(node.Vector)); err != nil {
 		return fmt.Errorf("could not set vector: %w", err)
 	}
 	// ---------------------------
 	// Set edges
-	if err := graphBucket.Put(NodeKey(node.NodeId, 'e'), edgeListToBytes(node.edges)); err != nil {
+	if err := graphBucket.Put(NodeKey(node.NodeId, 'e'), conversion.EdgeListToBytes(node.edges)); err != nil {
 		return fmt.Errorf("could not set edge: %w", err)
 	}
 	// ---------------------------
@@ -142,7 +143,7 @@ func scanNodeEdges(graphBucket diskstore.ReadOnlyBucket, deleteSet map[uint64]st
 				validNodes[nodeId] = struct{}{}
 			}
 			// Check if the edges are in the delete set
-			edges := bytesToEdgeList(v)
+			edges := conversion.BytesToEdgeList(v)
 			addedToPrune := false
 			for _, edgeId := range edges {
 				hasInbound[edgeId] = struct{}{}

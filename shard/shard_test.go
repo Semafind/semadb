@@ -1,13 +1,13 @@
 package shard
 
 import (
-	"encoding/binary"
 	"math/rand"
 	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
@@ -125,14 +125,14 @@ func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
 		b.ForEach(func(k, v []byte) error {
 			if k[0] == 'n' && k[len(k)-1] == 'i' {
 				pointId := uuid.UUID(v)
-				nodeId := cache.BytesToUint64(k[1 : len(k)-1])
+				nodeId := conversion.BytesToUint64(k[1 : len(k)-1])
 				reverseId := b.Get(PointKey(pointId, 'i'))
-				require.Equal(t, nodeId, cache.BytesToUint64(reverseId))
+				require.Equal(t, nodeId, conversion.BytesToUint64(reverseId))
 				nodeCount++
 			}
 			if k[0] == 'p' && k[len(k)-1] == 'i' {
 				pointId := uuid.UUID(k[1 : len(k)-1])
-				nodeId := cache.BytesToUint64(v)
+				nodeId := conversion.BytesToUint64(v)
 				reverseId := b.Get(cache.NodeKey(nodeId, 'i'))
 				require.Equal(t, pointId, uuid.UUID(reverseId))
 				pointCount++
@@ -170,11 +170,8 @@ func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 		// Check all remaining points have valid edges
 		graphBucket.ForEach(func(k, v []byte) error {
 			if k[len(k)-1] == 'e' {
-				nodeId := cache.BytesToUint64(k[1 : len(k)-1])
-				edges := make([]uint64, len(v)/8)
-				for i := range edges {
-					edges[i] = binary.LittleEndian.Uint64(v[i*8:])
-				}
+				nodeId := cache.NodeIdFromKey(k)
+				edges := conversion.BytesToEdgeList(v)
 				// Cannot have self edges
 				require.NotContains(t, edges, nodeId)
 				for _, edge := range edges {
@@ -195,7 +192,7 @@ func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
 		require.NoError(t, err)
 		b.ForEach(func(k, v []byte) error {
 			if k[0] == 'n' && k[len(k)-1] == 'i' {
-				nodeId := cache.BytesToUint64(k[1 : len(k)-1])
+				nodeId := cache.NodeIdFromKey(k)
 				if nodeId > maxId {
 					maxId = nodeId
 				}
