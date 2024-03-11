@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/semafind/semadb/httpapi"
+	httpapi "github.com/semafind/semadb/httpapi/v1"
 )
 
 func randVector(size int) []float32 {

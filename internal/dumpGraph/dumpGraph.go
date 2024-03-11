@@ -1,22 +1,13 @@
 package main
 
 import (
-	"encoding/binary"
 	"flag"
 	"fmt"
 
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
-	"github.com/semafind/semadb/shard/cache"
 )
-
-func bytesToEdgeList(b []byte) []uint64 {
-	edges := make([]uint64, len(b)/8)
-	for i := range edges {
-		edges[i] = binary.LittleEndian.Uint64(b[i*8:])
-	}
-	return edges
-}
 
 // Run using
 // go run ./internal/dumpGraph/dumpGraph.go -path /path/to/db
@@ -26,6 +17,8 @@ func main() {
 	// Get dbPath from flag
 	var dbPath string
 	flag.StringVar(&dbPath, "path", "", "Path to the database")
+	var buckeName string
+	flag.StringVar(&buckeName, "bucket", "index/vectorVamana/vector", "Name of the bucket to dump")
 	flag.Parse()
 	log.Info().Str("path", dbPath).Msg("starting dumpGraph")
 	// ---------------------------
@@ -35,14 +28,18 @@ func main() {
 	}
 	defer db.Close()
 	// ---------------------------
-	err = db.Read("graphIndex", func(graphIndex diskstore.ReadOnlyBucket) error {
-		return graphIndex.ForEach(func(k, v []byte) error {
+	err = db.Read(func(bm diskstore.ReadOnlyBucketManager) error {
+		b, err := bm.ReadBucket(buckeName)
+		if err != nil {
+			return err
+		}
+		return b.ForEach(func(k, v []byte) error {
 			if k[0] != 'n' || k[len(k)-1] != 'e' {
 				return nil
 			}
 			nodeIdBytes := k[1 : len(k)-1]
-			nodeId := cache.BytesToUint64(nodeIdBytes)
-			edges := bytesToEdgeList(v)
+			nodeId := conversion.BytesToUint64(nodeIdBytes)
+			edges := conversion.BytesToEdgeList(v)
 			// Print as nodeid, edge1, edge2, ...
 			fmt.Printf("%d", nodeId)
 			for _, edge := range edges {
