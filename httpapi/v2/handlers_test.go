@@ -3,6 +3,7 @@ package v2
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -131,7 +132,7 @@ func Test_CreateCollection(t *testing.T) {
 		Id: "testy",
 		IndexSchema: &models.IndexSchema{
 			VectorFlat: map[string]models.IndexVectorFlatParameters{
-				"vec": {
+				"vector": {
 					VectorSize:     42,
 					DistanceMetric: "cosine",
 				},
@@ -151,6 +152,24 @@ func Test_CreateCollection(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, resp.Code)
 }
 
+var sampleCollection models.Collection = models.Collection{
+	Id:     "gandalf",
+	UserId: "testy",
+	IndexSchema: models.IndexSchema{
+		VectorVamana: map[string]models.IndexVectorVamanaParameters{
+			"vector": {
+				IndexVectorFlatParameters: models.IndexVectorFlatParameters{
+					VectorSize:     2,
+					DistanceMetric: "cosine",
+				},
+				SearchSize:  75,
+				DegreeBound: 64,
+				Alpha:       1.2,
+			},
+		},
+	},
+}
+
 func Test_ListCollections(t *testing.T) {
 	// ---------------------------
 	// Initially the user no collections
@@ -166,12 +185,7 @@ func Test_ListCollections(t *testing.T) {
 	nodeS := ClusterNodeState{
 		Collections: []CollectionState{
 			{
-				Collection: models.Collection{
-					Id:         "gandalf",
-					UserId:     "testy",
-					VectorSize: 42,
-					DistMetric: "cosine",
-				},
+				Collection: sampleCollection,
 			},
 		},
 	}
@@ -182,20 +196,13 @@ func Test_ListCollections(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, respBody.Collections, 1)
 	require.Equal(t, "gandalf", respBody.Collections[0].Id)
-	require.EqualValues(t, 42, respBody.Collections[0].VectorSize)
-	require.Equal(t, "cosine", respBody.Collections[0].DistanceMetric)
 }
 
 func Test_GetCollection(t *testing.T) {
 	nodeS := ClusterNodeState{
 		Collections: []CollectionState{
 			{
-				Collection: models.Collection{
-					UserId:     "testy",
-					Id:         "gandalf",
-					VectorSize: 42,
-					DistMetric: "cosine",
-				},
+				Collection: sampleCollection,
 			},
 		},
 	}
@@ -211,8 +218,6 @@ func Test_GetCollection(t *testing.T) {
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
 	require.NoError(t, err)
 	require.Equal(t, "gandalf", respBody.Id)
-	require.Equal(t, "cosine", respBody.DistanceMetric)
-	require.EqualValues(t, 42, respBody.VectorSize)
 	require.Len(t, respBody.Shards, 0)
 }
 
@@ -220,12 +225,7 @@ func Test_DeleteCollection(t *testing.T) {
 	nodeS := ClusterNodeState{
 		Collections: []CollectionState{
 			{
-				Collection: models.Collection{
-					UserId:     "testy",
-					Id:         "gandalf",
-					VectorSize: 42,
-					DistMetric: "cosine",
-				},
+				Collection: sampleCollection,
 			},
 		},
 	}
@@ -247,13 +247,7 @@ func Test_InsertPoints(t *testing.T) {
 	nodeS := ClusterNodeState{
 		Collections: []CollectionState{
 			{
-				Collection: models.Collection{
-					UserId:     "testy",
-					Id:         "gandalf",
-					VectorSize: 2,
-					DistMetric: "cosine",
-					Parameters: models.DefaultVamanaParameters(),
-				},
+				Collection: sampleCollection,
 			},
 		},
 	}
@@ -263,9 +257,9 @@ func Test_InsertPoints(t *testing.T) {
 		{
 			Name: "Invalid vector size",
 			Payload: InsertPointsRequest{
-				Points: []InsertSinglePointRequest{
+				Points: []models.PointAsMap{
 					{
-						Vector: []float32{1, 2, 3},
+						"vector": []float32{1, 2, 3},
 					},
 				},
 			},
@@ -274,10 +268,10 @@ func Test_InsertPoints(t *testing.T) {
 		{
 			Name: "Invalid metadata size",
 			Payload: InsertPointsRequest{
-				Points: []InsertSinglePointRequest{
+				Points: []models.PointAsMap{
 					{
-						Vector:   []float32{1, 2},
-						Metadata: []float32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+						"vector":   []float32{1, 2},
+						"metadata": []float32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
 					},
 				},
 			},
@@ -294,16 +288,17 @@ func Test_InsertPoints(t *testing.T) {
 	// ---------------------------
 	// Can insert points
 	reqBody := InsertPointsRequest{
-		Points: []InsertSinglePointRequest{
+		Points: []models.PointAsMap{
 			{
-				Vector: []float32{1, 2},
+				"vector": []float32{1, 2},
 			},
 			{
-				Vector: []float32{3, 4},
+				"vector": []float32{3, 4},
 			},
 		},
 	}
 	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", reqBody)
+	fmt.Println(resp)
 	require.Equal(t, http.StatusOK, resp.Code)
 	var respBody InsertPointsResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)

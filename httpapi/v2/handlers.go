@@ -64,17 +64,20 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 	vamanaCollection := models.Collection{
 		UserId:      appHeaders.UserId,
 		Id:          req.Id,
-		VectorSize:  128,
-		DistMetric:  "euclidean",
 		Replicas:    1,
-		Algorithm:   "vamana",
 		Timestamp:   time.Now().UnixMicro(),
 		CreatedAt:   time.Now().UnixMicro(),
-		Parameters:  models.DefaultVamanaParameters(),
 		UserPlan:    c.MustGet("userPlan").(models.UserPlan),
 		IndexSchema: *req.IndexSchema,
 	}
 	log.Debug().Interface("collection", vamanaCollection).Msg("CreateCollection")
+	// ---------------------------
+	if dupFieldName, ok := vamanaCollection.IndexSchema.CheckDuplicatePropValue(); ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("duplicate field name %s in index schema", dupFieldName)})
+		return
+	}
+	// ---------------------------
+	// TODO: Add max vector size check for indexes as part of user plan
 	// ---------------------------
 	err := sdbh.clusterNode.CreateCollection(vamanaCollection)
 	switch err {
@@ -92,9 +95,7 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 }
 
 type ListCollectionItem struct {
-	Id             string `json:"id"`
-	VectorSize     uint   `json:"vectorSize"`
-	DistanceMetric string `json:"distanceMetric"`
+	Id string `json:"id"`
 }
 
 type ListCollectionsResponse struct {
@@ -113,7 +114,7 @@ func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
 	}
 	colItems := make([]ListCollectionItem, len(collections))
 	for i, col := range collections {
-		colItems[i] = ListCollectionItem{Id: col.Id, VectorSize: col.VectorSize, DistanceMetric: col.DistMetric}
+		colItems[i] = ListCollectionItem{Id: col.Id}
 	}
 	resp := ListCollectionsResponse{Collections: colItems}
 	c.JSON(http.StatusOK, resp)
@@ -164,10 +165,9 @@ type ShardItem struct {
 }
 
 type GetCollectionResponse struct {
-	Id             string      `json:"id"`
-	VectorSize     uint        `json:"vectorSize"`
-	DistanceMetric string      `json:"distanceMetric"`
-	Shards         []ShardItem `json:"shards"`
+	Id          string             `json:"id"`
+	IndexSchema models.IndexSchema `json:"indexSchema"`
+	Shards      []ShardItem        `json:"shards"`
 }
 
 func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
@@ -190,10 +190,9 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 		shardItems[i] = ShardItem{Id: shard.Id, PointCount: shard.PointCount}
 	}
 	resp := GetCollectionResponse{
-		Id:             collection.Id,
-		VectorSize:     collection.VectorSize,
-		DistanceMetric: collection.DistMetric,
-		Shards:         shardItems,
+		Id:          collection.Id,
+		IndexSchema: collection.IndexSchema,
+		Shards:      shardItems,
 	}
 	c.JSON(http.StatusOK, resp)
 }
@@ -219,14 +218,8 @@ func (sdbh *SemaDBHandlers) DeleteCollection(c *gin.Context) {
 
 // ---------------------------
 
-type InsertSinglePointRequest struct {
-	Id       string    `json:"id" binding:"omitempty,uuid"`
-	Vector   []float32 `json:"vector" binding:"required,max=2000"`
-	Metadata any       `json:"metadata"`
-}
-
 type InsertPointsRequest struct {
-	Points []InsertSinglePointRequest `json:"points" binding:"required,max=10000,dive"`
+	Points []models.PointAsMap `json:"points" binding:"required,max=10000"`
 }
 
 type InsertPointsResponse struct {
@@ -250,32 +243,29 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	// Convert request points into internal points, doing checks along the way
 	points := make([]models.Point, len(req.Points))
 	for i, point := range req.Points {
-		if len(point.Vector) != int(collection.VectorSize) {
-			errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d for point at index %d", collection.VectorSize, len(point.Vector), i)
+		if err := collection.IndexSchema.CheckCompatibleMap(point); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		pointId, err := point.ExtractIdField(true)
+		if err != nil {
+			errMsg := fmt.Sprintf("invalid id for point %d, %s", i, err.Error())
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}
-		points[i] = models.Point{
-			Id:     uuid.New(),
-			Vector: point.Vector,
+		points[i] = models.Point{Id: pointId}
+		pointData, err := msgpack.Marshal(point)
+		if err != nil {
+			errMsg := fmt.Sprintf("invalid point data for point %d, %s", i, err.Error())
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
 		}
-		if len(point.Id) > 0 {
-			points[i].Id = uuid.MustParse(point.Id)
+		if len(pointData) > collection.UserPlan.MaxMetadataSize {
+			errMsg := fmt.Sprintf("point %d exceeds maximum point size %d > %d", i, len(pointData), collection.UserPlan.MaxMetadataSize)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
 		}
-		if point.Metadata != nil {
-			binaryMetadata, err := msgpack.Marshal(point.Metadata)
-			if err != nil {
-				errMsg := fmt.Sprintf("invalid metadata for point %d", i)
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
-				return
-			}
-			if len(binaryMetadata) > collection.UserPlan.MaxMetadataSize {
-				errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryMetadata), collection.UserPlan.MaxMetadataSize)
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
-				return
-			}
-			points[i].Metadata = binaryMetadata
-		}
+		points[i].Data = pointData
 	}
 	// ---------------------------
 	// Insert points returns a range of errors for failed shards
@@ -303,14 +293,8 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 
 // ---------------------------
 
-type UpdateSinglePointRequest struct {
-	Id       string    `json:"id" binding:"required,uuid"`
-	Vector   []float32 `json:"vector" binding:"required,max=2000"`
-	Metadata any       `json:"metadata"`
-}
-
 type UpdatePointsRequest struct {
-	Points []UpdateSinglePointRequest `json:"points" binding:"required,max=100,dive"`
+	Points []models.PointAsMap `json:"points" binding:"required,max=100"`
 }
 
 func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
@@ -327,29 +311,29 @@ func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 	// Convert request points into internal points, doing checks along the way
 	points := make([]models.Point, len(req.Points))
 	for i, point := range req.Points {
-		if len(point.Vector) != int(collection.VectorSize) {
-			errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d for point at index %d", collection.VectorSize, len(point.Vector), i)
+		pointId, err := point.ExtractIdField(false)
+		if err != nil {
+			errMsg := fmt.Sprintf("invalid id for point %d, %s", i, err.Error())
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}
-		points[i] = models.Point{
-			Id:     uuid.MustParse(point.Id),
-			Vector: point.Vector,
+		if err := collection.IndexSchema.CheckCompatibleMap(point); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
 		}
-		if point.Metadata != nil {
-			binaryMetadata, err := msgpack.Marshal(point.Metadata)
-			if err != nil {
-				errMsg := fmt.Sprintf("invalid metadata for point %d", i)
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
-				return
-			}
-			if len(binaryMetadata) > collection.UserPlan.MaxMetadataSize {
-				errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryMetadata), collection.UserPlan.MaxMetadataSize)
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
-				return
-			}
-			points[i].Metadata = binaryMetadata
+		points[i] = models.Point{Id: pointId}
+		pointData, err := msgpack.Marshal(point)
+		if err != nil {
+			errMsg := fmt.Sprintf("invalid point data for point %d, %s", i, err.Error())
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
 		}
+		if len(pointData) > collection.UserPlan.MaxMetadataSize {
+			errMsg := fmt.Sprintf("point %d exceeds maximum point size %d > %d", i, len(pointData), collection.UserPlan.MaxMetadataSize)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			return
+		}
+		points[i].Data = pointData
 	}
 	// ---------------------------
 	// Update points returns a list of failed points
@@ -409,14 +393,8 @@ type SearchPointsRequest struct {
 	Limit  int       `json:"limit" binding:"min=0,max=75"`
 }
 
-type SearchPointResult struct {
-	Id       string  `json:"id"`
-	Distance float32 `json:"distance"`
-	Metadata any     `json:"metadata"`
-}
-
 type SearchPointsResponse struct {
-	Points []SearchPointResult `json:"points"`
+	Points []models.PointAsMap `json:"points"`
 }
 
 func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
@@ -435,34 +413,34 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	collection := c.MustGet("collection").(models.Collection)
 	// ---------------------------
 	// Check vector dimension
-	if len(req.Vector) != int(collection.VectorSize) {
-		errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d", collection.VectorSize, len(req.Vector))
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
-		return
-	}
+	// if len(req.Vector) != int(collection.VectorSize) {
+	// 	errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d", collection.VectorSize, len(req.Vector))
+	// 	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+	// 	return
+	// }
 	// ---------------------------
 	points, err := sdbh.clusterNode.SearchPoints(collection, req.Vector, req.Limit)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	results := make([]SearchPointResult, len(points))
+	results := make([]models.PointAsMap, len(points))
 	for i, sp := range points {
-		var mdata any
-		// We check the length as well because the metadata might be an empty
-		// slice that cached. The empty slice vs nil indicates whether the disk
-		// metadata is empty or not. That is, nil metadata through cache becomes
-		// empty slice.
-		if sp.Point.Metadata != nil && len(sp.Point.Metadata) > 0 {
-			if err := msgpack.Unmarshal(sp.Point.Metadata, &mdata); err != nil {
-				log.Err(err).Interface("meta", sp.Point.Metadata).Msg("msgpack.Unmarshal failed")
+		var pointData models.PointAsMap
+		if len(sp.Point.Data) > 0 {
+			if err := msgpack.Unmarshal(sp.Point.Data, &pointData); err != nil {
+				errMsg := fmt.Sprintf("could not decode point %s", sp.Point.Id.String())
+				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": errMsg})
+				return
 			}
+		} else {
+			pointData = models.PointAsMap{}
 		}
-		results[i] = SearchPointResult{
-			Id:       sp.Point.Id.String(),
-			Distance: sp.Distance,
-			Metadata: mdata,
-		}
+		// ---------------------------
+		// We re-add the system _id and _distance fields to the point data
+		pointData["_id"] = sp.Point.Id.String()
+		pointData["_distance"] = sp.Distance
+		results[i] = pointData
 	}
 	resp := SearchPointsResponse{Points: results}
 	c.JSON(http.StatusOK, resp)
