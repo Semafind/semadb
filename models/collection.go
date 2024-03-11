@@ -91,23 +91,45 @@ func (s *IndexSchema) CheckCompatibleMap(m map[string]any) error {
 		if v, ok := m[k]; ok {
 			vector, ok := v.([]float32)
 			if !ok {
-				return fmt.Errorf("expected vector for %s, got %T", k, v)
+				return fmt.Errorf("expected vector for property %s, got %T", k, v)
 			}
 			if len(vector) != int(params.VectorSize) {
 				return fmt.Errorf("expected vector of size %d for %s, got %d", params.VectorSize, k, len(vector))
 			}
 		}
 	}
+	// TODO: Refactor duplicate checks
 	// ---------------------------
 	for k, params := range s.VectorVamana {
 		if v, ok := m[k]; ok {
+			// This mess happens because we are dealing with arbitrary JSON.
+			// Nothing stops the user from passing "vector": "memes" as valid
+			// JSON. Furthermore, JSON by default decodes floats to float64.
+			var vector []float32
 			vector, ok := v.([]float32)
 			if !ok {
-				return fmt.Errorf("expected vector for %s, got %T", k, v)
+				vectorAny, ok := v.([]interface{})
+				if !ok {
+					return fmt.Errorf("expected vector for property %s, got %T", k, v)
+				}
+				vector = make([]float32, len(vectorAny))
+				for i, v := range vectorAny {
+					switch v := v.(type) {
+					case float32:
+						vector[i] = v
+					case float64:
+						vector[i] = float32(v)
+					default:
+						return fmt.Errorf("expected float32 for %s, got %T", k, v)
+					}
+				}
 			}
 			if len(vector) != int(params.VectorSize) {
 				return fmt.Errorf("expected vector of size %d for %s, got %d", params.VectorSize, k, len(vector))
 			}
+			// We override the map value with the vector so downstream code can
+			// use the vector directly.
+			m[k] = vector
 		}
 	}
 	// ---------------------------
