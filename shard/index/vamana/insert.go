@@ -3,7 +3,6 @@ package vamana
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/semafind/semadb/shard/cache"
 )
@@ -56,26 +55,28 @@ func (v *indexVamana) insertSinglePoint(pc cache.ReadWriteCache, sp cache.GraphN
 	return nil
 }
 
-func (v *indexVamana) insertWorker(ctx context.Context, pc cache.ReadWriteCache, jobQueue <-chan cache.GraphNode, wg *sync.WaitGroup, cancel context.CancelCauseFunc) {
-	defer wg.Done()
-	for point := range jobQueue {
-		if ctx.Err() != nil {
-			break
-		}
-		if point.NodeId == STARTID {
-			cancel(fmt.Errorf("cannot insert start node"))
-			break
-		}
-		// Check if the point exists
-		_, err := pc.GetPoint(point.NodeId)
-		if err == nil {
-			cancel(fmt.Errorf("point with node id %d already exists", point.NodeId))
-			break
-		}
-		// Insert the point
-		if err := v.insertSinglePoint(pc, point); err != nil {
-			cancel(err)
-			break
+func (v *indexVamana) insertWorker(ctx context.Context, pc cache.ReadWriteCache, jobQueue <-chan cache.GraphNode) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context interrupt for insert worker: %w", ctx.Err())
+		case point, ok := <-jobQueue:
+			if !ok {
+				return nil
+			}
+			// TODO: add test case for this
+			if point.NodeId == STARTID {
+				return fmt.Errorf("cannot insert start node")
+			}
+			// Check if the point exists
+			_, err := pc.GetPoint(point.NodeId)
+			if err == nil {
+				return fmt.Errorf("point with node id %d already exists", point.NodeId)
+			}
+			// Insert the point
+			if err := v.insertSinglePoint(pc, point); err != nil {
+				return err
+			}
 		}
 	}
 }

@@ -35,18 +35,72 @@ func getPropertyFromBytes(dec *msgpack.Decoder, data []byte, property string) (a
 		return nil, nil
 	}
 	// ---------------------------
-	// typedResult, ok := queryResult[0].(T)
-	// if !ok {
-	// 	return nil, fmt.Errorf("could not convert property %s to type %T", property, typedResult)
-	// }
-	// ---------------------------
 	return queryResult[0], nil
 }
+
+// ---------------------------
+const (
+	opInsert = "insert"
+	opUpdate = "update"
+	opDelete = "delete"
+)
+
+// Determines the operation to be performed on the index and extracts the previous
+// and current property values.
+func getOperation(dec *msgpack.Decoder, propertyName string, prevData, currentData []byte) (prevProp, currentProp any, op string, err error) {
+	prevProp, err = getPropertyFromBytes(dec, prevData, propertyName)
+	if err != nil {
+		err = fmt.Errorf("could not get previous property %s: %w", propertyName, err)
+		return
+	}
+	currentProp, err = getPropertyFromBytes(dec, currentData, propertyName)
+	if err != nil {
+		err = fmt.Errorf("could not get new property %s: %w", propertyName, err)
+		return
+	}
+	switch {
+	case prevProp == nil && currentProp != nil:
+		// Insert
+		op = opInsert
+	case prevProp != nil && currentProp != nil:
+		// Update
+		op = opUpdate
+	case currentProp == nil:
+		// Delete
+		op = opDelete
+	default:
+		err = fmt.Errorf("unexpected previous and current values for %s: %v - %v", propertyName, prevProp, currentProp)
+	}
+	// Named return values are a language feature that allows us to declare what
+	// the return values are named and then we can just return without specifying
+	// the return values.
+	return
+}
+
+// ---------------------------
+
+func castDataToVector(data any) ([]float32, error) {
+	// The problem is the query returns []any and we need to
+	// convert it to the appropriate type, doing .([]float32) doesn't work
+	var vector []float32
+	if data != nil {
+		if anyArr, ok := data.([]any); !ok {
+			return vector, fmt.Errorf("expected vector got %T", data)
+		} else {
+			vector = make([]float32, len(anyArr))
+			for i, v := range anyArr {
+				vector[i] = v.(float32)
+			}
+		}
+	}
+	return vector, nil
+}
+
+// ---------------------------
 
 // Dispatch is a function that dispatches the new data to the appropriate index
 func Dispatch(
 	ctx context.Context,
-	cancel context.CancelCauseFunc,
 	bm diskstore.BucketManager,
 	cm *cache.Manager,
 	cacheRoot string,
@@ -56,110 +110,93 @@ func Dispatch(
 ) error {
 	// ---------------------------
 	var indexWg sync.WaitGroup
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	dec := msgpack.NewDecoder(nil)
 	// ---------------------------
 	vectorQ := make(map[string]chan cache.GraphNode)
 	// ---------------------------
 outer:
-	for change := range changes {
-		if ctx.Err() != nil {
-			break
-		}
-		// ---------------------------
-		for _, iprop := range indexSchema.CollectAllProperties() {
-			if ctx.Err() != nil {
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context interrupt for index dispatch: %w", ctx.Err())
+		// For every change, we go through every indexable property and dispatch
+		case change, ok := <-changes:
+			if !ok {
 				break outer
 			}
-			prev, err := getPropertyFromBytes(dec, change.PreviousData, iprop.Name)
-			if err != nil {
-				cancel(fmt.Errorf("could not get previous property %s: %w", iprop.Name, err))
-				break outer
-			}
-			current, err := getPropertyFromBytes(dec, change.NewData, iprop.Name)
-			if err != nil {
-				cancel(fmt.Errorf("could not get new property %s: %w", iprop.Name, err))
-				break outer
-			}
-			op := ""
-			switch {
-			case prev == nil && current != nil:
-				// Insert
-				op = "insert"
-			case prev != nil && current != nil:
-				// Update
-				op = "update"
-			case current == nil:
-				// Delete
-				op = "delete"
-			default:
-				cancel(fmt.Errorf("unexpected previous and current values for %s: %v - %v", iprop.Name, prev, current))
-				break outer
-			}
-			switch iprop.Type {
-			case "vectorFlat":
-				fallthrough
-			case "vectorVamana":
-				// ---------------------------
-				// The problem is the query returns a slice of interface{} and we need to
-				// convert it to the appropriate type, doing .([]float32) doesn't work
-				var vector []float32
-				if current != nil {
-					if anyArr, ok := current.([]any); !ok {
-						cancel(fmt.Errorf("expected vector for property %s, got %T", iprop.Name, current))
-						break outer
-					} else {
-						vector = make([]float32, len(anyArr))
-						for i, v := range anyArr {
-							vector[i] = v.(float32)
-						}
-					}
+			for _, iprop := range indexSchema.CollectAllProperties() {
+				_, current, op, err := getOperation(dec, iprop.Name, change.PreviousData, change.NewData)
+				if err != nil {
+					return fmt.Errorf("could not get operation for property %s: %w", iprop.Name, err)
 				}
 				// ---------------------------
 				// e.g. index/vamana/myvector
 				bucketName := fmt.Sprintf("index/%s/%s", iprop.Type, iprop.Name)
-				// e.g. [shardId]/index/vamana/myvector
-				cacheName := cacheRoot + "/" + bucketName
-				// e.g. index/vamana/myvector/insert
-				qName := bucketName + "/" + op
-				if queue, ok := vectorQ[qName]; ok {
-					queue <- cache.GraphNode{NodeId: change.NodeId, Vector: vector}
-				} else {
-					newQ := make(chan cache.GraphNode)
-					log.Debug().Str("component", "indexDispatch").Str("queue", qName).Msg("creating new queue")
-					vectorQ[qName] = newQ
-					bucket, err := bm.WriteBucket(bucketName)
-					if err != nil {
-						cancel(fmt.Errorf("could not get write bucket %s: %w", bucketName, err))
-						break outer
-					}
-					indexWg.Add(1)
-					go func() {
-						defer indexWg.Done()
-						// TODO: handle vector flat
-						indexVamana, err := vamana.NewIndexVamana(cacheName, indexSchema.VectorVamana[iprop.Name], cm, maxNodeId)
-						if err != nil {
-							cancel(fmt.Errorf("could not get new vamana index %s: %w", iprop.Name, err))
-							return
-						}
-						switch op {
-						case "insert":
-							err = indexVamana.Insert(ctx, cancel, bucket, newQ)
-						case "delete":
-							err = indexVamana.Delete(ctx, cancel, bucket, newQ)
-						case "update":
-							err = indexVamana.Update(ctx, cancel, bucket, newQ)
-						}
-						if err != nil {
-							cancel(fmt.Errorf("could not perform vector index %s for %s: %w", iprop.Type, iprop.Name, err))
-						}
-					}()
-					newQ <- cache.GraphNode{NodeId: change.NodeId, Vector: vector}
-				}
 				// ---------------------------
-			} // End of property type switch
-		} // End of properties loop
-		// ---------------------------
-	} // End of changes loop
+				switch iprop.Type {
+				case "vectorVamana":
+					// ---------------------------
+					vector, err := castDataToVector(current)
+					if err != nil {
+						return fmt.Errorf("could not cast data to vector for property %s: %w", iprop.Name, err)
+					}
+					// ---------------------------
+					// e.g. [shardId]/index/vamana/myvector
+					cacheName := cacheRoot + "/" + bucketName
+					// e.g. index/vamana/myvector/insert
+					qName := bucketName + "/" + op
+					queue, ok := vectorQ[qName]
+					if !ok {
+						queue = make(chan cache.GraphNode)
+						log.Debug().Str("component", "indexDispatch").Str("queue", qName).Msg("creating new queue")
+						vectorQ[qName] = queue
+						bucket, err := bm.WriteBucket(bucketName)
+						if err != nil {
+							return fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
+						}
+						indexVamana, err := vamana.NewIndexVamana(cacheName, indexSchema.VectorVamana[iprop.Name], maxNodeId)
+						if err != nil {
+							return fmt.Errorf("could not get new vamana index %s: %w", iprop.Name, err)
+						}
+						indexWg.Add(1)
+						go func() {
+							defer indexWg.Done()
+							// Recall the queue name includes op, so we don't
+							// interleave insert, update and delete operation
+							// they all act on consistent states of the index
+							// based on the cache.
+							err := cm.With(cacheName, bucket, func(pc cache.ReadWriteCache) error {
+								switch op {
+								case opInsert:
+									return indexVamana.Insert(ctx, pc, queue)
+								case opDelete:
+									return indexVamana.Delete(ctx, pc, queue)
+								case opUpdate:
+									return indexVamana.Update(ctx, pc, queue)
+								}
+								return nil
+							})
+							if err != nil {
+								cancel(fmt.Errorf("could not perform vector index %s for %s: %w", iprop.Type, iprop.Name, err))
+							}
+						}()
+					}
+					// ---------------------------
+					// Submit job to the queue
+					select {
+					case queue <- cache.GraphNode{NodeId: change.NodeId, Vector: vector}:
+					case <-ctx.Done():
+						return fmt.Errorf("context done while dispatching to %s: %w", qName, ctx.Err())
+					}
+					// ---------------------------
+				default:
+					return fmt.Errorf("unsupported index property type: %s", iprop.Type)
+				} // End of property type switch
+			} // End of properties loop
+		}
+	}
 	// ---------------------------
 	// Close any queues
 	for _, queue := range vectorQ {
@@ -168,5 +205,8 @@ outer:
 	// ---------------------------
 	// Wait for any indexing to finish
 	indexWg.Wait()
+	if err := context.Cause(ctx); err != nil {
+		return fmt.Errorf("index dispatch context error: %w", err)
+	}
 	return nil
 }
