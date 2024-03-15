@@ -189,7 +189,7 @@ type IndexVectorVamanaParameters struct {
 }
 
 type IndexTextParameters struct {
-	CaseSensitive bool `json:"caseSensitive"`
+	Analyser string `json:"analyser" binding:"required,oneof=standard"`
 }
 
 type IndexStringParameters struct {
