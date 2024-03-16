@@ -49,7 +49,7 @@ func SetupV2Handlers(clusterNode *cluster.ClusterNode, rgroup *gin.RouterGroup) 
 
 type CreateCollectionRequest struct {
 	Id          string             `json:"id" binding:"required,alphanum,min=3,max=24"`
-	IndexSchema models.IndexSchema `json:"indexSchema" binding:"required"`
+	IndexSchema models.IndexSchema `json:"indexSchema" binding:"required,dive"`
 }
 
 func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
