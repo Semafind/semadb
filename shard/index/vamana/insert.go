@@ -59,7 +59,7 @@ func (v *indexVamana) insertWorker(ctx context.Context, pc cache.ReadWriteCache,
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("context interrupt for insert worker: %w", ctx.Err())
+			return fmt.Errorf("context interrupt for insert worker: %w", context.Cause(ctx))
 		case point, ok := <-jobQueue:
 			if !ok {
 				return nil

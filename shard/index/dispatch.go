@@ -120,7 +120,7 @@ outer:
 	for {
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("context interrupt for index dispatch: %w", ctx.Err())
+			return fmt.Errorf("context interrupt for index dispatch: %w", context.Cause(ctx))
 		// For every change, we go through every indexable property and dispatch
 		case change, ok := <-changes:
 			if !ok {
@@ -188,7 +188,7 @@ outer:
 					select {
 					case queue <- cache.GraphNode{NodeId: change.NodeId, Vector: vector}:
 					case <-ctx.Done():
-						return fmt.Errorf("context done while dispatching to %s: %w", qName, ctx.Err())
+						return fmt.Errorf("context done while dispatching to %s: %w", qName, context.Cause(ctx))
 					}
 					// ---------------------------
 				default:

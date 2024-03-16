@@ -175,7 +175,7 @@ outer:
 			// By returning error we signal to our caller that we did not
 			// complete the operation and as such the cache manager may
 			// scrap the cache.
-			return fmt.Errorf("context done while deleting points: %w", ctx.Err())
+			return fmt.Errorf("context done while deleting points: %w", context.Cause(ctx))
 		case point, ok := <-pointQueue:
 			if !ok {
 				// Channel is closed

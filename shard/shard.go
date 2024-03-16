@@ -237,7 +237,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 			// ---------------------------
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("context interrupt for shard insert: %w", ctx.Err())
+				return fmt.Errorf("context interrupt for shard insert: %w", context.Cause(ctx))
 			case indexQ <- index.IndexPointChange{NodeId: sp.NodeId, PreviousData: nil, NewData: point.Data}:
 			}
 		}
@@ -340,7 +340,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 			}
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("context interrupt for shard update: %w", ctx.Err())
+				return fmt.Errorf("context interrupt for shard update: %w", context.Cause(ctx))
 			case indexQ <- index.IndexPointChange{NodeId: sp.NodeId, PreviousData: sp.Data, NewData: finalNewData}:
 			}
 			// ---------------------------
@@ -529,7 +529,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 			nodeCounter.FreeId(nodeId)
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("context interrupt for shard delete: %w", ctx.Err())
+				return fmt.Errorf("context interrupt for shard delete: %w", context.Cause(ctx))
 			case indexQ <- index.IndexPointChange{NodeId: nodeId, PreviousData: nil, NewData: nil}:
 			}
 			if err := DeletePoint(bPoints, pointId, nodeId); err != nil {
