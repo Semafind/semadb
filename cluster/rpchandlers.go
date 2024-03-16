@@ -396,14 +396,13 @@ func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *RPCDe
 
 type RPCSearchPointsRequest struct {
 	RPCRequestArgs
-	Collection models.Collection
-	ShardId    string
-	Vector     []float32
-	Limit      int
+	Collection    models.Collection
+	ShardId       string
+	SearchRequest models.SearchRequest
 }
 
 type RPCSearchPointsResponse struct {
-	Points []shard.SearchPoint
+	Points []models.SearchResult
 }
 
 func (c *ClusterNode) RPCSearchPoints(args *RPCSearchPointsRequest, reply *RPCSearchPointsResponse) error {
@@ -413,7 +412,7 @@ func (c *ClusterNode) RPCSearchPoints(args *RPCSearchPointsRequest, reply *RPCSe
 	}
 	// ---------------------------
 	return c.shardManager.DoWithShard(args.Collection, args.ShardId, func(s *shard.Shard) error {
-		points, err := s.SearchPoints(args.Vector, args.Limit)
+		points, err := s.SearchPoints(args.SearchRequest)
 		reply.Points = points
 		if err == nil {
 			c.metrics.pointSearchCount.Add(float64(len(points)))

@@ -50,7 +50,8 @@ func (p *Point) GetField(name string) (any, error) {
 		return nil, fmt.Errorf("failed to query point field %s: %w", name, err)
 	}
 	if len(queryResult) == 0 {
-		return nil, fmt.Errorf("field %s not found in point", name)
+		// This is not an error, it just means the field is not present
+		return nil, nil
 	}
 	return queryResult[0], nil
 }

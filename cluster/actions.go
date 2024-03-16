@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/models"
-	"github.com/semafind/semadb/shard"
+	"github.com/semafind/semadb/utils"
 )
 
 func (c *ClusterNode) CreateCollection(collection models.Collection) error {
@@ -271,11 +271,46 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 const poissonApproxA = 1.42
 const poissonApproxB = 10.0
 
-func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit int) ([]shard.SearchPoint, error) {
+func (c *ClusterNode) SearchPoints(col models.Collection, sr models.SearchRequest) ([]models.SearchResult, error) {
 	// ---------------------------
-	// Search every shard in parallel. If a shard is unavailable, we will
-	// simply ignore it for now to keep the search request alive.
-	results := make([]shard.SearchPoint, 0, len(col.ShardIds)*10)
+	/* Here we calculate the target limit for each shard. We want to reduce the
+	 * number of points discarded. For example, 5 chards with a limit of 100
+	 * would fetch 500 points and then discard 400 to return the desired count
+	 * back to the user. Instead, we start by assuming each shard has equal
+	 * number of points. This means on average we would expect true desired
+	 * search points to be equally and randomly distributed across all shards.
+	 * For 5 shards and limit 100, we expect 20 points per shard. We use the
+	 * poisson distribution to find the upper bound on its CDF at 0.99
+	 * percentile. So we set the lambda to equal (limit / numShards) = 20 and
+	 * calculate the 0.99 percentile. In this case, it will sample >20 points per
+	 * shard to account for the randomness but perhaps not 100 points reducing
+	 * computation required. The inverse of Poisson CDF doesn't have a closed
+	 * form, so we use a linear approximation for our expected operational ranges
+	 * for lambda. */
+	originalLimit := sr.Limit
+	targetLimit := int(float32(sr.Limit)*(1/float32(len(col.ShardIds)))*poissonApproxA + poissonApproxB)
+	if targetLimit > c.cfg.MaxSearchLimit {
+		targetLimit = c.cfg.MaxSearchLimit
+	}
+	if targetLimit > sr.Limit {
+		targetLimit = sr.Limit
+	}
+	sr.Limit = targetLimit
+	// We don't check for minimum since it will be at least poissonApproxB = 10
+	// ---------------------------
+	/* The second business is the calculation of the offset. For example, if the
+	 * user sets the offset to 1, we can't naively set offset to 1 for all shards
+	 * because we will be discarding len(shards) many points not 1. So we
+	 * increase the shard offset only when multiples of len(shards) is set by the
+	 * user. That is, if the user sets offset=3 and len(shards)=3 then offset for
+	 * each shard will be 1 discarding 3 points in total. */
+	sr.Offset = sr.Offset / len(col.ShardIds)
+	// ---------------------------
+	/* Search every shard in parallel. If a shard is unavailable, we will simply
+	 * ignore it for now to keep the search request alive. This is not a major
+	 * problem especially for approximate nearest neighbour based search
+	 * requests. */
+	results := make([]models.SearchResult, 0, len(col.ShardIds)*10)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errCount atomic.Int32
@@ -285,39 +320,14 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 			defer wg.Done()
 			targetServer := RendezvousHash(sId, c.Servers, 1)[0]
 			// ---------------------------
-			// Here we calculate the target limit for each shard. We want to
-			// reduce the number of points discarded. For example, 5 chards with
-			// a limit of 100 would fetch 500 points and then discard 400 to
-			// return the desired count back to the user. Instead, we start by
-			// assuming each shard has equal number of points. This means on
-			// average we would expect true desired search points to be equally
-			// and randomly distributed across all shards. For 5 shards and
-			// limit 100, we expect 20 points per shard. We use the poisson
-			// distribution to find the upper bound on its CDF at 0.99
-			// percentile. So we set the lambda to equal (limit / numShards) =
-			// 20 and calculate the 0.99 percentile. In this case, it will
-			// sample >20 points per shard to account for the randomness but
-			// perhaps not 100 points reducing computation required. The inverse
-			// of Poisson CDF doesn't have a closed form, so we use a linear
-			// approximation for our expected operational ranges for lambda.
-			targetLimit := int(float32(limit)*(1/float32(len(col.ShardIds)))*poissonApproxA + poissonApproxB)
-			if targetLimit > c.cfg.MaxSearchLimit {
-				targetLimit = c.cfg.MaxSearchLimit
-			}
-			if targetLimit > limit {
-				targetLimit = limit
-			}
-			// We don't check for minimum since it will be at least poissonApproxB = 10
-			// ---------------------------
 			searchReq := RPCSearchPointsRequest{
 				RPCRequestArgs: RPCRequestArgs{
 					Source: c.MyHostname,
 					Dest:   targetServer,
 				},
-				Collection: col,
-				ShardId:    sId,
-				Vector:     query,
-				Limit:      targetLimit,
+				Collection:    col,
+				ShardId:       sId,
+				SearchRequest: sr,
 			}
 			searchResp := RPCSearchPointsResponse{}
 			if err := c.RPCSearchPoints(&searchReq, &searchResp); err != nil {
@@ -333,19 +343,73 @@ func (c *ClusterNode) SearchPoints(col models.Collection, query []float32, limit
 		}(shardId)
 	}
 	// ---------------------------
-	// Merge results in a single slice. We could instead use a channel to stream
-	// and merge results on the go but that adds more complexity which could be
-	// future work.
 	wg.Wait()
 	if len(col.ShardIds) > 0 && errCount.Load() == int32(len(col.ShardIds)) {
 		return nil, fmt.Errorf("could not search any shards")
 	}
-	slices.SortFunc(results, func(a, b shard.SearchPoint) int {
-		return cmp.Compare(a.Distance, b.Distance)
-	})
+	if len(col.ShardIds) > 1 {
+		// Merge results in a single slice. We could instead use a channel to stream
+		// and merge results on the go but that adds more complexity which could be
+		// future work.
+		if len(sr.Sort) == 0 {
+			slices.SortFunc(results, func(a, b models.SearchResult) int {
+				var as float32
+				if a.Score != nil {
+					as = *a.Score
+				}
+				var bs float32
+				if b.Score != nil {
+					bs = *b.Score
+				}
+				return cmp.Compare(as, bs)
+			})
+		} else {
+			// We have to sort the results based on the sort options. This is a
+			// multi-level sort. We first sort based on the first sort option, then
+			// the second and so on.
+			decodedMap := make(map[string]any)
+			slices.SortFunc(results, func(a, b models.SearchResult) int {
+				for _, so := range sr.Sort {
+					// We use the decoded map to avoid decoding the same property
+					ak := a.Id.String() + so.Property
+					av, ok := decodedMap[ak]
+					if !ok {
+						var err error
+						av, err = a.GetField(so.Property)
+						if err != nil {
+							// We couldn't get the property, so we put the item at the end
+							return 1
+						}
+					}
+					bk := b.Id.String() + so.Property
+					bv, ok := decodedMap[bk]
+					if !ok {
+						var err error
+						bv, err = b.GetField(so.Property)
+						if err != nil {
+							// We couldn't get the property, so we put the item at the end
+							return -1
+						}
+					}
+					// We compare the two values
+					var res int
+					if so.Descending {
+						res = utils.CompareAny(bv, av)
+					} else {
+						res = utils.CompareAny(av, bv)
+					}
+					if res != 0 {
+						return res
+					}
+				}
+				return 0
+			})
+		}
+	} // End of merge
+	// ---------------------------
 	// Take the top limit points
-	if len(results) > limit {
-		results = results[:limit]
+	if len(results) > originalLimit {
+		results = results[:originalLimit]
 	}
 	// ---------------------------
 	return results, nil

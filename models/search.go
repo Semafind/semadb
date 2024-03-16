@@ -11,7 +11,7 @@ package models
 // ---------------------------
 
 type SearchRequest struct {
-	Query  Query        `json:"query" binding:"dive"`
+	Query  Query        `json:"query" binding:"required"`
 	Select []string     `json:"select"`
 	Sort   []SortOption `json:"sort"`
 	Offset int          `json:"offset" binding:"min=0"`
@@ -22,13 +22,13 @@ type SearchRequest struct {
 
 type Query struct {
 	Property     string                     `json:"property" binding:"required"`
-	VectorFlat   *SearchVectorFlatOptions   `json:"vectorFlat" binding:"dive"`
-	VectorVamana *SearchVectorVamanaOptions `json:"vectorVamana" binding:"dive"`
-	Text         *SearchTextOptions         `json:"text" binding:"dive"`
-	String       *SearchStringOptions       `json:"string" binding:"dive"`
-	Integer      *SearchIntegerOptions      `json:"integer" binding:"dive"`
-	Float        *SearchFloatOptions        `json:"float" binding:"dive"`
-	StringArray  *SearchStringArrayOptions  `json:"stringArray" binding:"dive"`
+	VectorFlat   *SearchVectorFlatOptions   `json:"vectorFlat"`
+	VectorVamana *SearchVectorVamanaOptions `json:"vectorVamana"`
+	Text         *SearchTextOptions         `json:"text"`
+	String       *SearchStringOptions       `json:"string"`
+	Integer      *SearchIntegerOptions      `json:"integer"`
+	Float        *SearchFloatOptions        `json:"float"`
+	StringArray  *SearchStringArrayOptions  `json:"stringArray"`
 	And          []Query                    `json:"_and" binding:"dive"`
 	Or           []Query                    `json:"_or" binding:"dive"`
 }
@@ -58,7 +58,7 @@ type SearchVectorVamanaOptions struct {
 	Vector   []float32 `json:"vector" binding:"required,max=4096"`
 	Operator string    `json:"operator" binding:"required,oneof=near"`
 	Limit    int       `json:"limit" binding:"required,min=1,max=75"`
-	Filter   *Query    `json:"filter" binding:"dive"`
+	Filter   *Query    `json:"filter"`
 	Weight   float32   `json:"weight"`
 }
 
@@ -66,7 +66,7 @@ type SearchVectorFlatOptions struct {
 	Vector   []float32 `json:"vector" binding:"required,max=4096"`
 	Operator string    `json:"operator" binding:"required,oneof=near"`
 	Limit    int       `json:"limit" binding:"required,min=1,max=75"`
-	Filter   *Query    `json:"filter" binding:"dive"`
+	Filter   *Query    `json:"filter"`
 	Weight   float32   `json:"weight"`
 }
 

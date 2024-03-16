@@ -388,18 +388,13 @@ func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
 
 // ---------------------------
 
-type SearchPointsRequest struct {
-	Vector []float32 `json:"vector" binding:"required,max=2000"`
-	Limit  int       `json:"limit" binding:"min=0,max=75"`
-}
-
 type SearchPointsResponse struct {
 	Points []models.PointAsMap `json:"points"`
 }
 
 func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	// ---------------------------
-	var req SearchPointsRequest
+	var req models.SearchRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
@@ -419,7 +414,7 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	// 	return
 	// }
 	// ---------------------------
-	points, err := sdbh.clusterNode.SearchPoints(collection, req.Vector, req.Limit)
+	points, err := sdbh.clusterNode.SearchPoints(collection, req)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -439,7 +434,15 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 		// ---------------------------
 		// We re-add the system _id and _distance fields to the point data
 		pointData["_id"] = sp.Point.Id.String()
-		pointData["_distance"] = sp.Distance
+		if sp.Distance != nil {
+			pointData["_distance"] = *sp.Distance
+		}
+		if sp.Score != nil {
+			pointData["_score"] = *sp.Score
+		}
+		if sp.FinalScore != nil {
+			pointData["_finalScore"] = *sp.FinalScore
+		}
 		results[i] = pointData
 	}
 	resp := SearchPointsResponse{Points: results}

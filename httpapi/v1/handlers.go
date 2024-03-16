@@ -448,7 +448,19 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 		return
 	}
 	// ---------------------------
-	points, err := sdbh.clusterNode.SearchPoints(collection, req.Vector, req.Limit)
+	sr := models.SearchRequest{
+		Query: models.Query{
+			Property: "vector",
+			VectorVamana: &models.SearchVectorVamanaOptions{
+				Vector:   req.Vector,
+				Limit:    req.Limit,
+				Operator: "near",
+			},
+		},
+		Select: []string{"metadata"},
+		Limit:  req.Limit,
+	}
+	points, err := sdbh.clusterNode.SearchPoints(collection, sr)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -461,9 +473,13 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": errMsg})
 			return
 		}
+		var dist float32
+		if sp.Distance != nil {
+			dist = *sp.Distance
+		}
 		results[i] = SearchPointResult{
 			Id:       sp.Point.Id.String(),
-			Distance: sp.Distance,
+			Distance: dist,
 			Metadata: mdata,
 		}
 	}

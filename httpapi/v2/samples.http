@@ -35,9 +35,6 @@ X-Plan-Id: {{package}}
                 "degreeBound": 64,
                 "alpha": 1.2
             }
-        },
-        "integer": {
-            "age": {}
         }
     }
 }
@@ -74,7 +71,7 @@ X-Plan-Id: {{package}}
 {
     "points": [
         {
-            "id": "{{pointId}}",
+            "_id": "{{pointId}}",
             "vector": [1, 2],
             "metadata": {
                 "foo": "bar"
@@ -97,11 +94,10 @@ X-Plan-Id: {{package}}
 {
     "points": [
         {
-            "id": "{{pointId}}",
+            "_id": "{{pointId}}",
             "vector": [6, 7],
-            "metadata": {
-                "wizard": "gandalf"
-            }
+            "metadata": "_delete",
+            "meta2": "Celebrimbor"
         }
     ]
 }
@@ -115,7 +111,14 @@ X-User-Id: {{userId}}
 X-Plan-Id: {{package}}
 
 {
-    "vector": [1, 2],
+    "query": {
+        "property": "vector",
+        "vectorVamana": {
+            "vector": [1, 2],
+            "operator": "near",
+            "limit": 10 
+        }
+    },
     "limit": 10
 }
 
