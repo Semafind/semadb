@@ -141,13 +141,14 @@ type DistSet struct {
 }
 
 // TODO: change visitSize to uint64 to match nodeId type
-func NewDistSet(queryVector []float32, capacity int, visitSize uint, distFn distance.DistFunc) DistSet {
+func NewDistSet(queryVector []float32, capacity int, maxNodeId uint64, distFn distance.DistFunc) DistSet {
 	var set visitedSet
-	if visitSize == 0 || visitSize > visitBitSetSizes[len(visitBitSetSizes)-1] {
+	visitSize := maxNodeId
+	if visitSize == 0 || visitSize > uint64(visitBitSetSizes[len(visitBitSetSizes)-1]) {
 		set = NewVisitedMap(capacity)
 	} else {
 		for _, size := range visitBitSetSizes {
-			if visitSize <= size {
+			if visitSize <= uint64(size) {
 				pool := globalSetPool[size]
 				set = NewVisitedBitSet(pool.Get().(*bitset.BitSet), pool)
 				break

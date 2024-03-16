@@ -20,7 +20,7 @@ func Search(
 	cm *cache.Manager,
 	cacheRoot string,
 	indexSchema models.IndexSchema,
-	maxNodeId uint,
+	maxNodeId uint64,
 	q models.Query,
 ) (*roaring64.Bitmap, []models.SearchResult, error) {
 	// ---------------------------
@@ -95,7 +95,7 @@ func searchParallel(
 	cm *cache.Manager,
 	cacheRoot string,
 	indexSchema models.IndexSchema,
-	maxNodeId uint,
+	maxNodeId uint64,
 	queries []models.Query,
 	isDisjunction bool,
 ) (*roaring64.Bitmap, []models.SearchResult, error) {

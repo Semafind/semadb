@@ -7,7 +7,7 @@ import (
 	"github.com/semafind/semadb/shard/cache"
 )
 
-func greedySearch(pc cache.ReadOnlyCache, query []float32, k int, searchSize int, distFn distance.DistFunc, maxNodeId uint) (DistSet, DistSet, error) {
+func greedySearch(pc cache.ReadOnlyCache, query []float32, k int, searchSize int, distFn distance.DistFunc, maxNodeId uint64) (DistSet, DistSet, error) {
 	// ---------------------------
 	// Initialise distance set
 	searchSet := NewDistSet(query, searchSize, maxNodeId, distFn)

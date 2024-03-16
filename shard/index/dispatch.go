@@ -105,7 +105,7 @@ func Dispatch(
 	cm *cache.Manager,
 	cacheRoot string,
 	indexSchema models.IndexSchema,
-	maxNodeId uint,
+	maxNodeId uint64,
 	changes <-chan IndexPointChange,
 ) error {
 	// ---------------------------

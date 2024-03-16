@@ -28,11 +28,11 @@ const STARTID = 1
 type indexVamana struct {
 	distFn     distance.DistFunc
 	parameters models.IndexVectorVamanaParameters
-	maxNodeId  uint
+	maxNodeId  uint64
 	logger     zerolog.Logger
 }
 
-func NewIndexVamana(name string, parameters models.IndexVectorVamanaParameters, maxNodeId uint) (*indexVamana, error) {
+func NewIndexVamana(name string, parameters models.IndexVectorVamanaParameters, maxNodeId uint64) (*indexVamana, error) {
 	distFn, err := distance.GetDistanceFn(parameters.DistanceMetric)
 	if err != nil {
 		return nil, fmt.Errorf("could not get distance function: %w", err)
