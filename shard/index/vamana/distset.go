@@ -140,6 +140,7 @@ type DistSet struct {
 	sortedUntil int
 }
 
+// TODO: change visitSize to uint64 to match nodeId type
 func NewDistSet(queryVector []float32, capacity int, visitSize uint, distFn distance.DistFunc) DistSet {
 	var set visitedSet
 	if visitSize == 0 || visitSize > visitBitSetSizes[len(visitBitSetSizes)-1] {

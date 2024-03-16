@@ -82,6 +82,31 @@ func (s *IndexSchema) CollectAllProperties() []indexProperty {
 	return properties
 }
 
+func (s *IndexSchema) GetPropertyType(property string) (string, bool) {
+	if _, ok := s.VectorFlat[property]; ok {
+		return "vectorFlat", true
+	}
+	if _, ok := s.VectorVamana[property]; ok {
+		return "vectorVamana", true
+	}
+	if _, ok := s.Text[property]; ok {
+		return "text", true
+	}
+	if _, ok := s.String[property]; ok {
+		return "string", true
+	}
+	if _, ok := s.Integer[property]; ok {
+		return "integer", true
+	}
+	if _, ok := s.Float[property]; ok {
+		return "float", true
+	}
+	if _, ok := s.StringArray[property]; ok {
+		return "stringArray", true
+	}
+	return "", false
+}
+
 // Check if a given map is compatible with the index schema
 func (s *IndexSchema) CheckCompatibleMap(m map[string]any) error {
 	// We will go through each index field, check if the map has them, is of

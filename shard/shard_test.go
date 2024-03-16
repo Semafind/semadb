@@ -284,6 +284,20 @@ func tempShard(t *testing.T) *Shard {
 	return shard
 }
 
+func searchRequest(p models.Point, limit int) models.SearchRequest {
+	return models.SearchRequest{
+		Query: models.Query{
+			Property: "vector",
+			VectorVamana: &models.SearchVectorVamanaOptions{
+				Vector:   getVector(p),
+				Limit:    limit,
+				Operator: "near",
+			},
+		},
+		Limit: limit,
+	}
+}
+
 func TestShard_CreatePoint(t *testing.T) {
 	shard := tempShard(t)
 	points := randPoints(42)
@@ -332,13 +346,13 @@ func TestShard_BasicSearch(t *testing.T) {
 	shard := tempShard(t)
 	points := randPoints(2)
 	shard.InsertPoints(points)
-	res, err := shard.SearchPoints(getVector(points[0]), 1)
+	res, err := shard.SearchPoints(searchRequest(points[0], 1))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
 	require.Equal(t, points[0].Id, res[0].Point.Id)
 	require.Equal(t, getVector(points[0]), getVector(res[0].Point))
 	require.Equal(t, points[0].Data, res[0].Point.Data)
-	require.EqualValues(t, 0, res[0].Distance)
+	require.EqualValues(t, 0, *res[0].Distance)
 	require.NoError(t, shard.Close())
 }
 
@@ -346,7 +360,7 @@ func TestShard_SearchMaxLimit(t *testing.T) {
 	shard := tempShard(t)
 	points := randPoints(2)
 	shard.InsertPoints(points)
-	res, err := shard.SearchPoints(getVector(points[0]), 7)
+	res, err := shard.SearchPoints(searchRequest(points[0], 7))
 	require.NoError(t, err)
 	require.Equal(t, 2, len(res))
 	require.NoError(t, shard.Close())
@@ -412,7 +426,7 @@ func TestShard_InsertDeleteSearchInsertPoint(t *testing.T) {
 	checkNoReferences(t, shard, delIds...)
 	checkMaxNodeId(t, shard, 0)
 	// Try searching for the deleted point
-	res, err := shard.SearchPoints(getVector(points[0]), 1)
+	res, err := shard.SearchPoints(searchRequest(points[0], 1))
 	require.NoError(t, err)
 	require.Len(t, res, 0)
 	// Try inserting the deleted points
@@ -440,7 +454,7 @@ func TestShard_SearchWhileInsert(t *testing.T) {
 	// Search points
 	go func() {
 		for _, point := range points {
-			res, err := shard.SearchPoints(getVector(point), 1)
+			res, err := shard.SearchPoints(searchRequest(point, 1))
 			assert.NoError(t, err)
 			assert.Len(t, res, 1)
 			assert.Equal(t, point.Id, res[0].Point.Id)
@@ -508,7 +522,7 @@ func TestShard_ConcurrentCRUD(t *testing.T) {
 	// Search points
 	go func() {
 		for i := 0; i < 50; i++ {
-			res, err := shard.SearchPoints(getVector(points[i]), 1)
+			res, err := shard.SearchPoints(searchRequest(points[i], 1))
 			assert.NoError(t, err)
 			assert.Len(t, res, 1)
 			assert.Equal(t, points[i].Id, res[0].Point.Id)
@@ -576,7 +590,7 @@ func TestShard_LargeInsertDeleteInsertSearch(t *testing.T) {
 	checkMaxNodeId(t, shard, initSize)
 	// Try searching for the deleted point
 	sp := points[0]
-	res, err := shard.SearchPoints(getVector(sp), 1)
+	res, err := shard.SearchPoints(searchRequest(sp, 1))
 	require.NoError(t, err)
 	require.Len(t, res, 1)
 	require.Equal(t, sp.Id, res[0].Point.Id)
@@ -600,7 +614,7 @@ func TestShard_LargeInsertUpdateSearch(t *testing.T) {
 	checkPointCount(t, shard, initSize)
 	checkMaxNodeId(t, shard, initSize)
 	// Try searching for the updated point
-	res, err := shard.SearchPoints(getVector(updatePoints[0]), 1)
+	res, err := shard.SearchPoints(searchRequest(updatePoints[0], 1))
 	require.NoError(t, err)
 	require.Len(t, res, 1)
 	require.Equal(t, points[0].Id, res[0].Point.Id)

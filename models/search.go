@@ -4,38 +4,23 @@ package models
  *
  * 1. Filter first to narrow down search space.
  * 2. Then vector or text search and combine with hybrid weights.
- * 3. Maybe select or sort the data other than score with added vector _distance and _score.
- * 4. Then offset and limit the data, something like pagination.
+ * 3. Then offset and limit the data, something like pagination.
+ * 4. Maybe select or sort the data other than score with added vector _distance and _score.
  */
 
 // ---------------------------
 
-type SearchQuery struct {
-	Filters       []SearchFilter     `json:"filter" binding:"dive"`
-	Search        []SearchProperty   `json:"search" binding:"dive"`
-	HybridWeights map[string]float32 `json:"hybridWeights"`
-	Select        []string           `json:"select"`
-	Sort          []string           `json:"sort"`
-	Offset        int                `json:"offset" binding:"min=0"`
-	Limit         int                `json:"limit" binding:"required,min=1,max=100"`
+type SearchRequest struct {
+	Query  Query        `json:"query" binding:"dive"`
+	Select []string     `json:"select"`
+	Sort   []SortOption `json:"sort"`
+	Offset int          `json:"offset" binding:"min=0"`
+	Limit  int          `json:"limit" binding:"required,min=1,max=100"`
 }
 
 // ---------------------------
 
-type SearchProperty struct {
-	Property     string                     `json:"property" binding:"required"`
-	VectorFlat   *SearchVectorFlatOptions   `json:"vectorFlat" binding:"dive"`
-	VectorVamana *SearchVectorVamanaOptions `json:"vectorVamana" binding:"dive"`
-	Text         *SearchTextOptions         `json:"text" binding:"dive"`
-	// We can't do search on string, integer, float, stringArray because they
-	// don't provide an ordering, they are used instead as filters.
-}
-
-// ---------------------------
-
-/* The filter is explicit in its typing so any incoming query is validated easily
- * without any custom parsing and validation on interface{} types. */
-type SearchFilter struct {
+type Query struct {
 	Property     string                     `json:"property" binding:"required"`
 	VectorFlat   *SearchVectorFlatOptions   `json:"vectorFlat" binding:"dive"`
 	VectorVamana *SearchVectorVamanaOptions `json:"vectorVamana" binding:"dive"`
@@ -44,30 +29,52 @@ type SearchFilter struct {
 	Integer      *SearchIntegerOptions      `json:"integer" binding:"dive"`
 	Float        *SearchFloatOptions        `json:"float" binding:"dive"`
 	StringArray  *SearchStringArrayOptions  `json:"stringArray" binding:"dive"`
-	Not          *SearchFilter              `json:"_not" binding:"dive"`
-	And          *SearchFilter              `json:"_and" binding:"dive"`
-	Or           *SearchFilter              `json:"_or" binding:"dive"`
+	And          []Query                    `json:"_and" binding:"dive"`
+	Or           []Query                    `json:"_or" binding:"dive"`
+}
+
+// Shared search result struct for ordered search results
+type SearchResult struct {
+	Point
+	NodeId uint64 `json:"-" msgpack:"-"` // NodeId is not exposed to the client
+	/* Pointers are used to differentiate between zero values and unset values. A
+	 * distance or score of 0 could be valid. */
+	// Computed from vector indices, lower is better
+	Distance *float32 `json:"_distance,omitempty" msgpack:"_distance,omitempty"`
+	// Computed from generic indices, higher is better
+	Score *float32 `json:"_score,omitempty" msgpack:"_score,omitempty"`
+	// Combined final score
+	FinalScore *float32 `json:"_finalScore,omitempty" msgpack:"_finalScore,omitempty"`
 }
 
 // ---------------------------
 
+type SortOption struct {
+	Property   string `json:"property" binding:"required"`
+	Descending bool   `json:"descending"`
+}
+
 type SearchVectorVamanaOptions struct {
-	Vector     []float32 `json:"vector" binding:"required,max=4096"`
-	Operator   string    `json:"operator" binding:"required,oneof=near"`
-	Limit      int       `json:"limit" binding:"required,min=1,max=75"`
-	SearchSize int       `json:"searchSize" binding:"required,min=25,max=75"`
+	Vector   []float32 `json:"vector" binding:"required,max=4096"`
+	Operator string    `json:"operator" binding:"required,oneof=near"`
+	Limit    int       `json:"limit" binding:"required,min=1,max=75"`
+	Filter   *Query    `json:"filter" binding:"dive"`
+	Weight   float32   `json:"weight"`
 }
 
 type SearchVectorFlatOptions struct {
 	Vector   []float32 `json:"vector" binding:"required,max=4096"`
 	Operator string    `json:"operator" binding:"required,oneof=near"`
 	Limit    int       `json:"limit" binding:"required,min=1,max=75"`
+	Filter   *Query    `json:"filter" binding:"dive"`
+	Weight   float32   `json:"weight"`
 }
 
 type SearchTextOptions struct {
-	Value    string `json:"value" binding:"required"`
-	Operator string `json:"operator" binding:"required,oneof=containsAll containsAny"`
-	Limit    int    `json:"limit" binding:"required,min=1,max=75"`
+	Value    string  `json:"value" binding:"required"`
+	Operator string  `json:"operator" binding:"required,oneof=containsAll containsAny"`
+	Limit    int     `json:"limit" binding:"required,min=1,max=75"`
+	Weight   float32 `json:"weight"`
 }
 
 type SearchStringOptions struct {

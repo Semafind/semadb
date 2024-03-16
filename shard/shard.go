@@ -1,8 +1,10 @@
 package shard
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,7 +16,6 @@ import (
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index"
-	"github.com/semafind/semadb/shard/index/vamana"
 	"github.com/semafind/semadb/utils"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -363,14 +364,13 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 
 // ---------------------------
 
-type SearchPoint struct {
-	Point    models.Point
-	Distance float32
-}
-
-func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
+func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.SearchResult, error) {
 	// ---------------------------
-	var results []SearchPoint
+	/* rSet contains all the points to return, results contains any ordered
+	 * search results. For example a basic integer equals search pops up in
+	 * rSet, a vector search pops up in rSet and results. */
+	var finalResults []models.SearchResult
+	// ---------------------------
 	err := s.db.Read(func(bm diskstore.ReadOnlyBucketManager) error {
 		// ---------------------------
 		bPoints, err := bm.ReadBucket(POINTSBUCKETKEY)
@@ -378,44 +378,108 @@ func (s *Shard) SearchPoints(query []float32, k int) ([]SearchPoint, error) {
 			return fmt.Errorf("could not get points bucket: %w", err)
 		}
 		// ---------------------------
-		bucketName := "index/vectorVamana/vector"
-		bGraph, err := bm.ReadBucket(bucketName)
-		if err != nil {
-			return fmt.Errorf("could not get graph bucket: %w", err)
-		}
-		cacheName := s.dbFile + "/" + bucketName
-		vIndex, err := vamana.NewIndexVamana(cacheName, s.collection.IndexSchema.VectorVamana["vector"], uint(s.maxNodeId.Load()))
-		if err != nil {
-			return fmt.Errorf("could not create vamana index: %w", err)
-		}
-		ctx := context.Background()
-		var searchResults []vamana.SearchResult
-		err = s.cacheManager.WithReadOnly(cacheName, bGraph, func(pc cache.ReadOnlyCache) error {
-			res, err := vIndex.Search(ctx, pc, query, k)
-			if err != nil {
-				return fmt.Errorf("could not perform index search: %w", err)
-			}
-			searchResults = res
-			return nil
-		})
+		rSet, results, err := index.Search(context.Background(), bm, s.cacheManager, s.dbFile, s.collection.IndexSchema, uint(s.maxNodeId.Load()), searchRequest.Query)
 		if err != nil {
 			return fmt.Errorf("could not perform search: %w", err)
 		}
-		results = make([]SearchPoint, len(searchResults))
-		for i, sr := range searchResults {
-			sp, err := GetPointByNodeId(bPoints, sr.NodeId)
+		// ---------------------------
+		// Backfill point UUID and data
+		for _, r := range results {
+			sp, err := GetPointByNodeId(bPoints, r.NodeId)
 			if err != nil {
-				return fmt.Errorf("could not get point by node id: %w", err)
+				return fmt.Errorf("could not get point by node id %d: %w", r.NodeId, err)
 			}
-			results[i] = SearchPoint{Point: sp.Point, Distance: sr.Distance}
+			r.Point = sp.Point
+			rSet.Remove(r.NodeId)
+			finalResults = append(finalResults, r)
 		}
+		// If any points are missing in the results from rSet, we need to append them
+		it := rSet.Iterator()
+		for it.HasNext() {
+			nodeId := it.Next()
+			sp, err := GetPointByNodeId(bPoints, nodeId)
+			if err != nil {
+				return fmt.Errorf("could not get point by node id %d: %w", nodeId, err)
+			}
+			finalResults = append(finalResults, models.SearchResult{NodeId: nodeId, Point: sp.Point})
+		}
+		// ---------------------------
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("could not perform search: %w", err)
+		return nil, fmt.Errorf("search failed: %w", err)
 	}
 	// ---------------------------
-	return results, nil
+	// Select and sort
+	if len(searchRequest.Select) > 0 {
+		/* We are selecting only a subset of the point data. We need to partial
+		 * decode and re-encode the point data. */
+		tempPoints := make([]models.PointAsMap, len(finalResults))
+		dec := msgpack.NewDecoder(nil)
+		for i, r := range finalResults {
+			tp := make(models.PointAsMap)
+			for _, p := range searchRequest.Select {
+				// E.g. p = "name"
+				dec.Reset(bytes.NewReader(r.Point.Data))
+				res, err := dec.Query(p)
+				if err != nil {
+					return nil, fmt.Errorf("could not select point data, %s: %w", p, err)
+				}
+				if len(res) == 0 {
+					// Didn't find anything for this property
+					continue
+				}
+				tp[p] = res[0]
+			}
+			tempPoints[i] = tp
+		}
+		// ---------------------------
+		// Time to sort, the tricky bit here is that the type of values is any.
+		if len(searchRequest.Sort) > 0 {
+			/* Because we don't know the type of the values, this may be a costly
+			 * operation to undertake. We should monitor how this performs. */
+			slices.SortFunc(tempPoints, func(a models.PointAsMap, b models.PointAsMap) int {
+				for _, s := range searchRequest.Sort {
+					// E.g. s = "age"
+					av, ok := a[s.Property]
+					if !ok {
+						// If the property is missing, we need to decide what to do
+						// here. We can either put it at the top or bottom. We put it
+						// at the bottom for now.
+						return 1
+					}
+					bv, ok := b[s.Property]
+					if !ok {
+						return -1
+					}
+					var res int
+					if s.Descending {
+						res = utils.CompareAny(bv, av)
+					} else {
+						res = utils.CompareAny(av, bv)
+					}
+					if res != 0 {
+						return res
+					}
+				}
+				return 0
+			})
+		}
+		// ---------------------------
+		// Re-encode the point data
+		for i, tp := range tempPoints {
+			b, err := msgpack.Marshal(tp)
+			if err != nil {
+				return nil, fmt.Errorf("could not re-encode point data after select: %w", err)
+			}
+			finalResults[i].Point.Data = b
+		}
+	}
+	// ---------------------------
+	// Offset and limit
+	finalResults = finalResults[min(searchRequest.Offset, len(finalResults)):min(searchRequest.Offset+searchRequest.Limit, len(finalResults))]
+	// ---------------------------
+	return finalResults, nil
 }
 
 // ---------------------------

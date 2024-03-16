@@ -220,20 +220,14 @@ outer:
 	return nil
 }
 
-type SearchResult struct {
-	NodeId   uint64
-	Distance float32
-}
-
-func (v *indexVamana) Search(ctx context.Context, pc cache.ReadOnlyCache, query []float32, limit int) ([]SearchResult, error) {
-	var results []SearchResult
+func (v *indexVamana) Search(ctx context.Context, pc cache.ReadOnlyCache, query []float32, limit int) ([]models.SearchResult, error) {
 	startTime := time.Now()
 	searchSet, _, err := greedySearch(pc, query, limit, v.parameters.SearchSize, v.distFn, v.maxNodeId)
 	v.logger.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("SearchPoints - GreedySearch")
 	if err != nil {
 		return nil, fmt.Errorf("could not perform graph search: %w", err)
 	}
-	results = make([]SearchResult, 0, min(len(searchSet.items), limit))
+	results := make([]models.SearchResult, 0, min(len(searchSet.items), limit))
 	for _, elem := range searchSet.items {
 		if elem.point.NodeId == STARTID {
 			continue
@@ -241,7 +235,11 @@ func (v *indexVamana) Search(ctx context.Context, pc cache.ReadOnlyCache, query 
 		if len(results) >= limit {
 			break
 		}
-		results = append(results, SearchResult{NodeId: elem.point.NodeId, Distance: elem.distance})
+		sr := models.SearchResult{
+			NodeId:   elem.point.NodeId,
+			Distance: &elem.distance,
+		}
+		results = append(results, sr)
 	}
 	return results, err
 }
