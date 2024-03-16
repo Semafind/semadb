@@ -319,7 +319,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 			}
 			// TODO: add tests for this merging and deleting of values
 			for k, v := range incomingData {
-				if v == DELETEVALUE {
+				if vs, ok := v.(string); ok && vs == DELETEVALUE {
 					delete(existingData, k)
 				} else {
 					existingData[k] = v
@@ -335,6 +335,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 				return fmt.Errorf("point size exceeds limit: %d", s.collection.UserPlan.MaxMetadataSize)
 			}
 			// ---------------------------
+			point.Data = finalNewData
 			if err := SetPoint(pointsBucket, ShardPoint{Point: point, NodeId: sp.NodeId}); err != nil {
 				return fmt.Errorf("could not set updated point: %w", err)
 			}
@@ -412,6 +413,7 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 	// ---------------------------
 	// Select and sort
 	if len(searchRequest.Select) > 0 {
+		selectSortStart := time.Now()
 		/* We are selecting only a subset of the point data. We need to partial
 		 * decode and re-encode the point data. */
 		tempPoints := make([]models.PointAsMap, len(finalResults))
@@ -474,6 +476,7 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 			}
 			finalResults[i].Point.Data = b
 		}
+		log.Debug().Str("component", "shard").Str("duration", time.Since(selectSortStart).String()).Msg("Select and sort done")
 	}
 	// ---------------------------
 	// Offset and limit
