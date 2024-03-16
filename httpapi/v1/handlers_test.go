@@ -150,12 +150,12 @@ var sampleCollection models.Collection = models.Collection{
 	Id:     "gandalf",
 	UserId: "testy",
 	IndexSchema: models.IndexSchema{
-		VectorVamana: map[string]models.IndexVectorVamanaParameters{
-			"vector": {
-				IndexVectorFlatParameters: models.IndexVectorFlatParameters{
-					VectorSize:     2,
-					DistanceMetric: "cosine",
-				},
+		"vector": {
+			Type: "vectorVamana",
+			VectorVamana: &models.IndexVectorVamanaParameters{
+				VectorSize:     2,
+				DistanceMetric: "cosine",
+				// Default values for the vamana algorithm
 				SearchSize:  75,
 				DegreeBound: 64,
 				Alpha:       1.2,

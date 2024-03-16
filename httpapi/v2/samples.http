@@ -27,8 +27,9 @@ X-Plan-Id: {{package}}
 {
     "id": "{{collectionId}}",
     "indexSchema": {
-        "vectorVamana": {
-            "vector": {
+        "vector": {
+            "type": "vectorVamana",
+            "vectorVamana": {
                 "vectorSize": 2,
                 "distanceMetric": "euclidean",
                 "searchSize": 75,

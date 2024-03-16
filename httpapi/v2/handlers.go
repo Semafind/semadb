@@ -48,8 +48,8 @@ func SetupV2Handlers(clusterNode *cluster.ClusterNode, rgroup *gin.RouterGroup) 
 // ---------------------------
 
 type CreateCollectionRequest struct {
-	Id          string              `json:"id" binding:"required,alphanum,min=3,max=24"`
-	IndexSchema *models.IndexSchema `json:"indexSchema" binding:"required"`
+	Id          string             `json:"id" binding:"required,alphanum,min=3,max=24"`
+	IndexSchema models.IndexSchema `json:"indexSchema" binding:"required"`
 }
 
 func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
@@ -60,6 +60,10 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 	}
 	appHeaders := c.MustGet("appHeaders").(middleware.AppHeaders)
 	// ---------------------------
+	if err := req.IndexSchema.Validate(); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	// ---------------------------
 	vamanaCollection := models.Collection{
 		UserId:      appHeaders.UserId,
@@ -68,14 +72,9 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 		Timestamp:   time.Now().UnixMicro(),
 		CreatedAt:   time.Now().UnixMicro(),
 		UserPlan:    c.MustGet("userPlan").(models.UserPlan),
-		IndexSchema: *req.IndexSchema,
+		IndexSchema: req.IndexSchema,
 	}
 	log.Debug().Interface("collection", vamanaCollection).Msg("CreateCollection")
-	// ---------------------------
-	if dupFieldName, ok := vamanaCollection.IndexSchema.CheckDuplicatePropValue(); ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("duplicate field name %s in index schema", dupFieldName)})
-		return
-	}
 	// ---------------------------
 	// TODO: Add max vector size check for indexes as part of user plan
 	// ---------------------------

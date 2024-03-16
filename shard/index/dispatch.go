@@ -126,21 +126,21 @@ outer:
 			if !ok {
 				break outer
 			}
-			for _, iprop := range indexSchema.CollectAllProperties() {
-				_, current, op, err := getOperation(dec, iprop.Name, change.PreviousData, change.NewData)
+			for propName, params := range indexSchema {
+				_, current, op, err := getOperation(dec, propName, change.PreviousData, change.NewData)
 				if err != nil {
-					return fmt.Errorf("could not get operation for property %s: %w", iprop.Name, err)
+					return fmt.Errorf("could not get operation for property %s: %w", propName, err)
 				}
 				// ---------------------------
 				// e.g. index/vamana/myvector
-				bucketName := fmt.Sprintf("index/%s/%s", iprop.Type, iprop.Name)
+				bucketName := fmt.Sprintf("index/%s/%s", params.Type, propName)
 				// ---------------------------
-				switch iprop.Type {
-				case "vectorVamana":
+				switch params.Type {
+				case models.IndexTypeVectorVamana:
 					// ---------------------------
 					vector, err := castDataToVector(current)
 					if err != nil {
-						return fmt.Errorf("could not cast data to vector for property %s: %w", iprop.Name, err)
+						return fmt.Errorf("could not cast data to vector for property %s: %w", propName, err)
 					}
 					// ---------------------------
 					// e.g. [shardId]/index/vamana/myvector
@@ -156,9 +156,9 @@ outer:
 						if err != nil {
 							return fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
 						}
-						indexVamana, err := vamana.NewIndexVamana(cacheName, indexSchema.VectorVamana[iprop.Name], maxNodeId)
+						indexVamana, err := vamana.NewIndexVamana(cacheName, *params.VectorVamana, maxNodeId)
 						if err != nil {
-							return fmt.Errorf("could not get new vamana index %s: %w", iprop.Name, err)
+							return fmt.Errorf("could not get new vamana index %s: %w", propName, err)
 						}
 						indexWg.Add(1)
 						go func() {
@@ -179,7 +179,7 @@ outer:
 								return nil
 							})
 							if err != nil {
-								cancel(fmt.Errorf("could not perform vector index %s for %s: %w", iprop.Type, iprop.Name, err))
+								cancel(fmt.Errorf("could not perform vector index %s for %s: %w", params.Type, propName, err))
 							}
 						}()
 					}
@@ -192,7 +192,7 @@ outer:
 					}
 					// ---------------------------
 				default:
-					return fmt.Errorf("unsupported index property type: %s", iprop.Type)
+					return fmt.Errorf("unsupported index property type: %s", params.Type)
 				} // End of property type switch
 			} // End of properties loop
 		}

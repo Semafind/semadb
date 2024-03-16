@@ -130,11 +130,15 @@ func Test_CreateCollection(t *testing.T) {
 	// ---------------------------
 	reqBody := CreateCollectionRequest{
 		Id: "testy",
-		IndexSchema: &models.IndexSchema{
-			VectorFlat: map[string]models.IndexVectorFlatParameters{
-				"vector": {
+		IndexSchema: models.IndexSchema{
+			"vector": {
+				Type: "vectorVamana",
+				VectorVamana: &models.IndexVectorVamanaParameters{
 					VectorSize:     42,
 					DistanceMetric: "cosine",
+					SearchSize:     75,
+					DegreeBound:    64,
+					Alpha:          1.2,
 				},
 			},
 		},
@@ -156,15 +160,14 @@ var sampleCollection models.Collection = models.Collection{
 	Id:     "gandalf",
 	UserId: "testy",
 	IndexSchema: models.IndexSchema{
-		VectorVamana: map[string]models.IndexVectorVamanaParameters{
-			"vector": {
-				IndexVectorFlatParameters: models.IndexVectorFlatParameters{
-					VectorSize:     2,
-					DistanceMetric: "cosine",
-				},
-				SearchSize:  75,
-				DegreeBound: 64,
-				Alpha:       1.2,
+		"vector": {
+			Type: "vectorVamana",
+			VectorVamana: &models.IndexVectorVamanaParameters{
+				VectorSize:     2,
+				DistanceMetric: "cosine",
+				SearchSize:     75,
+				DegreeBound:    64,
+				Alpha:          1.2,
 			},
 		},
 	},

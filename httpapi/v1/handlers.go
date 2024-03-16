@@ -69,12 +69,11 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 		CreatedAt: time.Now().UnixMicro(),
 		UserPlan:  c.MustGet("userPlan").(models.UserPlan),
 		IndexSchema: models.IndexSchema{
-			VectorVamana: map[string]models.IndexVectorVamanaParameters{
-				"vector": {
-					IndexVectorFlatParameters: models.IndexVectorFlatParameters{
-						VectorSize:     req.VectorSize,
-						DistanceMetric: req.DistanceMetric,
-					},
+			"vector": {
+				Type: "vectorVamana",
+				VectorVamana: &models.IndexVectorVamanaParameters{
+					VectorSize:     req.VectorSize,
+					DistanceMetric: req.DistanceMetric,
 					// Default values for the vamana algorithm
 					SearchSize:  75,
 					DegreeBound: 64,
@@ -122,7 +121,7 @@ func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
 	}
 	colItems := make([]ListCollectionItem, len(collections))
 	for i, col := range collections {
-		colItems[i] = ListCollectionItem{Id: col.Id, VectorSize: col.IndexSchema.VectorVamana["vector"].VectorSize, DistanceMetric: col.IndexSchema.VectorVamana["vector"].DistanceMetric}
+		colItems[i] = ListCollectionItem{Id: col.Id, VectorSize: col.IndexSchema["vector"].VectorVamana.VectorSize, DistanceMetric: col.IndexSchema["vector"].VectorVamana.DistanceMetric}
 	}
 	resp := ListCollectionsResponse{Collections: colItems}
 	c.JSON(http.StatusOK, resp)
@@ -200,8 +199,8 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 	}
 	resp := GetCollectionResponse{
 		Id:             collection.Id,
-		VectorSize:     collection.IndexSchema.VectorVamana["vector"].VectorSize,
-		DistanceMetric: collection.IndexSchema.VectorVamana["vector"].DistanceMetric,
+		VectorSize:     collection.IndexSchema["vector"].VectorVamana.VectorSize,
+		DistanceMetric: collection.IndexSchema["vector"].VectorVamana.DistanceMetric,
 		Shards:         shardItems,
 	}
 	c.JSON(http.StatusOK, resp)
@@ -259,8 +258,8 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	// Convert request points into internal points, doing checks along the way
 	points := make([]models.Point, len(req.Points))
 	for i, point := range req.Points {
-		if len(point.Vector) != int(collection.IndexSchema.VectorVamana["vector"].VectorSize) {
-			errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d for point at index %d", collection.IndexSchema.VectorVamana["vector"].VectorSize, len(point.Vector), i)
+		if len(point.Vector) != int(collection.IndexSchema["vector"].VectorVamana.VectorSize) {
+			errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d for point at index %d", collection.IndexSchema["vector"].VectorVamana.VectorSize, len(point.Vector), i)
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}
@@ -335,8 +334,8 @@ func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 	// Convert request points into internal points, doing checks along the way
 	points := make([]models.Point, len(req.Points))
 	for i, point := range req.Points {
-		if len(point.Vector) != int(collection.IndexSchema.VectorVamana["vector"].VectorSize) {
-			errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d for point at index %d", collection.IndexSchema.VectorVamana["vector"].VectorSize, len(point.Vector), i)
+		if len(point.Vector) != int(collection.IndexSchema["vector"].VectorVamana.VectorSize) {
+			errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d for point at index %d", collection.IndexSchema["vector"].VectorVamana.VectorSize, len(point.Vector), i)
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}
@@ -442,8 +441,8 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	collection := c.MustGet("collection").(models.Collection)
 	// ---------------------------
 	// Check vector dimension
-	if len(req.Vector) != int(collection.IndexSchema.VectorVamana["vector"].VectorSize) {
-		errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d", collection.IndexSchema.VectorVamana["vector"].VectorSize, len(req.Vector))
+	if len(req.Vector) != int(collection.IndexSchema["vector"].VectorVamana.VectorSize) {
+		errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d", collection.IndexSchema["vector"].VectorVamana.VectorSize, len(req.Vector))
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 		return
 	}

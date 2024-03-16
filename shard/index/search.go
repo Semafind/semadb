@@ -33,10 +33,11 @@ func Search(
 	case "_or":
 		return searchParallel(ctx, bm, cm, cacheRoot, indexSchema, maxNodeId, q.Or, true)
 	}
-	itype, ok := indexSchema.GetPropertyType(q.Property)
+	iparams, ok := indexSchema[q.Property]
 	if !ok {
 		return nil, nil, fmt.Errorf("property %s not found in index schema", q.Property)
 	}
+	itype := iparams.Type
 	// ---------------------------
 	// e.g. index/vamana/myvector
 	bucketName := fmt.Sprintf("index/%s/%s", itype, q.Property)
@@ -46,7 +47,7 @@ func Search(
 	}
 	// ---------------------------
 	switch itype {
-	case "vectorVamana":
+	case models.IndexTypeVectorVamana:
 		if q.VectorVamana == nil {
 			return nil, nil, fmt.Errorf("no vectorVamana query options")
 		}
@@ -57,7 +58,7 @@ func Search(
 		}
 		// ---------------------------
 		cacheName := cacheRoot + "/" + bucketName
-		vIndex, err := vamana.NewIndexVamana(cacheName, indexSchema.VectorVamana[q.Property], maxNodeId)
+		vIndex, err := vamana.NewIndexVamana(cacheName, *iparams.VectorVamana, maxNodeId)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not create vamana index: %w", err)
 		}

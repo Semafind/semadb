@@ -22,15 +22,14 @@ var sampleCol models.Collection = models.Collection{
 	Id:       "test",
 	Replicas: 1,
 	IndexSchema: models.IndexSchema{
-		VectorVamana: map[string]models.IndexVectorVamanaParameters{
-			"vector": {
-				SearchSize:  75,
-				DegreeBound: 64,
-				Alpha:       1.2,
-				IndexVectorFlatParameters: models.IndexVectorFlatParameters{
-					VectorSize:     2,
-					DistanceMetric: "euclidean",
-				},
+		"vector": models.IndexSchemaValue{
+			Type: "vectorVamana",
+			VectorVamana: &models.IndexVectorVamanaParameters{
+				VectorSize:     2,
+				DistanceMetric: "euclidean",
+				SearchSize:     75,
+				DegreeBound:    64,
+				Alpha:          1.2,
 			},
 		},
 	},

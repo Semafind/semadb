@@ -14,184 +14,174 @@ type Collection struct {
 	IndexSchema IndexSchema
 }
 
-/* The IndexSchema is defined as different fields of index types to save us from
- * parsing arbitrary JSON. The original design was to include an object with
- * {type: indexType, parameters: indexParameters} fields. We quickly
- * realised this would create downstream parsing code. Although the explicit
- * approach may be verbose and may degrade user experience, it is far less error
- * prone due to strong typing. */
+const (
+	IndexTypeVectorFlat   = "vectorFlat"
+	IndexTypeVectorVamana = "vectorVamana"
+	IndexTypeText         = "text"
+	IndexTypeString       = "string"
+	IndexTypeInteger      = "integer"
+	IndexTypeFloat        = "float"
+	IndexTypeStringArray  = "stringArray"
+)
 
 // Defines the index schema for a collection, each index type is a map of property names
 // to index parameters. The index parameters are different for each index type.
-type IndexSchema struct {
-	VectorFlat   map[string]IndexVectorFlatParameters   `json:"vectorFlat" binding:"dive"`
-	VectorVamana map[string]IndexVectorVamanaParameters `json:"vectorVamana" binding:"dive"`
-	Text         map[string]IndexTextParameters         `json:"text" binding:"dive"`
-	String       map[string]IndexStringParameters       `json:"string" binding:"dive"`
-	Integer      map[string]struct{}                    `json:"integer"`
-	Float        map[string]struct{}                    `json:"float"`
-	StringArray  map[string]struct{}                    `json:"stringArray"`
-}
+type IndexSchema map[string]IndexSchemaValue
 
-// Checks if there are duplicate property names in the index schema
-func (s *IndexSchema) CheckDuplicatePropValue() (string, bool) {
-	seen := make(map[string]struct{})
-	for _, m := range []map[string]struct{}{s.Integer, s.Float, s.StringArray} {
-		for k := range m {
-			if _, ok := seen[k]; ok {
-				return k, true
+func (s IndexSchema) Validate() error {
+	for k, v := range s {
+		switch v.Type {
+		case IndexTypeVectorFlat:
+			if v.VectorFlat == nil {
+				return fmt.Errorf("vectorFlat parameters not provided for %s", k)
 			}
-			seen[k] = struct{}{}
+		case IndexTypeVectorVamana:
+			if v.VectorVamana == nil {
+				return fmt.Errorf("vectorVamana parameters not provided for %s", k)
+			}
+		case IndexTypeText:
+			if v.Text == nil {
+				return fmt.Errorf("text parameters not provided for %s", k)
+			}
+		case IndexTypeString:
+			if v.String == nil {
+				return fmt.Errorf("string parameters not provided for %s", k)
+			}
+		case IndexTypeInteger:
+			if v.Integer != nil {
+				return fmt.Errorf("integer parameters not provided for %s", k)
+			}
+		case IndexTypeFloat:
+			if v.Float != nil {
+				return fmt.Errorf("float parameters not provided for %s", k)
+			}
+		case IndexTypeStringArray:
+			if v.StringArray != nil {
+				return fmt.Errorf("stringArray parameters not provided for %s", k)
+			}
+		default:
+			return fmt.Errorf("unknown index type %s", v.Type)
 		}
 	}
-	return "", false
+	return nil
 }
 
-type indexProperty struct {
-	Name string
-	Type string
+type IndexSchemaValue struct {
+	Type         string                       `json:"type" binding:"required,oneof=vectorFlat vectorVamana text string integer float stringArray"`
+	VectorFlat   *IndexVectorFlatParameters   `json:"vectorFlat,omitempty"`
+	VectorVamana *IndexVectorVamanaParameters `json:"vectorVamana,omitempty"`
+	Text         *IndexTextParameters         `json:"text,omitempty"`
+	String       *IndexStringParameters       `json:"string,omitempty"`
+	Integer      *struct{}                    `json:"integer,omitempty"`
+	Float        *struct{}                    `json:"float,omitempty"`
+	StringArray  *struct{}                    `json:"stringArray,omitempty"`
 }
 
-func (s *IndexSchema) CollectAllProperties() []indexProperty {
-	var properties []indexProperty
-	// ---------------------------
-	// Do NOT change type values without handling migration. The type values are
-	// used in bucket names, e.g. index/vectorVamana/[property name]
-	// ---------------------------
-	for k := range s.VectorFlat {
-		properties = append(properties, indexProperty{Name: k, Type: "vectorFlat"})
+// Attempts to convert a given value to a vector
+func convertToVector(v any) ([]float32, error) {
+	// This mess happens because we are dealing with arbitrary JSON.
+	// Nothing stops the user from passing "vector": "memes" as valid
+	// JSON. Furthermore, JSON by default decodes floats to float64.
+	var vector []float32
+	switch v := v.(type) {
+	case []float32:
+		return v, nil
+	case []float64:
+		vector = make([]float32, len(v))
+		for i, f := range v {
+			vector[i] = float32(f)
+		}
+		return vector, nil
+	case []any:
+		vector = make([]float32, len(v))
+		for i, f := range v {
+			switch f := f.(type) {
+			case float32:
+				vector[i] = f
+			case float64:
+				vector[i] = float32(f)
+			default:
+				return nil, fmt.Errorf("expected float32, got %T", f)
+			}
+		}
+	default:
+		return nil, fmt.Errorf("expected vector, got %T", v)
 	}
-	for k := range s.VectorVamana {
-		properties = append(properties, indexProperty{Name: k, Type: "vectorVamana"})
-	}
-	for k := range s.Text {
-		properties = append(properties, indexProperty{Name: k, Type: "text"})
-	}
-	for k := range s.String {
-		properties = append(properties, indexProperty{Name: k, Type: "string"})
-	}
-	for k := range s.Integer {
-		properties = append(properties, indexProperty{Name: k, Type: "integer"})
-	}
-	for k := range s.Float {
-		properties = append(properties, indexProperty{Name: k, Type: "float"})
-	}
-	for k := range s.StringArray {
-		properties = append(properties, indexProperty{Name: k, Type: "stringArray"})
-	}
-	return properties
-}
-
-func (s *IndexSchema) GetPropertyType(property string) (string, bool) {
-	if _, ok := s.VectorFlat[property]; ok {
-		return "vectorFlat", true
-	}
-	if _, ok := s.VectorVamana[property]; ok {
-		return "vectorVamana", true
-	}
-	if _, ok := s.Text[property]; ok {
-		return "text", true
-	}
-	if _, ok := s.String[property]; ok {
-		return "string", true
-	}
-	if _, ok := s.Integer[property]; ok {
-		return "integer", true
-	}
-	if _, ok := s.Float[property]; ok {
-		return "float", true
-	}
-	if _, ok := s.StringArray[property]; ok {
-		return "stringArray", true
-	}
-	return "", false
+	return vector, nil
 }
 
 // Check if a given map is compatible with the index schema
-func (s *IndexSchema) CheckCompatibleMap(m map[string]any) error {
+func (s IndexSchema) CheckCompatibleMap(m PointAsMap) error {
 	// We will go through each index field, check if the map has them, is of
 	// right type and any extra checks needed
 	// ---------------------------
-	for k, params := range s.VectorFlat {
-		if v, ok := m[k]; ok {
-			vector, ok := v.([]float32)
-			if !ok {
-				return fmt.Errorf("expected vector for property %s, got %T", k, v)
-			}
-			if len(vector) != int(params.VectorSize) {
-				return fmt.Errorf("expected vector of size %d for %s, got %d", params.VectorSize, k, len(vector))
-			}
+	// For example, k="age" and v=42
+	for k, v := range m {
+		schema, ok := s[k]
+		if !ok {
+			// This property is not in the indexed schema
+			continue
 		}
-	}
-	// TODO: Refactor duplicate checks
-	// ---------------------------
-	for k, params := range s.VectorVamana {
-		if v, ok := m[k]; ok {
-			// This mess happens because we are dealing with arbitrary JSON.
-			// Nothing stops the user from passing "vector": "memes" as valid
-			// JSON. Furthermore, JSON by default decodes floats to float64.
-			var vector []float32
-			vector, ok := v.([]float32)
-			if !ok {
-				vectorAny, ok := v.([]interface{})
-				if !ok {
-					return fmt.Errorf("expected vector for property %s, got %T", k, v)
-				}
-				vector = make([]float32, len(vectorAny))
-				for i, v := range vectorAny {
-					switch v := v.(type) {
-					case float32:
-						vector[i] = v
-					case float64:
-						vector[i] = float32(v)
-					default:
-						return fmt.Errorf("expected float32 for %s, got %T", k, v)
-					}
-				}
+		switch schema.Type {
+		case IndexTypeVectorFlat:
+			vector, err := convertToVector(v)
+			if err != nil {
+				return fmt.Errorf("expected vector for %s, got %T", k, v)
 			}
-			if len(vector) != int(params.VectorSize) {
-				return fmt.Errorf("expected vector of size %d for %s, got %d", params.VectorSize, k, len(vector))
+			if schema.VectorFlat == nil {
+				return fmt.Errorf("vectorFlat parameters not provided for %s", k)
+			}
+			if len(vector) != int(schema.VectorFlat.VectorSize) {
+				return fmt.Errorf("expected vector of size %d for %s, got %d", schema.VectorFlat.VectorSize, k, len(vector))
 			}
 			// We override the map value with the vector so downstream code can
 			// use the vector directly.
 			m[k] = vector
-		}
-	}
-	// ---------------------------
-	for k := range s.Text {
-		if v, ok := m[k]; ok {
+		case IndexTypeVectorVamana:
+			vector, err := convertToVector(v)
+			if err != nil {
+				return fmt.Errorf("expected vector for %s, got %T", k, v)
+			}
+			if schema.VectorVamana == nil {
+				return fmt.Errorf("vamana parameters not provided for %s", k)
+			}
+			if len(vector) != int(schema.VectorVamana.VectorSize) {
+				return fmt.Errorf("expected vector of size %d for %s, got %d", schema.VectorVamana.VectorSize, k, len(vector))
+			}
+			// We override the map value with the vector so downstream code can
+			// use the vector directly.
+			m[k] = vector
+		case IndexTypeText:
+			fallthrough
+		case IndexTypeString:
 			if _, ok := v.(string); !ok {
 				return fmt.Errorf("expected string for %s, got %T", k, v)
 			}
-		}
-	}
-	// ---------------------------
-	for k := range s.String {
-		if v, ok := m[k]; ok {
-			if _, ok := v.(string); !ok {
-				return fmt.Errorf("expected string for %s, got %T", k, v)
-			}
-		}
-	}
-	// ---------------------------
-	for k := range s.Integer {
-		if v, ok := m[k]; ok {
-			if _, ok := v.(int); !ok {
+		case IndexTypeInteger:
+			switch v := v.(type) {
+			case int64:
+			case int:
+				m[k] = int64(v)
+			case int32:
+				m[k] = int64(v)
+			case uint:
+				m[k] = int64(v)
+			case uint32:
+				m[k] = int64(v)
+			// We are not supporting uint64 because it won't fit in int64
+			// case uint64:
+			default:
 				return fmt.Errorf("expected int for %s, got %T", k, v)
 			}
-		}
-	}
-	// ---------------------------
-	for k := range s.Float {
-		if v, ok := m[k]; ok {
-			if _, ok := v.(float32); !ok {
+		case IndexTypeFloat:
+			switch v := v.(type) {
+			case float32:
+			case float64:
+				m[k] = float32(v)
+			default:
 				return fmt.Errorf("expected float for %s, got %T", k, v)
 			}
-		}
-	}
-	// ---------------------------
-	for k := range s.StringArray {
-		if v, ok := m[k]; ok {
+		case IndexTypeStringArray:
 			if _, ok := v.([]string); !ok {
 				return fmt.Errorf("expected string array for %s, got %T", k, v)
 			}
@@ -207,10 +197,11 @@ type IndexVectorFlatParameters struct {
 }
 
 type IndexVectorVamanaParameters struct {
-	IndexVectorFlatParameters
-	SearchSize  int     `json:"searchSize" binding:"min=25,max=75"`
-	DegreeBound int     `json:"degreeBound" binding:"min=32,max=64"`
-	Alpha       float32 `json:"alpha" binding:"min=1.1,max=1.5"`
+	VectorSize     uint    `json:"vectorSize" binding:"required,min=1,max=4096"`
+	DistanceMetric string  `json:"distanceMetric" binding:"required,oneof=euclidean cosine dot"`
+	SearchSize     int     `json:"searchSize" binding:"min=25,max=75"`
+	DegreeBound    int     `json:"degreeBound" binding:"min=32,max=64"`
+	Alpha          float32 `json:"alpha" binding:"min=1.1,max=1.5"`
 }
 
 type IndexTextParameters struct {
