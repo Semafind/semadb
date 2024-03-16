@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
@@ -34,7 +35,7 @@ type Shard struct {
 	maxNodeId atomic.Uint64
 	// ---------------------------
 	cacheManager *cache.Manager
-	// TODO: add shard logger
+	logger       zerolog.Logger
 }
 
 // ---------------------------
@@ -99,6 +100,7 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 		db:           db,
 		collection:   collection,
 		cacheManager: cacheManager,
+		logger:       log.With().Str("component", "shard").Str("name", dbFile).Logger(),
 	}
 	shard.maxNodeId.Store(maxNodeId)
 	return shard, nil
@@ -172,7 +174,7 @@ func (s *Shard) Info() (si shardInfo, err error) {
 
 func (s *Shard) InsertPoints(points []models.Point) error {
 	// ---------------------------
-	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("InsertPoints")
+	s.logger.Debug().Int("count", len(points)).Msg("InsertPoints")
 	// ---------------------------
 	// Check for duplicate ids
 	ids := make(map[uuid.UUID]struct{}, len(points))
@@ -260,9 +262,9 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		txTime = time.Now()
 		return nil
 	})
-	log.Debug().Str("component", "shard").Str("duration", time.Since(txTime).String()).Msg("InsertPoints - Transaction Done")
+	s.logger.Debug().Str("duration", time.Since(txTime).String()).Msg("InsertPoints - Transaction Done")
 	if err != nil {
-		log.Error().Err(err).Msg("could not insert points")
+		s.logger.Error().Err(err).Msg("could not insert points")
 		return fmt.Errorf("could not insert points: %w", err)
 	}
 	// ---------------------------
@@ -272,7 +274,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 // ---------------------------
 
 func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
-	log.Debug().Str("component", "shard").Int("count", len(points)).Msg("UpdatePoints")
+	s.logger.Debug().Int("count", len(points)).Msg("UpdatePoints")
 	// ---------------------------
 	// Note that some points may not exist, so we need to take care of that
 	// throughout this function
@@ -356,7 +358,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 		return nil
 	})
 	if err != nil {
-		log.Debug().Err(err).Msg("could not update points")
+		s.logger.Debug().Err(err).Msg("could not update points")
 		return nil, fmt.Errorf("could not update points: %w", err)
 	}
 	// ---------------------------
@@ -476,7 +478,7 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 			}
 			finalResults[i].Point.Data = b
 		}
-		log.Debug().Str("component", "shard").Str("duration", time.Since(selectSortStart).String()).Msg("Select and sort done")
+		s.logger.Debug().Str("duration", time.Since(selectSortStart).String()).Msg("Search - Select Sort")
 	}
 	// ---------------------------
 	// Offset and limit
