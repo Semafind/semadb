@@ -1,19 +1,18 @@
 package diskstore
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
 	"go.etcd.io/bbolt"
 )
 
-type ReadOnlyBucket interface {
-	Get([]byte) []byte
-	ForEach(func(k, v []byte) error) error
-	PrefixScan(prefix []byte, f func(k, v []byte) error) error
-}
-
 type emptyReadOnlyBucket struct{}
+
+func (emptyReadOnlyBucket) IsReadOnly() bool {
+	return true
+}
 
 func (emptyReadOnlyBucket) Get(k []byte) []byte {
 	return nil
@@ -27,31 +26,43 @@ func (emptyReadOnlyBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) 
 	return nil
 }
 
+func (emptyReadOnlyBucket) Put(k, v []byte) error {
+	return errors.New("cannot put into empty read-only bucket")
+}
+
+func (emptyReadOnlyBucket) Delete(k []byte) error {
+	return errors.New("cannot delete from empty read-only bucket")
+}
+
 // ---------------------------
+
+// A convenience type for read-only buckets. Can be used as an argument to a function
+// to restrict the actions it can perform.
+type ReadOnlyBucket interface {
+	Get([]byte) []byte
+	ForEach(func(k, v []byte) error) error
+	PrefixScan(prefix []byte, f func(k, v []byte) error) error
+}
 
 // A bucket is like a kvstore, it can be used to store key-value pairs. We call
 // it a bucket because usually a single kvstore layer is used to store multiple
 // buckets.
 type Bucket interface {
 	ReadOnlyBucket
+	IsReadOnly() bool
 	Put([]byte, []byte) error
 	Delete([]byte) error
 }
 
-type ReadOnlyBucketManager interface {
-	ReadBucket(bucketName string) (ReadOnlyBucket, error)
-}
-
 type BucketManager interface {
-	ReadOnlyBucketManager
-	WriteBucket(bucketName string) (Bucket, error)
+	Get(bucketName string) (Bucket, error)
 }
 
 // A disk storage layer abstracts multiple buckets.
 type DiskStore interface {
 	// The path to where the store is located. It may be a file or a directory.
 	Path() string
-	Read(f func(ReadOnlyBucketManager) error) error
+	Read(f func(BucketManager) error) error
 	Write(f func(BucketManager) error) error
 	BackupToFile(path string) error
 	SizeInBytes() (int64, error)

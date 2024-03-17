@@ -152,7 +152,7 @@ outer:
 						queue = make(chan cache.GraphNode)
 						log.Debug().Str("component", "indexDispatch").Str("queue", qName).Msg("creating new queue")
 						vectorQ[qName] = queue
-						bucket, err := bm.WriteBucket(bucketName)
+						bucket, err := bm.Get(bucketName)
 						if err != nil {
 							return fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
 						}

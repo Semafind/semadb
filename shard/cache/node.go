@@ -82,10 +82,6 @@ func setNodeEdges(graphBucket diskstore.Bucket, node GraphNode) error {
 
 func setNode(graphBucket diskstore.Bucket, node GraphNode) error {
 	// ---------------------------
-	/* Sharing suffix keys with the same point id does not work because the
-	 * underlying array the slice points to gets modified and badger does not
-	 * like that. For example, suffixedKey[17] = 'e' and re-use, will not work. */
-	// ---------------------------
 	// Set vector
 	if err := graphBucket.Put(NodeKey(node.NodeId, 'v'), conversion.Float32ToBytes(node.Vector)); err != nil {
 		return fmt.Errorf("could not set vector: %w", err)

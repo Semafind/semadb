@@ -21,7 +21,7 @@ func withCounter(t *testing.T, db diskstore.DiskStore, f func(*shard.IdCounter))
 		db = tempDB(t)
 	}
 	db.Write(func(bm diskstore.BucketManager) error {
-		b, err := bm.WriteBucket("testing")
+		b, err := bm.Get("testing")
 		require.NoError(t, err)
 		counter, err := shard.NewIdCounter(b, []byte("freeIds"), []byte("nextFreeId"))
 		require.NoError(t, err)

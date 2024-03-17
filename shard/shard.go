@@ -78,7 +78,7 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 	err = db.Write(func(bm diskstore.BucketManager) error {
 		// ---------------------------
 		// Setup buckets
-		bInternal, err := bm.WriteBucket(INTERNALBUCKETKEY)
+		bInternal, err := bm.Get(INTERNALBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not write internal bucket: %w", err)
 		}
@@ -150,8 +150,8 @@ func (s *Shard) Info() (si shardInfo, err error) {
 	}
 	si.Size = dbSize
 	// ---------------------------
-	err = s.db.Read(func(bm diskstore.ReadOnlyBucketManager) error {
-		b, err := bm.ReadBucket(INTERNALBUCKETKEY)
+	err = s.db.Read(func(bm diskstore.BucketManager) error {
+		b, err := bm.Get(INTERNALBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not read internal bucket: %w", err)
 		}
@@ -189,11 +189,11 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 	// Remember, Bolt allows only one read-write transaction at a time
 	var txTime time.Time
 	err := s.db.Write(func(bm diskstore.BucketManager) error {
-		bPoints, err := bm.WriteBucket(POINTSBUCKETKEY)
+		bPoints, err := bm.Get(POINTSBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not write points bucket: %w", err)
 		}
-		bInternal, err := bm.WriteBucket(INTERNALBUCKETKEY)
+		bInternal, err := bm.Get(INTERNALBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not write internal bucket: %w", err)
 		}
@@ -281,7 +281,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 	updatedIds := make([]uuid.UUID, 0, len(points))
 	// ---------------------------
 	err := s.db.Write(func(bm diskstore.BucketManager) error {
-		pointsBucket, err := bm.WriteBucket(POINTSBUCKETKEY)
+		pointsBucket, err := bm.Get(POINTSBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not get write points bucket: %w", err)
 		}
@@ -374,9 +374,9 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 	 * rSet, a vector search pops up in rSet and results. */
 	var finalResults []models.SearchResult
 	// ---------------------------
-	err := s.db.Read(func(bm diskstore.ReadOnlyBucketManager) error {
+	err := s.db.Read(func(bm diskstore.BucketManager) error {
 		// ---------------------------
-		bPoints, err := bm.ReadBucket(POINTSBUCKETKEY)
+		bPoints, err := bm.Get(POINTSBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not get points bucket: %w", err)
 		}
@@ -494,11 +494,11 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 	deletedIds := make([]uuid.UUID, 0, len(deleteSet))
 	// ---------------------------
 	err := s.db.Write(func(bm diskstore.BucketManager) error {
-		bPoints, err := bm.WriteBucket(POINTSBUCKETKEY)
+		bPoints, err := bm.Get(POINTSBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not get write points bucket: %w", err)
 		}
-		bInternal, err := bm.WriteBucket(INTERNALBUCKETKEY)
+		bInternal, err := bm.Get(INTERNALBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not get write internal bucket: %w", err)
 		}

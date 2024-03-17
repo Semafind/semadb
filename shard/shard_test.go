@@ -46,8 +46,8 @@ var sampleCol models.Collection = models.Collection{
 const GRAPHINDEXBUCKETKEY = "index/vectorVamana/vector"
 
 func getVectorCount(shard *Shard) (count int) {
-	shard.db.Read(func(bm diskstore.ReadOnlyBucketManager) error {
-		b, err := bm.ReadBucket(GRAPHINDEXBUCKETKEY)
+	shard.db.Read(func(bm diskstore.BucketManager) error {
+		b, err := bm.Get(GRAPHINDEXBUCKETKEY)
 		if err != nil {
 			count = 0
 			return err
@@ -67,8 +67,8 @@ func getVectorCount(shard *Shard) (count int) {
 }
 
 func getPointEdgeCount(shard *Shard, nodeId uint64) (count int) {
-	shard.db.Read(func(bm diskstore.ReadOnlyBucketManager) error {
-		b, _ := bm.ReadBucket(GRAPHINDEXBUCKETKEY)
+	shard.db.Read(func(bm diskstore.BucketManager) error {
+		b, _ := bm.Get(GRAPHINDEXBUCKETKEY)
 		n := b.Get(cache.NodeKey(nodeId, 'e'))
 		count = len(n) / 8
 		return nil
@@ -82,8 +82,8 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	queue := make([]uint64, 0)
 	queue = append(queue, vamana.STARTID)
 	cm := cache.NewManager(-1)
-	err := shard.db.Read(func(bm diskstore.ReadOnlyBucketManager) error {
-		graphBucket, err := bm.ReadBucket(GRAPHINDEXBUCKETKEY)
+	err := shard.db.Read(func(bm diskstore.BucketManager) error {
+		graphBucket, err := bm.Get(GRAPHINDEXBUCKETKEY)
 		require.NoError(t, err)
 		err = cm.WithReadOnly("checkConnectivity", graphBucket, func(pc cache.ReadOnlyCache) error {
 			for len(queue) > 0 {
@@ -118,8 +118,8 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
 	nodeCount := 0
 	pointCount := 0
-	shard.db.Read(func(bm diskstore.ReadOnlyBucketManager) error {
-		b, err := bm.ReadBucket(POINTSBUCKETKEY)
+	shard.db.Read(func(bm diskstore.BucketManager) error {
+		b, err := bm.Get(POINTSBUCKETKEY)
 		require.NoError(t, err)
 		b.ForEach(func(k, v []byte) error {
 			if k[0] == 'n' && k[len(k)-1] == 'i' {
@@ -156,15 +156,15 @@ func checkPointCount(t *testing.T, shard *Shard, expected int) {
 }
 
 func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
-	shard.db.Read(func(bm diskstore.ReadOnlyBucketManager) error {
-		b, err := bm.ReadBucket(POINTSBUCKETKEY)
+	shard.db.Read(func(bm diskstore.BucketManager) error {
+		b, err := bm.Get(POINTSBUCKETKEY)
 		require.NoError(t, err)
 		// Check that the point ids are not in the database
 		for _, id := range pointIds {
 			nodeIdBytes := b.Get(PointKey(id, 'i'))
 			require.Nil(t, nodeIdBytes)
 		}
-		graphBucket, err := bm.ReadBucket(GRAPHINDEXBUCKETKEY)
+		graphBucket, err := bm.Get(GRAPHINDEXBUCKETKEY)
 		require.NoError(t, err)
 		// Check all remaining points have valid edges
 		graphBucket.ForEach(func(k, v []byte) error {
@@ -186,8 +186,8 @@ func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 
 func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
 	var maxId uint64
-	shard.db.Read(func(bm diskstore.ReadOnlyBucketManager) error {
-		b, err := bm.ReadBucket(POINTSBUCKETKEY)
+	shard.db.Read(func(bm diskstore.BucketManager) error {
+		b, err := bm.Get(POINTSBUCKETKEY)
 		require.NoError(t, err)
 		b.ForEach(func(k, v []byte) error {
 			if k[0] == 'n' && k[len(k)-1] == 'i' {

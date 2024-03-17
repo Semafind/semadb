@@ -3,49 +3,9 @@ package cache
 import (
 	"testing"
 
+	"github.com/semafind/semadb/diskstore"
 	"github.com/stretchr/testify/require"
 )
-
-// ---------------------------
-
-type tempBucket map[string][]byte
-
-func (b tempBucket) Get(k []byte) []byte {
-	return b[string(k)]
-}
-
-func (b tempBucket) Put(k, v []byte) error {
-	b[string(k)] = v
-	return nil
-}
-
-func (b tempBucket) ForEach(f func(k, v []byte) error) error {
-	for k, v := range b {
-		if err := f([]byte(k), v); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (b tempBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
-	for k, v := range b {
-		if len(k) < len(prefix) {
-			continue
-		}
-		if k[:len(prefix)] == string(prefix) {
-			if err := f([]byte(k), v); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func (b tempBucket) Delete(k []byte) error {
-	delete(b, string(k))
-	return nil
-}
 
 // ---------------------------
 
@@ -63,7 +23,7 @@ func randCachePoints(size int) []*CachePoint {
 }
 
 func tempPointCache() *pointCache {
-	graphBucket := make(tempBucket)
+	graphBucket := diskstore.NewMemBucket(false)
 	return &pointCache{
 		graphBucket: graphBucket,
 		readOnlyPointCache: readOnlyPointCache{

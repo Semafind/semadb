@@ -1,20 +1,40 @@
 package diskstore
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
-type memBucket map[string][]byte
-
-func (b memBucket) Get(k []byte) []byte {
-	return b[string(k)]
+type memBucket struct {
+	data       map[string][]byte
+	isReadOnly bool
 }
 
-func (b memBucket) Put(k, v []byte) error {
-	b[string(k)] = v
+func NewMemBucket(isReadOnly bool) Bucket {
+	return &memBucket{
+		data:       make(map[string][]byte),
+		isReadOnly: isReadOnly,
+	}
+}
+
+func (b *memBucket) IsReadOnly() bool {
+	return b.isReadOnly
+}
+
+func (b *memBucket) Get(k []byte) []byte {
+	return b.data[string(k)]
+}
+
+func (b *memBucket) Put(k, v []byte) error {
+	if b.isReadOnly {
+		return fmt.Errorf("cannot put into read-only memory bucket")
+	}
+	b.data[string(k)] = v
 	return nil
 }
 
-func (b memBucket) ForEach(f func(k, v []byte) error) error {
-	for k, v := range b {
+func (b *memBucket) ForEach(f func(k, v []byte) error) error {
+	for k, v := range b.data {
 		if err := f([]byte(k), v); err != nil {
 			return err
 		}
@@ -22,8 +42,8 @@ func (b memBucket) ForEach(f func(k, v []byte) error) error {
 	return nil
 }
 
-func (b memBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
-	for k, v := range b {
+func (b *memBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
+	for k, v := range b.data {
 		if len(k) < len(prefix) {
 			continue
 		}
@@ -36,37 +56,45 @@ func (b memBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
 	return nil
 }
 
-func (b memBucket) Delete(k []byte) error {
-	delete(b, string(k))
+func (b *memBucket) Delete(k []byte) error {
+	if b.isReadOnly {
+		return fmt.Errorf("cannot delete in a read-only memory bucket")
+	}
+	delete(b.data, string(k))
 	return nil
 }
 
-type bucketMap map[string]memBucket
-
-func (bm bucketMap) ReadBucket(bucketName string) (ReadOnlyBucket, error) {
-	b, ok := bm[bucketName]
-	if !ok {
-		return emptyReadOnlyBucket{}, nil
-	}
-	return b, nil
+type memBucketManager struct {
+	buckets    map[string]map[string][]byte
+	isReadOnly bool
+	mu         sync.Mutex
 }
 
-func (bm bucketMap) WriteBucket(bucketName string) (Bucket, error) {
-	b, ok := bm[bucketName]
+func (bm *memBucketManager) Get(bucketName string) (Bucket, error) {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	b, ok := bm.buckets[bucketName]
 	if !ok {
-		b = make(memBucket)
-		bm[bucketName] = b
+		b = make(map[string][]byte)
+		bm.buckets[bucketName] = b
 	}
-	return b, nil
+	mb := &memBucket{
+		data:       b,
+		isReadOnly: bm.isReadOnly,
+	}
+	return mb, nil
 }
 
 type memDiskStore struct {
-	buckets bucketMap
+	buckets map[string]map[string][]byte
+	// This lock is used to give a consistent view of the store such that Write
+	// does not interleave with any Read.
+	mu sync.RWMutex
 }
 
 func newMemDiskStore() *memDiskStore {
 	return &memDiskStore{
-		buckets: make(bucketMap),
+		buckets: make(map[string]map[string][]byte),
 	}
 }
 
@@ -74,12 +102,24 @@ func (ds *memDiskStore) Path() string {
 	return "memory"
 }
 
-func (ds *memDiskStore) Read(f func(ReadOnlyBucketManager) error) error {
-	return f(ds.buckets)
+func (ds *memDiskStore) Read(f func(BucketManager) error) error {
+	ds.mu.RLock()
+	defer ds.mu.RUnlock()
+	bm := &memBucketManager{
+		buckets:    ds.buckets,
+		isReadOnly: true,
+	}
+	return f(bm)
 }
 
 func (ds *memDiskStore) Write(f func(BucketManager) error) error {
-	return f(ds.buckets)
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+	bm := &memBucketManager{
+		buckets:    ds.buckets,
+		isReadOnly: false,
+	}
+	return f(bm)
 }
 
 func (ds *memDiskStore) BackupToFile(path string) error {

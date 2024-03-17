@@ -16,7 +16,7 @@ import (
 
 func Search(
 	ctx context.Context,
-	bm diskstore.ReadOnlyBucketManager,
+	bm diskstore.BucketManager,
 	cm *cache.Manager,
 	cacheRoot string,
 	indexSchema models.IndexSchema,
@@ -41,7 +41,7 @@ func Search(
 	// ---------------------------
 	// e.g. index/vamana/myvector
 	bucketName := fmt.Sprintf("index/%s/%s", itype, q.Property)
-	bucket, err := bm.ReadBucket(bucketName)
+	bucket, err := bm.Get(bucketName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not read bucket %s: %w", bucketName, err)
 	}
@@ -91,7 +91,7 @@ func Search(
 
 func searchParallel(
 	ctx context.Context,
-	bm diskstore.ReadOnlyBucketManager,
+	bm diskstore.BucketManager,
 	cm *cache.Manager,
 	cacheRoot string,
 	indexSchema models.IndexSchema,

@@ -56,7 +56,7 @@ func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, repl
 	// ---------------------------
 	err = c.nodedb.Write(func(bm diskstore.BucketManager) error {
 		// ---------------------------
-		b, err := bm.WriteBucket(USERCOLSBUCKETKEY)
+		b, err := bm.Get(USERCOLSBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not get write user collections bucket: %w", err)
 		}
@@ -107,7 +107,7 @@ func (c *ClusterNode) RPCDeleteCollection(args *RPCDeleteCollectionRequest, repl
 	}
 	err := c.nodedb.Write(func(bm diskstore.BucketManager) error {
 		// ---------------------------
-		b, err := bm.WriteBucket(USERCOLSBUCKETKEY)
+		b, err := bm.Get(USERCOLSBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not get write user collections bucket: %w", err)
 		}
@@ -137,9 +137,9 @@ func (c *ClusterNode) RPCListCollections(args *RPCListCollectionsRequest, reply 
 		return c.internalRoute("ClusterNode.RPCListCollections", args, reply)
 	}
 	reply.Collections = make([]models.Collection, 0)
-	err := c.nodedb.Read(func(bm diskstore.ReadOnlyBucketManager) error {
+	err := c.nodedb.Read(func(bm diskstore.BucketManager) error {
 		// ---------------------------
-		b, err := bm.ReadBucket(USERCOLSBUCKETKEY)
+		b, err := bm.Get(USERCOLSBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not get read user collections bucket: %w", err)
 		}
@@ -176,9 +176,9 @@ func (c *ClusterNode) RPCGetCollection(args *RPCGetCollectionRequest, reply *RPC
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCGetCollection", args, reply)
 	}
-	err := c.nodedb.Read(func(bm diskstore.ReadOnlyBucketManager) error {
+	err := c.nodedb.Read(func(bm diskstore.BucketManager) error {
 		// ---------------------------
-		b, err := bm.ReadBucket(USERCOLSBUCKETKEY)
+		b, err := bm.Get(USERCOLSBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not get read user collections bucket: %w", err)
 		}
@@ -217,7 +217,7 @@ func (c *ClusterNode) RPCCreateShard(args *RPCCreateShardRequest, reply *RPCCrea
 	}
 	err := c.nodedb.Write(func(bm diskstore.BucketManager) error {
 		// ---------------------------
-		b, err := bm.WriteBucket(USERCOLSBUCKETKEY)
+		b, err := bm.Get(USERCOLSBUCKETKEY)
 		if err != nil {
 			return fmt.Errorf("could not get write user collections bucket: %w", err)
 		}
