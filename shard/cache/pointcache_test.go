@@ -26,10 +26,7 @@ func tempPointCache() *pointCache {
 	graphBucket := diskstore.NewMemBucket(false)
 	return &pointCache{
 		graphBucket: graphBucket,
-		readOnlyPointCache: readOnlyPointCache{
-			graphBucket: graphBucket,
-			sharedCache: newSharedInMemCache(),
-		},
+		sharedCache: newSharedInMemCache(),
 	}
 }
 
@@ -54,7 +51,7 @@ func TestPointCache_GetPoint(t *testing.T) {
 		pc.flush()
 		pc2 := tempPointCache()
 		// pc2.bucket = pc.bucket
-		pc2.readOnlyPointCache.graphBucket = pc.graphBucket
+		pc2.graphBucket = pc.graphBucket
 		p, err := pc2.GetPoint(cachePoint.NodeId)
 		require.NoError(t, err)
 		require.Equal(t, cachePoint.NodeId, p.NodeId)

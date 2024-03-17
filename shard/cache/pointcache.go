@@ -28,20 +28,12 @@ type ReadWriteCache interface {
 
 // ---------------------------
 
-/* This duplication appeared mainly because union of interface types is not
- * possible in Go. The types in question are ReadOnlyBucket and Bucket. */
-
-type readOnlyPointCache struct {
-	graphBucket diskstore.ReadOnlyBucket
-	sharedCache *sharedInMemCache
-}
-
 type pointCache struct {
-	readOnlyPointCache
+	sharedCache *sharedInMemCache
 	graphBucket diskstore.Bucket // This takes precedence over the read only bucket.
 }
 
-func (pc *readOnlyPointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
+func (pc *pointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
 	// ---------------------------
@@ -66,7 +58,7 @@ func (pc *readOnlyPointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 
 // Operate with a lock on the point neighbours. If the neighbours are not
 // loaded, load them from the database.
-func (pc *readOnlyPointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn func([]*CachePoint) error) error {
+func (pc *pointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn func([]*CachePoint) error) error {
 	/* We have to lock here because we can't have another goroutine changing the
 	 * edges while we are using them. The read only case mainly occurs in
 	 * searching whereas the writes happen for pruning edges. By using
