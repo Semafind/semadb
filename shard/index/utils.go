@@ -30,6 +30,7 @@ const (
 	opInsert = "insert"
 	opUpdate = "update"
 	opDelete = "delete"
+	opSkip   = "skip"
 )
 
 // Determines the operation to be performed on the index and extracts the previous
@@ -52,9 +53,12 @@ func getOperation(dec *msgpack.Decoder, propertyName string, prevData, currentDa
 	case prevProp != nil && currentProp != nil:
 		// Update
 		op = opUpdate
-	case currentProp == nil:
+	case prevProp != nil && currentProp == nil:
 		// Delete
 		op = opDelete
+	case prevProp == nil && currentProp == nil:
+		// Skip
+		op = opSkip
 	default:
 		err = fmt.Errorf("unexpected previous and current values for %s: %v - %v", propertyName, prevProp, currentProp)
 	}

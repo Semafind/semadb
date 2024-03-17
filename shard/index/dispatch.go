@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index/vamana"
@@ -18,6 +17,11 @@ type IndexPointChange struct {
 	NewData      []byte
 }
 
+type decodedPointChange struct {
+	nodeId  uint64
+	newData any
+}
+
 // ---------------------------
 
 // Dispatch is a function that dispatches the new data to the appropriate index
@@ -26,12 +30,13 @@ func (im indexManager) Dispatch(
 	changes <-chan IndexPointChange,
 ) error {
 	// ---------------------------
-	var indexWg sync.WaitGroup
+	var wg sync.WaitGroup
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	dec := msgpack.NewDecoder(nil)
 	// ---------------------------
-	vectorQ := make(map[string]chan cache.GraphNode)
+	decodedQ := make(map[string]chan decodedPointChange)
+	indexMap := make(map[string]any)
 	// ---------------------------
 outer:
 	for {
@@ -48,82 +53,143 @@ outer:
 				if err != nil {
 					return fmt.Errorf("could not get operation for property %s: %w", propName, err)
 				}
+				// This property has not changed or is not present
+				if op == opSkip {
+					continue
+				}
 				// ---------------------------
 				// e.g. index/vamana/myvector
 				bucketName := fmt.Sprintf("index/%s/%s", params.Type, propName)
-				// ---------------------------
-				switch params.Type {
-				case models.IndexTypeVectorVamana:
-					// ---------------------------
-					vector, err := castDataToVector(current)
+				// e.g. index/vamana/myvector/insert
+				qName := bucketName + "/" + op
+				queue, ok := decodedQ[qName]
+				if !ok {
+					queue = make(chan decodedPointChange)
+					decodedQ[qName] = queue
+					drainFn, err := im.getDrainFn(indexMap, params, bucketName, op)
 					if err != nil {
-						return fmt.Errorf("could not cast data to vector for property %s: %w", propName, err)
+						return fmt.Errorf("could not get drain function for %s: %w", bucketName, err)
 					}
-					// ---------------------------
-					// e.g. [shardId]/index/vamana/myvector
-					cacheName := im.cacheRoot + "/" + bucketName
-					// e.g. index/vamana/myvector/insert
-					qName := bucketName + "/" + op
-					queue, ok := vectorQ[qName]
-					if !ok {
-						queue = make(chan cache.GraphNode)
-						log.Debug().Str("component", "indexDispatch").Str("queue", qName).Msg("creating new queue")
-						vectorQ[qName] = queue
-						bucket, err := im.bm.Get(bucketName)
-						if err != nil {
-							return fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						if err := drainFn(ctx, queue); err != nil {
+							cancel(fmt.Errorf("could not drain index for %s: %w", bucketName, err))
 						}
-						indexVamana, err := vamana.NewIndexVamana(cacheName, *params.VectorVamana, im.maxNodeId)
-						if err != nil {
-							return fmt.Errorf("could not get new vamana index %s: %w", propName, err)
-						}
-						indexWg.Add(1)
-						go func() {
-							defer indexWg.Done()
-							// Recall the queue name includes op, so we don't
-							// interleave insert, update and delete operation
-							// they all act on consistent states of the index
-							// based on the cache.
-							err := im.cm.With(cacheName, bucket, func(pc cache.ReadWriteCache) error {
-								switch op {
-								case opInsert:
-									return indexVamana.Insert(ctx, pc, queue)
-								case opDelete:
-									return indexVamana.Delete(ctx, pc, queue)
-								case opUpdate:
-									return indexVamana.Update(ctx, pc, queue)
-								}
-								return nil
-							})
-							if err != nil {
-								cancel(fmt.Errorf("could not perform vector index %s for %s: %w", params.Type, propName, err))
-							}
-						}()
-					}
-					// ---------------------------
-					// Submit job to the queue
-					select {
-					case queue <- cache.GraphNode{NodeId: change.NodeId, Vector: vector}:
-					case <-ctx.Done():
-						return fmt.Errorf("context done while dispatching to %s: %w", qName, context.Cause(ctx))
-					}
-					// ---------------------------
-				default:
-					return fmt.Errorf("unsupported index property type: %s", params.Type)
-				} // End of property type switch
+					}()
+				}
+				// ---------------------------
+				// Submit job to the queue
+				select {
+				case queue <- decodedPointChange{nodeId: change.NodeId, newData: current}:
+				case <-ctx.Done():
+					return fmt.Errorf("context done while dispatching to %s: %w", qName, context.Cause(ctx))
+				}
+				// ---------------------------
 			} // End of properties loop
 		}
 	}
 	// ---------------------------
 	// Close any queues
-	for _, queue := range vectorQ {
+	for _, queue := range decodedQ {
 		close(queue)
 	}
 	// ---------------------------
 	// Wait for any indexing to finish
-	indexWg.Wait()
+	wg.Wait()
 	if err := context.Cause(ctx); err != nil {
 		return fmt.Errorf("index dispatch context error: %w", err)
 	}
 	return nil
+}
+
+type drainFunction func(ctx context.Context, queue <-chan decodedPointChange) error
+
+func (im indexManager) getDrainFn(
+	indexMap map[string]any,
+	params models.IndexSchemaValue,
+	bucketName string,
+	operation string,
+) (drainFunction, error) {
+	switch params.Type {
+	case models.IndexTypeVectorVamana:
+		// ---------------------------
+		vamanaIndexAny, ok := indexMap[bucketName]
+		if !ok {
+			cacheName := im.cacheRoot + "/" + bucketName
+			bucket, err := im.bm.Get(bucketName)
+			if err != nil {
+				return nil, fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
+			}
+			vamanaIndexAny, err = vamana.NewIndexVamana(cacheName, im.cm, bucket, *params.VectorVamana, im.maxNodeId)
+			if err != nil {
+				return nil, fmt.Errorf("could not create vamana index: %w", err)
+			}
+			indexMap[bucketName] = vamanaIndexAny
+		}
+		vamanaIndex := vamanaIndexAny.(*vamana.IndexVamana)
+		vDrain := func(ctx context.Context, queue <-chan decodedPointChange) error {
+			return drainVamana(ctx, queue, vamanaIndex, operation)
+		}
+		return vDrain, nil
+	default:
+		return nil, fmt.Errorf("unsupported index property type: %s", params.Type)
+	} // End of property type switch
+}
+
+func drainVamana(
+	ctx context.Context,
+	in <-chan decodedPointChange,
+	vamanaIndex *vamana.IndexVamana,
+	operation string,
+) error {
+	// ---------------------------
+	out := make(chan cache.GraphNode)
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	var wg sync.WaitGroup
+	// ---------------------------
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		switch operation {
+		case opInsert:
+			if err := vamanaIndex.Insert(ctx, out); err != nil {
+				cancel(fmt.Errorf("could not insert into vamana index: %w", err))
+			}
+		case opUpdate:
+			if err := vamanaIndex.Update(ctx, out); err != nil {
+				cancel(fmt.Errorf("could not update vamana index: %w", err))
+			}
+		case opDelete:
+			if err := vamanaIndex.Delete(ctx, out); err != nil {
+				cancel(fmt.Errorf("could not delete from vamana index: %w", err))
+			}
+		}
+	}()
+	// ---------------------------
+	// Transform the incoming changes
+outer:
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context interrupt while draining vamana: %w", context.Cause(ctx))
+		case change, ok := <-in:
+			if !ok {
+				break outer
+			}
+			vector, err := castDataToVector(change.newData)
+			if err != nil {
+				return fmt.Errorf("could not cast data to vector: %w", err)
+			}
+			select {
+			case out <- cache.GraphNode{NodeId: change.nodeId, Vector: vector}:
+			case <-ctx.Done():
+				return fmt.Errorf("context interrupt while draining vamana: %w", context.Cause(ctx))
+			}
+		}
+	}
+	close(out)
+	wg.Wait()
+	return context.Cause(ctx)
 }

@@ -7,7 +7,6 @@ import (
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/semafind/semadb/models"
-	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index/vamana"
 )
 
@@ -50,16 +49,11 @@ func (im indexManager) Search(
 		}
 		// ---------------------------
 		cacheName := im.cacheRoot + "/" + bucketName
-		vIndex, err := vamana.NewIndexVamana(cacheName, *iparams.VectorVamana, im.maxNodeId)
+		vIndex, err := vamana.NewIndexVamana(cacheName, im.cm, bucket, *iparams.VectorVamana, im.maxNodeId)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not create vamana index: %w", err)
 		}
-		var vamanaRes []models.SearchResult
-		err = im.cm.WithReadOnly(cacheName, bucket, func(pc cache.ReadOnlyCache) error {
-			res, err := vIndex.Search(ctx, pc, q.VectorVamana.Vector, q.VectorVamana.Limit)
-			vamanaRes = res
-			return err
-		})
+		vamanaRes, err := vIndex.Search(ctx, q.VectorVamana.Vector, q.VectorVamana.Limit)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not complete search %s: %w", bucketName, err)
 		}

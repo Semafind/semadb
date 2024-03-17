@@ -9,7 +9,7 @@ import (
 
 // This point has a neighbour that is being deleted. We need to pool together
 // the deleted neighbour neighbours and prune the point.
-func (v *indexVamana) pruneDeleteNeighbour(pc cache.ReadWriteCache, id uint64, deleteSet map[uint64]struct{}) error {
+func (v *IndexVamana) pruneDeleteNeighbour(pc cache.ReadWriteCache, id uint64, deleteSet map[uint64]struct{}) error {
 	// ---------------------------
 	pointA, err := pc.GetPoint(id)
 	if err != nil {
@@ -85,7 +85,7 @@ func (v *indexVamana) pruneDeleteNeighbour(pc cache.ReadWriteCache, id uint64, d
 
 // Attempts to remove the edges of the deleted points. This is done by scanning
 // all the edges and removing the ones that point to a deleted point.
-func (v *indexVamana) removeInboundEdges(pc cache.ReadWriteCache, deleteSet map[uint64]struct{}) error {
+func (v *IndexVamana) removeInboundEdges(pc cache.ReadWriteCache, deleteSet map[uint64]struct{}) error {
 	// The scanning may not be efficient but it is correct. We can optimise this
 	// in the future.
 	// ---------------------------

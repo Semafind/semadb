@@ -527,21 +527,22 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		}()
 		// ---------------------------
 		for pointId := range deleteSet {
-			nodeId, err := GetPointNodeIdByUUID(bPoints, pointId)
-			if err == ErrPointDoesNotExist || nodeId == 0 {
+			sp, err := GetPointByUUID(bPoints, pointId)
+			if err == ErrPointDoesNotExist {
 				// Deleting a non-existing point is a no-op
 				continue
-			} else if err != nil {
-				return fmt.Errorf("could not get point node id for deletion: %w", err)
+			}
+			if err != nil {
+				return fmt.Errorf("could not get point for deletion: %w", err)
 			}
 			deletedIds = append(deletedIds, pointId)
-			nodeCounter.FreeId(nodeId)
+			nodeCounter.FreeId(sp.NodeId)
 			select {
 			case <-ctx.Done():
 				return fmt.Errorf("context interrupt for shard delete: %w", context.Cause(ctx))
-			case indexQ <- index.IndexPointChange{NodeId: nodeId, PreviousData: nil, NewData: nil}:
+			case indexQ <- index.IndexPointChange{NodeId: sp.NodeId, PreviousData: sp.Data, NewData: nil}:
 			}
-			if err := DeletePoint(bPoints, pointId, nodeId); err != nil {
+			if err := DeletePoint(bPoints, pointId, sp.NodeId); err != nil {
 				return fmt.Errorf("could not delete point %s: %w", pointId, err)
 			}
 		}

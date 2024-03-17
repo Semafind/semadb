@@ -7,7 +7,7 @@ import (
 	"github.com/semafind/semadb/shard/cache"
 )
 
-func (v *indexVamana) insertSinglePoint(pc cache.ReadWriteCache, sp cache.GraphNode) error {
+func (v *IndexVamana) insertSinglePoint(pc cache.ReadWriteCache, sp cache.GraphNode) error {
 	point, err := pc.SetPoint(sp)
 	if err != nil {
 		return fmt.Errorf("could not set point: %w", err)
@@ -55,7 +55,7 @@ func (v *indexVamana) insertSinglePoint(pc cache.ReadWriteCache, sp cache.GraphN
 	return nil
 }
 
-func (v *indexVamana) insertWorker(ctx context.Context, pc cache.ReadWriteCache, jobQueue <-chan cache.GraphNode) error {
+func (v *IndexVamana) insertWorker(ctx context.Context, pc cache.ReadWriteCache, jobQueue <-chan cache.GraphNode) error {
 	for {
 		select {
 		case <-ctx.Done():
