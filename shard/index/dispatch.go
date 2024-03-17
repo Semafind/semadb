@@ -1,13 +1,11 @@
 package index
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"sync"
 
 	"github.com/rs/zerolog/log"
-	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index/vamana"
@@ -20,92 +18,11 @@ type IndexPointChange struct {
 	NewData      []byte
 }
 
-func getPropertyFromBytes(dec *msgpack.Decoder, data []byte, property string) (any, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-	dec.Reset(bytes.NewReader(data))
-	// ---------------------------
-	queryResult, err := dec.Query(property)
-	if err != nil {
-		return nil, fmt.Errorf("could not query field: %w", err)
-	}
-	if len(queryResult) == 0 {
-		// The field is not found
-		return nil, nil
-	}
-	// ---------------------------
-	return queryResult[0], nil
-}
-
-// ---------------------------
-const (
-	opInsert = "insert"
-	opUpdate = "update"
-	opDelete = "delete"
-)
-
-// Determines the operation to be performed on the index and extracts the previous
-// and current property values.
-func getOperation(dec *msgpack.Decoder, propertyName string, prevData, currentData []byte) (prevProp, currentProp any, op string, err error) {
-	prevProp, err = getPropertyFromBytes(dec, prevData, propertyName)
-	if err != nil {
-		err = fmt.Errorf("could not get previous property %s: %w", propertyName, err)
-		return
-	}
-	currentProp, err = getPropertyFromBytes(dec, currentData, propertyName)
-	if err != nil {
-		err = fmt.Errorf("could not get new property %s: %w", propertyName, err)
-		return
-	}
-	switch {
-	case prevProp == nil && currentProp != nil:
-		// Insert
-		op = opInsert
-	case prevProp != nil && currentProp != nil:
-		// Update
-		op = opUpdate
-	case currentProp == nil:
-		// Delete
-		op = opDelete
-	default:
-		err = fmt.Errorf("unexpected previous and current values for %s: %v - %v", propertyName, prevProp, currentProp)
-	}
-	// Named return values are a language feature that allows us to declare what
-	// the return values are named and then we can just return without specifying
-	// the return values.
-	return
-}
-
-// ---------------------------
-
-func castDataToVector(data any) ([]float32, error) {
-	// The problem is the query returns []any and we need to
-	// convert it to the appropriate type, doing .([]float32) doesn't work
-	var vector []float32
-	if data != nil {
-		if anyArr, ok := data.([]any); !ok {
-			return vector, fmt.Errorf("expected vector got %T", data)
-		} else {
-			vector = make([]float32, len(anyArr))
-			for i, v := range anyArr {
-				vector[i] = v.(float32)
-			}
-		}
-	}
-	return vector, nil
-}
-
 // ---------------------------
 
 // Dispatch is a function that dispatches the new data to the appropriate index
-func Dispatch(
+func (im indexManager) Dispatch(
 	ctx context.Context,
-	bm diskstore.BucketManager,
-	cm *cache.Manager,
-	cacheRoot string,
-	indexSchema models.IndexSchema,
-	maxNodeId uint64,
 	changes <-chan IndexPointChange,
 ) error {
 	// ---------------------------
@@ -126,7 +43,7 @@ outer:
 			if !ok {
 				break outer
 			}
-			for propName, params := range indexSchema {
+			for propName, params := range im.indexSchema {
 				_, current, op, err := getOperation(dec, propName, change.PreviousData, change.NewData)
 				if err != nil {
 					return fmt.Errorf("could not get operation for property %s: %w", propName, err)
@@ -144,7 +61,7 @@ outer:
 					}
 					// ---------------------------
 					// e.g. [shardId]/index/vamana/myvector
-					cacheName := cacheRoot + "/" + bucketName
+					cacheName := im.cacheRoot + "/" + bucketName
 					// e.g. index/vamana/myvector/insert
 					qName := bucketName + "/" + op
 					queue, ok := vectorQ[qName]
@@ -152,11 +69,11 @@ outer:
 						queue = make(chan cache.GraphNode)
 						log.Debug().Str("component", "indexDispatch").Str("queue", qName).Msg("creating new queue")
 						vectorQ[qName] = queue
-						bucket, err := bm.Get(bucketName)
+						bucket, err := im.bm.Get(bucketName)
 						if err != nil {
 							return fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
 						}
-						indexVamana, err := vamana.NewIndexVamana(cacheName, *params.VectorVamana, maxNodeId)
+						indexVamana, err := vamana.NewIndexVamana(cacheName, *params.VectorVamana, im.maxNodeId)
 						if err != nil {
 							return fmt.Errorf("could not get new vamana index %s: %w", propName, err)
 						}
@@ -167,7 +84,7 @@ outer:
 							// interleave insert, update and delete operation
 							// they all act on consistent states of the index
 							// based on the cache.
-							err := cm.With(cacheName, bucket, func(pc cache.ReadWriteCache) error {
+							err := im.cm.With(cacheName, bucket, func(pc cache.ReadWriteCache) error {
 								switch op {
 								case opInsert:
 									return indexVamana.Insert(ctx, pc, queue)

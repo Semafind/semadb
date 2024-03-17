@@ -6,21 +6,13 @@ import (
 	"sync"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index/vamana"
 )
 
-// TODO: Refactor into IndexManager with common properties with Dispatch
-
-func Search(
+func (im indexManager) Search(
 	ctx context.Context,
-	bm diskstore.BucketManager,
-	cm *cache.Manager,
-	cacheRoot string,
-	indexSchema models.IndexSchema,
-	maxNodeId uint64,
 	q models.Query,
 ) (*roaring64.Bitmap, []models.SearchResult, error) {
 	// ---------------------------
@@ -29,11 +21,11 @@ func Search(
 	// Cover special property cases first
 	switch q.Property {
 	case "_and":
-		return searchParallel(ctx, bm, cm, cacheRoot, indexSchema, maxNodeId, q.And, false)
+		return im.searchParallel(ctx, q.And, false)
 	case "_or":
-		return searchParallel(ctx, bm, cm, cacheRoot, indexSchema, maxNodeId, q.Or, true)
+		return im.searchParallel(ctx, q.Or, true)
 	}
-	iparams, ok := indexSchema[q.Property]
+	iparams, ok := im.indexSchema[q.Property]
 	if !ok {
 		return nil, nil, fmt.Errorf("property %s not found in index schema", q.Property)
 	}
@@ -41,7 +33,7 @@ func Search(
 	// ---------------------------
 	// e.g. index/vamana/myvector
 	bucketName := fmt.Sprintf("index/%s/%s", itype, q.Property)
-	bucket, err := bm.Get(bucketName)
+	bucket, err := im.bm.Get(bucketName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not read bucket %s: %w", bucketName, err)
 	}
@@ -57,13 +49,13 @@ func Search(
 			return nil, nil, fmt.Errorf("filter not supported for property %s of type %s", q.Property, itype)
 		}
 		// ---------------------------
-		cacheName := cacheRoot + "/" + bucketName
-		vIndex, err := vamana.NewIndexVamana(cacheName, *iparams.VectorVamana, maxNodeId)
+		cacheName := im.cacheRoot + "/" + bucketName
+		vIndex, err := vamana.NewIndexVamana(cacheName, *iparams.VectorVamana, im.maxNodeId)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not create vamana index: %w", err)
 		}
 		var vamanaRes []models.SearchResult
-		err = cm.WithReadOnly(cacheName, bucket, func(pc cache.ReadOnlyCache) error {
+		err = im.cm.WithReadOnly(cacheName, bucket, func(pc cache.ReadOnlyCache) error {
 			res, err := vIndex.Search(ctx, pc, q.VectorVamana.Vector, q.VectorVamana.Limit)
 			vamanaRes = res
 			return err
@@ -89,13 +81,8 @@ func Search(
 	}
 }
 
-func searchParallel(
+func (im indexManager) searchParallel(
 	ctx context.Context,
-	bm diskstore.BucketManager,
-	cm *cache.Manager,
-	cacheRoot string,
-	indexSchema models.IndexSchema,
-	maxNodeId uint64,
 	queries []models.Query,
 	isDisjunction bool,
 ) (*roaring64.Bitmap, []models.SearchResult, error) {
@@ -110,7 +97,7 @@ func searchParallel(
 		wg.Add(1)
 		go func(i int, q models.Query) {
 			defer wg.Done()
-			set, res, err := Search(ctx, bm, cm, cacheRoot, indexSchema, maxNodeId, q)
+			set, res, err := im.Search(ctx, q)
 			if err != nil {
 				cancel(err)
 				return

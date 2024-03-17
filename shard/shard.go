@@ -211,7 +211,8 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := index.Dispatch(ctx, bm, s.cacheManager, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load(), indexQ)
+			im := index.NewIndexManager(bm, s.cacheManager, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
+			err := im.Dispatch(ctx, indexQ)
 			if err != nil {
 				cancel(fmt.Errorf("could not dispatch index: %w", err))
 			}
@@ -294,7 +295,8 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := index.Dispatch(ctx, bm, s.cacheManager, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load(), indexQ)
+			im := index.NewIndexManager(bm, s.cacheManager, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
+			err := im.Dispatch(ctx, indexQ)
 			if err != nil {
 				cancel(fmt.Errorf("could not dispatch index: %w", err))
 			}
@@ -381,7 +383,8 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 			return fmt.Errorf("could not get points bucket: %w", err)
 		}
 		// ---------------------------
-		rSet, results, err := index.Search(context.Background(), bm, s.cacheManager, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load(), searchRequest.Query)
+		im := index.NewIndexManager(bm, s.cacheManager, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
+		rSet, results, err := im.Search(context.Background(), searchRequest.Query)
 		if err != nil {
 			return fmt.Errorf("could not perform search: %w", err)
 		}
@@ -516,7 +519,8 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := index.Dispatch(ctx, bm, s.cacheManager, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load(), indexQ)
+			im := index.NewIndexManager(bm, s.cacheManager, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
+			err := im.Dispatch(ctx, indexQ)
 			if err != nil {
 				cancel(fmt.Errorf("could not dispatch index: %w", err))
 			}
