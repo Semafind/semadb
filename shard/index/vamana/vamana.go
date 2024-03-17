@@ -27,28 +27,28 @@ const STARTID = 1
 // ---------------------------
 
 type IndexVamana struct {
-	cacheName    string
-	distFn       distance.DistFunc
-	parameters   models.IndexVectorVamanaParameters
-	maxNodeId    uint64
-	cacheManager *cache.Manager
-	bucket       diskstore.Bucket
-	logger       zerolog.Logger
+	cacheName  string
+	distFn     distance.DistFunc
+	parameters models.IndexVectorVamanaParameters
+	maxNodeId  uint64
+	cacheTx    *cache.Transaction
+	bucket     diskstore.Bucket
+	logger     zerolog.Logger
 }
 
-func NewIndexVamana(cacheName string, cacheManager *cache.Manager, bucket diskstore.Bucket, parameters models.IndexVectorVamanaParameters, maxNodeId uint64) (*IndexVamana, error) {
+func NewIndexVamana(cacheName string, cacheTx *cache.Transaction, bucket diskstore.Bucket, parameters models.IndexVectorVamanaParameters, maxNodeId uint64) (*IndexVamana, error) {
 	distFn, err := distance.GetDistanceFn(parameters.DistanceMetric)
 	if err != nil {
 		return nil, fmt.Errorf("could not get distance function: %w", err)
 	}
 	index := &IndexVamana{
-		cacheName:    cacheName,
-		distFn:       distFn,
-		parameters:   parameters,
-		maxNodeId:    maxNodeId,
-		cacheManager: cacheManager,
-		bucket:       bucket,
-		logger:       log.With().Str("component", "IndexVamana").Str("name", cacheName).Logger(),
+		cacheName:  cacheName,
+		distFn:     distFn,
+		parameters: parameters,
+		maxNodeId:  maxNodeId,
+		cacheTx:    cacheTx,
+		bucket:     bucket,
+		logger:     log.With().Str("component", "IndexVamana").Str("name", cacheName).Logger(),
 	}
 	return index, nil
 }
@@ -83,21 +83,21 @@ func (v *IndexVamana) setupStartNode(pc cache.ReadWriteCache) error {
 }
 
 func (v *IndexVamana) Insert(ctx context.Context, points <-chan cache.GraphNode) error {
-	return v.cacheManager.With(v.cacheName, v.bucket, func(pc cache.ReadWriteCache) error {
+	return v.cacheTx.With(v.cacheName, v.bucket, func(pc cache.ReadWriteCache) error {
 		v.setupStartNode(pc)
 		return v.insert(ctx, pc, points)
 	})
 }
 
 func (v *IndexVamana) Update(ctx context.Context, points <-chan cache.GraphNode) error {
-	return v.cacheManager.With(v.cacheName, v.bucket, func(pc cache.ReadWriteCache) error {
+	return v.cacheTx.With(v.cacheName, v.bucket, func(pc cache.ReadWriteCache) error {
 		v.setupStartNode(pc)
 		return v.update(ctx, pc, points)
 	})
 }
 
 func (v *IndexVamana) Delete(ctx context.Context, points <-chan cache.GraphNode) error {
-	return v.cacheManager.With(v.cacheName, v.bucket, func(pc cache.ReadWriteCache) error {
+	return v.cacheTx.With(v.cacheName, v.bucket, func(pc cache.ReadWriteCache) error {
 		return v.delete(ctx, pc, points)
 	})
 }
@@ -245,7 +245,7 @@ outer:
 
 func (v *IndexVamana) Search(ctx context.Context, query []float32, limit int) ([]models.SearchResult, error) {
 	var results []models.SearchResult
-	err := v.cacheManager.WithReadOnly(v.cacheName, v.bucket, func(pc cache.ReadOnlyCache) error {
+	err := v.cacheTx.WithReadOnly(v.cacheName, v.bucket, func(pc cache.ReadOnlyCache) error {
 		startTime := time.Now()
 		searchSet, _, err := greedySearch(pc, query, limit, v.parameters.SearchSize, v.distFn, v.maxNodeId)
 		if err != nil {

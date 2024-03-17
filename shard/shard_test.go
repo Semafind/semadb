@@ -82,10 +82,11 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	queue := make([]uint64, 0)
 	queue = append(queue, vamana.STARTID)
 	cm := cache.NewManager(-1)
+	tx := cm.NewTransaction()
 	err := shard.db.Read(func(bm diskstore.BucketManager) error {
 		graphBucket, err := bm.Get(GRAPHINDEXBUCKETKEY)
 		require.NoError(t, err)
-		err = cm.WithReadOnly("checkConnectivity", graphBucket, func(pc cache.ReadOnlyCache) error {
+		err = tx.WithReadOnly("checkConnectivity", graphBucket, func(pc cache.ReadOnlyCache) error {
 			for len(queue) > 0 {
 				pointId := queue[0]
 				queue = queue[1:]

@@ -7,7 +7,9 @@ import (
 )
 
 type sharedInMemCache struct {
-	points   map[uint64]*CachePoint
+	points map[uint64]*CachePoint
+	// This lock is used to protect points map from concurrently being written
+	// to by multiple goroutines.
 	pointsMu sync.Mutex
 	// ---------------------------
 	lastAccessed time.Time

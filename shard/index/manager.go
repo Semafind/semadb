@@ -8,7 +8,7 @@ import (
 
 type indexManager struct {
 	bm          diskstore.BucketManager
-	cm          *cache.Manager
+	cx          *cache.Transaction
 	cacheRoot   string
 	indexSchema models.IndexSchema
 	maxNodeId   uint64
@@ -16,14 +16,14 @@ type indexManager struct {
 
 func NewIndexManager(
 	bm diskstore.BucketManager,
-	cm *cache.Manager,
+	cx *cache.Transaction,
 	cacheRoot string,
 	indexSchema models.IndexSchema,
 	maxNodeId uint64,
 ) indexManager {
 	return indexManager{
 		bm:          bm,
-		cm:          cm,
+		cx:          cx,
 		cacheRoot:   cacheRoot,
 		indexSchema: indexSchema,
 		maxNodeId:   maxNodeId,

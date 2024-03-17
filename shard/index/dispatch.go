@@ -121,7 +121,7 @@ func (im indexManager) getDrainFn(
 			if err != nil {
 				return nil, fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
 			}
-			vamanaIndexAny, err = vamana.NewIndexVamana(cacheName, im.cm, bucket, *params.VectorVamana, im.maxNodeId)
+			vamanaIndexAny, err = vamana.NewIndexVamana(cacheName, im.cx, bucket, *params.VectorVamana, im.maxNodeId)
 			if err != nil {
 				return nil, fmt.Errorf("could not create vamana index: %w", err)
 			}

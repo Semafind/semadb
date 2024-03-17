@@ -49,7 +49,7 @@ func (im indexManager) Search(
 		}
 		// ---------------------------
 		cacheName := im.cacheRoot + "/" + bucketName
-		vIndex, err := vamana.NewIndexVamana(cacheName, im.cm, bucket, *iparams.VectorVamana, im.maxNodeId)
+		vIndex, err := vamana.NewIndexVamana(cacheName, im.cx, bucket, *iparams.VectorVamana, im.maxNodeId)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not create vamana index: %w", err)
 		}
