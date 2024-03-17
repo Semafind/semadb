@@ -71,10 +71,10 @@ type SearchVectorFlatOptions struct {
 }
 
 type SearchTextOptions struct {
-	Value    string  `json:"value" binding:"required"`
-	Operator string  `json:"operator" binding:"required,oneof=containsAll containsAny"`
-	Limit    int     `json:"limit" binding:"required,min=1,max=75"`
-	Weight   float32 `json:"weight"`
+	Value    string   `json:"value" binding:"required"`
+	Operator string   `json:"operator" binding:"required,oneof=containsAll containsAny"`
+	Limit    int      `json:"limit" binding:"required,min=1,max=75"`
+	Weight   *float32 `json:"weight"`
 }
 
 type SearchStringOptions struct {
