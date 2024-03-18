@@ -59,6 +59,7 @@ const (
 	OperatorGreaterOrEq = "greaterThanOrEquals"
 	OperatorLessThan    = "lessThan"
 	OperatorLessOrEq    = "lessThanOrEquals"
+	OperatorInRange     = "inRange"
 )
 
 // ---------------------------
@@ -93,17 +94,21 @@ type SearchTextOptions struct {
 
 type SearchStringOptions struct {
 	Value    string `json:"value" binding:"required"`
-	Operator string `json:"operator" binding:"required,oneof=equals notEquals startsWith greaterThan greaterThanOrEquals lessThan lessThanOrEquals"`
+	Operator string `json:"operator" binding:"required,oneof=equals notEquals startsWith greaterThan greaterThanOrEquals lessThan lessThanOrEquals inRange"`
+	// Used for range queries
+	EndValue string `json:"endValue"`
 }
 
 type SearchIntegerOptions struct {
 	Value    int    `json:"value" binding:"required"`
-	Operator string `json:"operator" binding:"required,oneof=equals notEquals greaterThan greaterThanOrEquals lessThan lessThanOrEquals"`
+	Operator string `json:"operator" binding:"required,oneof=equals notEquals greaterThan greaterThanOrEquals lessThan lessThanOrEquals inRange"`
+	EndValue string `json:"endValue"`
 }
 
 type SearchFloatOptions struct {
 	Value    float32 `json:"value" binding:"required"`
-	Operator string  `json:"operator" binding:"required,oneof=equals notEquals greaterThan greaterThanOrEquals lessThan lessThanOrEquals"`
+	Operator string  `json:"operator" binding:"required,oneof=equals notEquals greaterThan greaterThanOrEquals lessThan lessThanOrEquals inRange"`
+	EndValue string  `json:"endValue"`
 }
 
 type SearchStringArrayOptions struct {
