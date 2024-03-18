@@ -73,7 +73,7 @@ func Test_Search(t *testing.T) {
 	// containsAll
 	so := models.SearchTextOptions{
 		Value:    "hello world 42",
-		Operator: "containsAll",
+		Operator: models.OperatorContainsAll,
 		Limit:    10,
 	}
 	results, err := index.Search(so)
@@ -81,7 +81,7 @@ func Test_Search(t *testing.T) {
 	require.Len(t, results, 1)
 	require.Equal(t, uint64(42), results[0].NodeId)
 	// ---------------------------
-	so.Operator = "containsAny"
+	so.Operator = models.OperatorContainsAny
 	results, err = index.Search(so)
 	require.NoError(t, err)
 	require.Len(t, results, 10)

@@ -72,9 +72,9 @@ type IndexSchemaValue struct {
 	VectorVamana *IndexVectorVamanaParameters `json:"vectorVamana,omitempty"`
 	Text         *IndexTextParameters         `json:"text,omitempty"`
 	String       *IndexStringParameters       `json:"string,omitempty"`
+	StringArray  *IndexStringArrayParameters  `json:"stringArray,omitempty"`
 	Integer      *struct{}                    `json:"integer,omitempty"`
 	Float        *struct{}                    `json:"float,omitempty"`
-	StringArray  *struct{}                    `json:"stringArray,omitempty"`
 }
 
 // Attempts to convert a given value to a vector
@@ -210,4 +210,8 @@ type IndexTextParameters struct {
 
 type IndexStringParameters struct {
 	CaseSensitive bool `json:"caseSensitive"`
+}
+
+type IndexStringArrayParameters struct {
+	IndexStringParameters
 }

@@ -396,7 +396,7 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 		sets = append(sets, item.set)
 	}
 	var finalSet *roaring64.Bitmap
-	if options.Operator == "containsAll" {
+	if options.Operator == models.OperatorContainsAll {
 		finalSet = roaring64.FastAnd(sets...)
 	} else {
 		finalSet = roaring64.FastOr(sets...)
