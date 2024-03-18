@@ -26,6 +26,10 @@ func (emptyReadOnlyBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) 
 	return nil
 }
 
+func (emptyReadOnlyBucket) RangeScan(start, end []byte, f func(k, v []byte) error) error {
+	return nil
+}
+
 func (emptyReadOnlyBucket) Put(k, v []byte) error {
 	return errors.New("cannot put into empty read-only bucket")
 }
@@ -40,8 +44,14 @@ func (emptyReadOnlyBucket) Delete(k []byte) error {
 // to restrict the actions it can perform.
 type ReadOnlyBucket interface {
 	Get([]byte) []byte
+	// Potentially unordered iteration over all key-value pairs.
 	ForEach(func(k, v []byte) error) error
+	// Scan all key-value pairs with a given prefix. The function f will be called
+	// with all key-value pairs that have the given prefix.
 	PrefixScan(prefix []byte, f func(k, v []byte) error) error
+	// Unordered range scan. The function f will be called with all key-value pairs
+	// in the range [start, end).
+	RangeScan(start, end []byte, f func(k, v []byte) error) error
 }
 
 // A bucket is like a kvstore, it can be used to store key-value pairs. We call

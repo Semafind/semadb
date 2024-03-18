@@ -1,6 +1,7 @@
 package diskstore_test
 
 import (
+	"bytes"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -375,6 +376,43 @@ func Test_PrefixScan(t *testing.T) {
 				err = b.PrefixScan([]byte("w"), func(k, v []byte) error {
 					require.Equal(t, []byte("wizard"), k)
 					require.Equal(t, []byte("gandalf"), v)
+					return nil
+				})
+				require.NoError(t, err)
+				return nil
+			})
+			require.NoError(t, err)
+			require.NoError(t, ds.Close())
+		})
+	}
+}
+
+func Test_RangeScan(t *testing.T) {
+	for _, inMemory := range []bool{true, false} {
+		t.Run(fmt.Sprintf("inMemory=%v", inMemory), func(t *testing.T) {
+			ds := tempDiskStore(t, "", inMemory)
+			err := ds.Write(func(bm diskstore.BucketManager) error {
+				b, err := bm.Get("bucket")
+				require.NoError(t, err)
+				require.NoError(t, b.Put([]byte("wizard"), []byte("gandalf")))
+				require.NoError(t, b.Put([]byte("hobbit2"), []byte("sam")))
+				require.NoError(t, b.Put([]byte("hobbit1"), []byte("frodo")))
+				require.NoError(t, b.Put([]byte("a"), []byte("a")))
+				require.NoError(t, b.Put([]byte("z"), []byte("z")))
+				return nil
+			})
+			require.NoError(t, err)
+			err = ds.Read(func(bm diskstore.BucketManager) error {
+				b, err := bm.Get("bucket")
+				require.NoError(t, err)
+				err = b.RangeScan([]byte("ho"), []byte("i"), func(k, v []byte) error {
+					if bytes.Equal(k, []byte("hobbit1")) {
+						require.Equal(t, []byte("frodo"), v)
+					} else if bytes.Equal(k, []byte("hobbit2")) {
+						require.Equal(t, []byte("sam"), v)
+					} else {
+						require.FailNowf(t, "unexpected key", "key: %s", k)
+					}
 					return nil
 				})
 				require.NoError(t, err)

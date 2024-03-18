@@ -47,6 +47,16 @@ func (b bboltBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error 
 	return nil
 }
 
+func (b bboltBucket) RangeScan(start, end []byte, f func(k, v []byte) error) error {
+	c := b.bb.Cursor()
+	for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) <= 0; k, v = c.Next() {
+		if err := f(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ---------------------------
 
 type bboltBucketManager struct {

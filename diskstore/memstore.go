@@ -1,6 +1,7 @@
 package diskstore
 
 import (
+	"bytes"
 	"fmt"
 	"sync"
 )
@@ -48,6 +49,17 @@ func (b *memBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
 			continue
 		}
 		if k[:len(prefix)] == string(prefix) {
+			if err := f([]byte(k), v); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (b *memBucket) RangeScan(start, end []byte, f func(k, v []byte) error) error {
+	for k, v := range b.data {
+		if bytes.Compare([]byte(k), start) >= 0 && bytes.Compare([]byte(k), end) <= 0 {
 			if err := f([]byte(k), v); err != nil {
 				return err
 			}
