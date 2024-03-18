@@ -1,7 +1,6 @@
 package diskstore_test
 
 import (
-	"bytes"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -394,7 +393,6 @@ func Test_RangeScan(t *testing.T) {
 			err := ds.Write(func(bm diskstore.BucketManager) error {
 				b, err := bm.Get("bucket")
 				require.NoError(t, err)
-				require.NoError(t, b.Put([]byte("wizard"), []byte("gandalf")))
 				require.NoError(t, b.Put([]byte("hobbit2"), []byte("sam")))
 				require.NoError(t, b.Put([]byte("hobbit1"), []byte("frodo")))
 				require.NoError(t, b.Put([]byte("a"), []byte("a")))
@@ -402,23 +400,42 @@ func Test_RangeScan(t *testing.T) {
 				return nil
 			})
 			require.NoError(t, err)
-			err = ds.Read(func(bm diskstore.BucketManager) error {
-				b, err := bm.Get("bucket")
-				require.NoError(t, err)
-				err = b.RangeScan([]byte("ho"), []byte("i"), func(k, v []byte) error {
-					if bytes.Equal(k, []byte("hobbit1")) {
-						require.Equal(t, []byte("frodo"), v)
-					} else if bytes.Equal(k, []byte("hobbit2")) {
-						require.Equal(t, []byte("sam"), v)
-					} else {
-						require.FailNowf(t, "unexpected key", "key: %s", k)
+			// ---------------------------
+			checkScan := func(start, end string, inclusive bool, expected []string) {
+				err = ds.Read(func(bm diskstore.BucketManager) error {
+					b, err := bm.Get("bucket")
+					require.NoError(t, err)
+					i := 0
+					bStart := []byte(start)
+					if start == "" {
+						bStart = nil
 					}
+					bEnd := []byte(end)
+					if end == "" {
+						bEnd = nil
+					}
+					err = b.RangeScan(bStart, bEnd, inclusive, func(k, v []byte) error {
+						require.Equal(t, expected[i], string(k))
+						i++
+						return nil
+					})
+					require.NoError(t, err)
+					require.Equal(t, len(expected), i)
 					return nil
 				})
 				require.NoError(t, err)
-				return nil
-			})
-			require.NoError(t, err)
+			}
+			// ---------------------------
+			checkScan("", "", false, []string{"a", "hobbit1", "hobbit2", "z"})
+			checkScan("", "hobbit2", false, []string{"a", "hobbit1"})
+			checkScan("", "hobbit2", true, []string{"a", "hobbit1", "hobbit2"})
+			checkScan("hobbit1", "hobbit2", false, []string{})
+			checkScan("hobbit1", "hobbit2", true, []string{"hobbit1", "hobbit2"})
+			checkScan("hobbit1", "", false, []string{"hobbit2", "z"})
+			checkScan("hobbit1", "", true, []string{"hobbit1", "hobbit2", "z"})
+			checkScan("hobbit2", "", false, []string{"z"})
+			checkScan("hobbit2", "", true, []string{"hobbit2", "z"})
+			// ---------------------------
 			require.NoError(t, ds.Close())
 		})
 	}

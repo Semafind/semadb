@@ -47,9 +47,33 @@ func (b bboltBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error 
 	return nil
 }
 
-func (b bboltBucket) RangeScan(start, end []byte, f func(k, v []byte) error) error {
+func (b bboltBucket) RangeScan(start, end []byte, inclusive bool, f func(k, v []byte) error) error {
 	c := b.bb.Cursor()
-	for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) <= 0; k, v = c.Next() {
+	// ---------------------------
+	var k, v []byte
+	if start == nil {
+		k, v = c.First()
+	} else {
+		k, v = c.Seek(start)
+		if !inclusive && bytes.Equal(k, start) {
+			k, v = c.Next()
+		}
+	}
+	// ---------------------------
+	for ; k != nil; k, v = c.Next() {
+		// ---------------------------
+		if end != nil {
+			if inclusive {
+				if bytes.Compare(k, end) > 0 {
+					break
+				}
+			} else {
+				if bytes.Compare(k, end) >= 0 {
+					break
+				}
+			}
+		}
+		// ---------------------------
 		if err := f(k, v); err != nil {
 			return err
 		}

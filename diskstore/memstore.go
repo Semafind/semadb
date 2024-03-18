@@ -2,7 +2,9 @@ package diskstore
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
+	"slices"
 	"sync"
 )
 
@@ -57,12 +59,44 @@ func (b *memBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) error {
 	return nil
 }
 
-func (b *memBucket) RangeScan(start, end []byte, f func(k, v []byte) error) error {
+func (b *memBucket) RangeScan(start, end []byte, inclusive bool, f func(k, v []byte) error) error {
+	// The data needs to be ordered first
+	type pair struct {
+		k string
+		v []byte
+	}
+	orderedData := make([]pair, 0, len(b.data))
 	for k, v := range b.data {
-		if bytes.Compare([]byte(k), start) >= 0 && bytes.Compare([]byte(k), end) <= 0 {
-			if err := f([]byte(k), v); err != nil {
-				return err
+		orderedData = append(orderedData, pair{k, v})
+	}
+	slices.SortFunc(orderedData, func(a, b pair) int {
+		return cmp.Compare(a.k, b.k)
+	})
+	for _, p := range orderedData {
+		if start != nil {
+			if inclusive {
+				if bytes.Compare([]byte(p.k), start) < 0 {
+					continue
+				}
+			} else {
+				if bytes.Compare([]byte(p.k), start) <= 0 {
+					continue
+				}
 			}
+		}
+		if end != nil {
+			if inclusive {
+				if bytes.Compare([]byte(p.k), end) > 0 {
+					break
+				}
+			} else {
+				if bytes.Compare([]byte(p.k), end) >= 0 {
+					break
+				}
+			}
+		}
+		if err := f([]byte(p.k), p.v); err != nil {
+			return err
 		}
 	}
 	return nil

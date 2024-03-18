@@ -26,7 +26,7 @@ func (emptyReadOnlyBucket) PrefixScan(prefix []byte, f func(k, v []byte) error) 
 	return nil
 }
 
-func (emptyReadOnlyBucket) RangeScan(start, end []byte, f func(k, v []byte) error) error {
+func (emptyReadOnlyBucket) RangeScan(start, end []byte, inclusive bool, f func(k, v []byte) error) error {
 	return nil
 }
 
@@ -49,9 +49,9 @@ type ReadOnlyBucket interface {
 	// Scan all key-value pairs with a given prefix. The function f will be called
 	// with all key-value pairs that have the given prefix.
 	PrefixScan(prefix []byte, f func(k, v []byte) error) error
-	// Unordered range scan. The function f will be called with all key-value pairs
-	// in the range [start, end).
-	RangeScan(start, end []byte, f func(k, v []byte) error) error
+	// Scan over range of key-value pairs. Giving nil as start or end will start
+	// or end at the beginning or end of the bucket.
+	RangeScan(start, end []byte, inclusive bool, f func(k, v []byte) error) error
 }
 
 // A bucket is like a kvstore, it can be used to store key-value pairs. We call
