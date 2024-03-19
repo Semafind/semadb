@@ -65,15 +65,11 @@ outer:
 				if !ok {
 					queue = make(chan decodedPointChange)
 					decodedQ[bucketName] = queue
-					drainFn, err := im.getDrainFn(bucketName, params)
-					if err != nil {
-						return fmt.Errorf("could not get drain function for %s: %w", bucketName, err)
-					}
 					wg.Add(1)
 					go func() {
 						defer wg.Done()
-						if err := drainFn(ctx, queue); err != nil {
-							cancel(fmt.Errorf("could not drain index for %s: %w", bucketName, err))
+						if err := im.getDrainFn(ctx, bucketName, params, queue); err != nil {
+							cancel(fmt.Errorf("could not drain %s: %w", bucketName, err))
 						}
 					}()
 				}
@@ -102,13 +98,11 @@ outer:
 	return nil
 }
 
-type drainFunction func(ctx context.Context, queue <-chan decodedPointChange) error
-
-func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaValue) (drainFunction, error) {
+func (im indexManager) getDrainFn(ctx context.Context, bucketName string, params models.IndexSchemaValue, in <-chan decodedPointChange) error {
 	// ---------------------------
 	bucket, err := im.bm.Get(bucketName)
 	if err != nil {
-		return nil, fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
+		return fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
 	}
 	// ---------------------------
 	switch params.Type {
@@ -116,106 +110,82 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 		cacheName := im.cacheRoot + "/" + bucketName
 		vamanaIndex, err := vamana.NewIndexVamana(cacheName, im.cx, bucket, *params.VectorVamana, im.maxNodeId)
 		if err != nil {
-			return nil, fmt.Errorf("could not create vamana index: %w", err)
+			return fmt.Errorf("could not create vamana index: %w", err)
 		}
-		vDrain := func(ctx context.Context, queue <-chan decodedPointChange) error {
-			ctx, cancel := context.WithCancelCause(ctx)
-			defer cancel(nil)
-			out := make(chan cache.GraphNode)
-			go func() {
-				if err := transformVamana(ctx, queue, out); err != nil {
-					cancel(fmt.Errorf("could not transform vamana: %w", err))
-				}
-				close(out)
-			}()
-			return vamanaIndex.InsertUpdateDelete(ctx, out)
-		}
-		return vDrain, nil
+		return setupDrain(ctx, in, preProcessVamana, vamanaIndex.InsertUpdateDelete)
 		// ---------------------------
 	case models.IndexTypeInteger:
 		intIndex, err := inverted.NewIndexInvertedInteger(bucket)
 		if err != nil {
-			return nil, fmt.Errorf("could not create inverted integer index: %w", err)
+			return fmt.Errorf("could not create inverted integer index: %w", err)
 		}
-		drain := func(ctx context.Context, queue <-chan decodedPointChange) error {
-			ctx, cancel := context.WithCancelCause(ctx)
-			defer cancel(nil)
-			out := make(chan inverted.IndexChange[int64])
-			go func() {
-				if err := transformInverted(ctx, queue, out); err != nil {
-					cancel(fmt.Errorf("could not transform inverted integer: %w", err))
-				}
-				close(out)
-			}()
-			return intIndex.InsertUpdateDelete(ctx, out)
-		}
-		return drain, nil
+		return setupDrain(ctx, in, preProcessInverted[int64], intIndex.InsertUpdateDelete)
 	default:
-		return nil, fmt.Errorf("unsupported index property type: %s", params.Type)
+		return fmt.Errorf("unsupported index property type: %s", params.Type)
 	} // End of property type switch
 }
 
-func transformInverted[T inverted.Invertable](ctx context.Context, in <-chan decodedPointChange, out chan<- inverted.IndexChange[T]) error {
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case change, ok := <-in:
-			if !ok {
-				return nil
-			}
-			// ---------------------------
-			var prev, current *T
-			if change.oldData != nil {
-				prevValue, ok := change.oldData.(T)
-				if !ok {
-					return fmt.Errorf("could not cast old data: %v", change.oldData)
-				}
-				prev = &prevValue
-			}
-			if change.newData != nil {
-				currentValue, ok := change.newData.(T)
-				if !ok {
-					return fmt.Errorf("could not cast new data: %v", change.newData)
-				}
-				current = &currentValue
-			}
-			// This select is needed in case no one is listening to the
-			// output, e.g. the context is cancelled and the workers have
-			// exited.
+func setupDrain[T any](ctx context.Context, in <-chan decodedPointChange, preProcess func(decodedPointChange) (T, error), endpoint func(context.Context, <-chan T) error) error {
+	// ---------------------------
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	out := make(chan T)
+	// ---------------------------
+	// Kick off the pre-processing
+	go func() {
+		defer close(out)
+		for {
 			select {
 			case <-ctx.Done():
-				return ctx.Err()
-			case out <- inverted.IndexChange[T]{Id: change.nodeId, PreviousData: prev, CurrentData: current}:
+				return
+			case change, ok := <-in:
+				if !ok {
+					return
+				}
+				outData, err := preProcess(change)
+				if err != nil {
+					cancel(fmt.Errorf("could not pre-process: %w", err))
+					return
+				}
+				select {
+				case out <- outData:
+				case <-ctx.Done():
+					return
+				}
 			}
 		}
-	}
+	}()
+	// ---------------------------
+	return endpoint(ctx, out)
 }
 
-func transformVamana(ctx context.Context, in <-chan decodedPointChange, out chan<- cache.GraphNode) error {
+func preProcessInverted[T inverted.Invertable](change decodedPointChange) (invChange inverted.IndexChange[T], err error) {
 	// ---------------------------
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case change, ok := <-in:
-			if !ok {
-				return nil
-			}
-			// ---------------------------
-			var vector []float32
-			if change.newData != nil {
-				var err error
-				vector, err = castDataToVector(change.newData)
-				if err != nil {
-					return fmt.Errorf("could not cast data to vector: %w", err)
-				}
-			}
-			select {
-			case out <- cache.GraphNode{NodeId: change.nodeId, Vector: vector}:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+	invChange.Id = change.nodeId
+	if change.oldData != nil {
+		prevValue, ok := change.oldData.(T)
+		if !ok {
+			err = fmt.Errorf("could not cast old data: %v", change.oldData)
+			return
 		}
+		invChange.PreviousData = &prevValue
 	}
+	if change.newData != nil {
+		currentValue, ok := change.newData.(T)
+		if !ok {
+			err = fmt.Errorf("could not cast new data: %v", change.newData)
+			return
+		}
+		invChange.CurrentData = &currentValue
+	}
+	return
+}
+
+func preProcessVamana(change decodedPointChange) (gn cache.GraphNode, err error) {
+	// ---------------------------
+	gn.NodeId = change.nodeId
+	if change.newData != nil {
+		gn.Vector, err = castDataToVector(change.newData)
+	}
+	return
 }
