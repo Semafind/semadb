@@ -84,7 +84,9 @@ func (v *IndexVamana) setupStartNode(pc cache.ReadWriteCache) error {
 
 func (v *IndexVamana) InsertUpdateDelete(ctx context.Context, points <-chan cache.GraphNode) error {
 	return v.cacheTx.With(v.cacheName, v.bucket, func(pc cache.ReadWriteCache) error {
-		v.setupStartNode(pc)
+		if err := v.setupStartNode(pc); err != nil {
+			return fmt.Errorf("could not setup start node: %w", err)
+		}
 		return v.insertUpdateDelete(ctx, pc, points)
 	})
 }

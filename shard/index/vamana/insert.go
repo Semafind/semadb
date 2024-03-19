@@ -66,7 +66,7 @@ func (v *IndexVamana) insertWorker(ctx context.Context, pc cache.ReadWriteCache,
 			}
 			// TODO: add test case for this
 			if point.NodeId == STARTID {
-				return fmt.Errorf("cannot insert start node")
+				return fmt.Errorf("cannot insert start node with id: %d", STARTID)
 			}
 			// Check if the point exists
 			_, err := pc.GetPoint(point.NodeId)
