@@ -119,7 +119,16 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 			return nil, fmt.Errorf("could not create vamana index: %w", err)
 		}
 		vDrain := func(ctx context.Context, queue <-chan decodedPointChange) error {
-			return drainVamana(ctx, queue, vamanaIndex)
+			ctx, cancel := context.WithCancelCause(ctx)
+			defer cancel(nil)
+			out := make(chan cache.GraphNode)
+			go func() {
+				if err := transformVamana(ctx, queue, out); err != nil {
+					cancel(fmt.Errorf("could not transform vamana: %w", err))
+				}
+				close(out)
+			}()
+			return vamanaIndex.InsertUpdateDelete(ctx, out)
 		}
 		return vDrain, nil
 		// ---------------------------
@@ -131,7 +140,13 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 		drain := func(ctx context.Context, queue <-chan decodedPointChange) error {
 			ctx, cancel := context.WithCancelCause(ctx)
 			defer cancel(nil)
-			out := transformInverted[int64](ctx, cancel, queue)
+			out := make(chan inverted.IndexChange[int64])
+			go func() {
+				if err := transformInverted(ctx, queue, out); err != nil {
+					cancel(fmt.Errorf("could not transform inverted integer: %w", err))
+				}
+				close(out)
+			}()
 			return intIndex.InsertUpdateDelete(ctx, out)
 		}
 		return drain, nil
@@ -140,85 +155,67 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 	} // End of property type switch
 }
 
-func transformInverted[T inverted.Invertable](ctx context.Context, cancel context.CancelCauseFunc, in <-chan decodedPointChange) <-chan inverted.IndexChange[T] {
-	out := make(chan inverted.IndexChange[T])
-	go func() {
-		defer close(out)
-		for {
+func transformInverted[T inverted.Invertable](ctx context.Context, in <-chan decodedPointChange, out chan<- inverted.IndexChange[T]) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case change, ok := <-in:
+			if !ok {
+				return nil
+			}
+			// ---------------------------
+			var prev, current *T
+			if change.oldData != nil {
+				prevValue, ok := change.oldData.(T)
+				if !ok {
+					return fmt.Errorf("could not cast old data: %v", change.oldData)
+				}
+				prev = &prevValue
+			}
+			if change.newData != nil {
+				currentValue, ok := change.newData.(T)
+				if !ok {
+					return fmt.Errorf("could not cast new data: %v", change.newData)
+				}
+				current = &currentValue
+			}
+			// This select is needed in case no one is listening to the
+			// output, e.g. the context is cancelled and the workers have
+			// exited.
 			select {
 			case <-ctx.Done():
-				return
-			case change, ok := <-in:
-				if !ok {
-					return
-				}
-				// ---------------------------
-				var prev, current *T
-				if change.oldData != nil {
-					prevValue, ok := change.oldData.(T)
-					if !ok {
-						cancel(fmt.Errorf("could not cast old data: %v", change.oldData))
-					}
-					prev = &prevValue
-				}
-				if change.newData != nil {
-					currentValue, ok := change.newData.(T)
-					if !ok {
-						cancel(fmt.Errorf("could not cast new data: %v", change.newData))
-					}
-					current = &currentValue
-				}
-				// This select is needed in case no one is listening to the
-				// output, e.g. the context is cancelled and the workers have
-				// exited.
-				select {
-				case <-ctx.Done():
-					return
-				case out <- inverted.IndexChange[T]{Id: change.nodeId, PreviousData: prev, CurrentData: current}:
-				}
+				return ctx.Err()
+			case out <- inverted.IndexChange[T]{Id: change.nodeId, PreviousData: prev, CurrentData: current}:
 			}
 		}
-	}()
-	return out
+	}
 }
 
-func drainVamana(ctx context.Context, in <-chan decodedPointChange, vamanaIndex *vamana.IndexVamana) error {
+func transformVamana(ctx context.Context, in <-chan decodedPointChange, out chan<- cache.GraphNode) error {
 	// ---------------------------
-	out := make(chan cache.GraphNode)
-	ctx, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
-	var wg sync.WaitGroup
-	// ---------------------------
-	// Transform the incoming changes
-	go func() {
-		defer close(out)
-		for change := range in {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case change, ok := <-in:
+			if !ok {
+				return nil
+			}
+			// ---------------------------
 			var vector []float32
 			if change.newData != nil {
 				var err error
 				vector, err = castDataToVector(change.newData)
 				if err != nil {
-					cancel(fmt.Errorf("could not cast data to vector: %w", err))
-					return
+					return fmt.Errorf("could not cast data to vector: %w", err)
 				}
 			}
 			select {
 			case out <- cache.GraphNode{NodeId: change.nodeId, Vector: vector}:
 			case <-ctx.Done():
-				return
+				return ctx.Err()
 			}
 		}
-	}()
-	// ---------------------------
-	// Write the transformed changes to the index
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := vamanaIndex.InsertUpdateDelete(ctx, out); err != nil {
-			cancel(fmt.Errorf("could not write to vamana index: %w", err))
-		}
-	}()
-	// ---------------------------
-	wg.Wait()
-	return context.Cause(ctx)
+	}
 }
