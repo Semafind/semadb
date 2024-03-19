@@ -55,18 +55,19 @@ func getNode(graphBucket diskstore.ReadOnlyBucket, nodeId uint64) (GraphNode, er
 	// ---------------------------
 	// Get vector
 	vecVal := graphBucket.Get(NodeKey(nodeId, 'v'))
-	if vecVal == nil {
-		return node, fmt.Errorf("could not get vector %d", nodeId)
+	if vecVal != nil {
+		node.Vector = conversion.BytesToFloat32(vecVal)
 	}
-	node.Vector = conversion.BytesToFloat32(vecVal)
 	// ---------------------------
 	// Get edges
 	edgeVal := graphBucket.Get(NodeKey(nodeId, 'e'))
-	if edgeVal == nil {
-		return node, fmt.Errorf("could not get edges %d", nodeId)
+	if edgeVal != nil {
+		node.edges = conversion.BytesToEdgeList(edgeVal)
 	}
-	node.edges = conversion.BytesToEdgeList(edgeVal)
 	// ---------------------------
+	if len(node.Vector) == 0 && len(node.edges) == 0 {
+		return node, ErrNotFound
+	}
 	return node, nil
 }
 
