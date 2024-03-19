@@ -11,7 +11,7 @@ import (
 	"github.com/semafind/semadb/models"
 )
 
-type invertable interface {
+type Invertable interface {
 	uint64 | int64 | float64 | string
 }
 
@@ -20,13 +20,13 @@ type setCacheItem struct {
 	isDirty bool
 }
 
-type indexInverted[T invertable] struct {
+type indexInverted[T Invertable] struct {
 	setCache map[T]*setCacheItem
 	bucket   diskstore.Bucket
 	mu       sync.Mutex
 }
 
-func newIndexInverted[T invertable](b diskstore.Bucket) *indexInverted[T] {
+func newIndexInverted[T Invertable](b diskstore.Bucket) *indexInverted[T] {
 	inv := &indexInverted[T]{
 		setCache: make(map[T]*setCacheItem),
 		bucket:   b,
@@ -60,7 +60,7 @@ func (inv *indexInverted[T]) getSetCacheItem(value T, setBytes []byte) (*setCach
 	return item, nil
 }
 
-type IndexChange[T invertable] struct {
+type IndexChange[T Invertable] struct {
 	Id           uint64
 	PreviousData *T
 	CurrentData  *T

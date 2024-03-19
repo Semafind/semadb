@@ -7,6 +7,7 @@ import (
 
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
+	"github.com/semafind/semadb/shard/index/inverted"
 	"github.com/semafind/semadb/shard/index/vamana"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -19,6 +20,7 @@ type IndexPointChange struct {
 
 type decodedPointChange struct {
 	nodeId  uint64
+	oldData any
 	newData any
 }
 
@@ -48,7 +50,7 @@ outer:
 				break outer
 			}
 			for propName, params := range im.indexSchema {
-				_, current, op, err := getOperation(dec, propName, change.PreviousData, change.NewData)
+				prev, current, op, err := getOperation(dec, propName, change.PreviousData, change.NewData)
 				if err != nil {
 					return fmt.Errorf("could not get operation for property %s: %w", propName, err)
 				}
@@ -78,7 +80,7 @@ outer:
 				// ---------------------------
 				// Submit job to the queue
 				select {
-				case queue <- decodedPointChange{nodeId: change.NodeId, newData: current}:
+				case queue <- decodedPointChange{nodeId: change.NodeId, oldData: prev, newData: current}:
 				case <-ctx.Done():
 					return fmt.Errorf("context done while dispatching to %s: %w", bucketName, context.Cause(ctx))
 				}
@@ -111,7 +113,6 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 	// ---------------------------
 	switch params.Type {
 	case models.IndexTypeVectorVamana:
-		// ---------------------------
 		cacheName := im.cacheRoot + "/" + bucketName
 		vamanaIndex, err := vamana.NewIndexVamana(cacheName, im.cx, bucket, *params.VectorVamana, im.maxNodeId)
 		if err != nil {
@@ -121,9 +122,64 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 			return drainVamana(ctx, queue, vamanaIndex)
 		}
 		return vDrain, nil
+		// ---------------------------
+	case models.IndexTypeInteger:
+		intIndex, err := inverted.NewIndexInvertedInteger(bucket)
+		if err != nil {
+			return nil, fmt.Errorf("could not create inverted integer index: %w", err)
+		}
+		drain := func(ctx context.Context, queue <-chan decodedPointChange) error {
+			ctx, cancel := context.WithCancelCause(ctx)
+			defer cancel(nil)
+			out := transformInverted[int64](ctx, cancel, queue)
+			return intIndex.InsertUpdateDelete(ctx, out)
+		}
+		return drain, nil
 	default:
 		return nil, fmt.Errorf("unsupported index property type: %s", params.Type)
 	} // End of property type switch
+}
+
+func transformInverted[T inverted.Invertable](ctx context.Context, cancel context.CancelCauseFunc, in <-chan decodedPointChange) <-chan inverted.IndexChange[T] {
+	out := make(chan inverted.IndexChange[T])
+	go func() {
+		defer close(out)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case change, ok := <-in:
+				if !ok {
+					return
+				}
+				// ---------------------------
+				var prev, current *T
+				if change.oldData != nil {
+					prevValue, ok := change.oldData.(T)
+					if !ok {
+						cancel(fmt.Errorf("could not cast old data: %v", change.oldData))
+					}
+					prev = &prevValue
+				}
+				if change.newData != nil {
+					currentValue, ok := change.newData.(T)
+					if !ok {
+						cancel(fmt.Errorf("could not cast new data: %v", change.newData))
+					}
+					current = &currentValue
+				}
+				// This select is needed in case no one is listening to the
+				// output, e.g. the context is cancelled and the workers have
+				// exited.
+				select {
+				case <-ctx.Done():
+					return
+				case out <- inverted.IndexChange[T]{Id: change.nodeId, PreviousData: prev, CurrentData: current}:
+				}
+			}
+		}
+	}()
+	return out
 }
 
 func drainVamana(ctx context.Context, in <-chan decodedPointChange, vamanaIndex *vamana.IndexVamana) error {
