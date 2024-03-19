@@ -344,6 +344,13 @@ func (index *indexText) flush() error {
 			continue
 		}
 		// ---------------------------
+		if item.set.IsEmpty() {
+			if err := index.bucket.Delete(termKey(term)); err != nil {
+				return fmt.Errorf("error deleting term set from bucket: %w", err)
+			}
+			continue
+		}
+		// ---------------------------
 		setBytes, err := item.set.ToBytes()
 		if err != nil {
 			return fmt.Errorf("error converting term set to bytes: %w", err)

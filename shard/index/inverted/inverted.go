@@ -125,13 +125,20 @@ func (inv *indexInverted[T]) flush() error {
 			continue
 		}
 		// ---------------------------
-		setBytes, err := item.set.ToBytes()
-		if err != nil {
-			return fmt.Errorf("error converting term set to bytes: %w", err)
-		}
 		key, err := toByteSortable(term)
 		if err != nil {
 			return fmt.Errorf("error converting key to byte sortable: %w", err)
+		}
+		if item.set.IsEmpty() {
+			if err := inv.bucket.Delete(key); err != nil {
+				return fmt.Errorf("error deleting term set from bucket: %w", err)
+			}
+			continue
+		}
+		// ---------------------------
+		setBytes, err := item.set.ToBytes()
+		if err != nil {
+			return fmt.Errorf("error converting term set to bytes: %w", err)
 		}
 		if err := inv.bucket.Put(key, setBytes); err != nil {
 			return fmt.Errorf("error putting term set to bucket: %w", err)
