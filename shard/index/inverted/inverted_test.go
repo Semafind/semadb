@@ -23,46 +23,42 @@ func checkTermCount(t *testing.T, b diskstore.Bucket, expected int) {
 func Test_Integer(t *testing.T) {
 	// Test cases
 	b := diskstore.NewMemBucket(false)
-	inv, err := inverted.NewIndexInvertedInteger(b)
-	require.NoError(t, err)
+	inv := inverted.NewIndexInverted[int64](b)
 	ctx := context.Background()
 	in := make(chan inverted.IndexChange[int64])
-	errC := make(chan error)
 	go func() {
-		errC <- inv.InsertUpdateDelete(ctx, in)
-	}()
-	for i := 0; i < 100; i++ {
-		data := int64(i) % 5
-		in <- inverted.IndexChange[int64]{
-			Id:          uint64(i),
-			CurrentData: &data,
+		for i := 0; i < 100; i++ {
+			data := int64(i) % 5
+			in <- inverted.IndexChange[int64]{
+				Id:          uint64(i),
+				CurrentData: &data,
+			}
 		}
-	}
-	close(in)
-	require.NoError(t, <-errC)
+		close(in)
+	}()
+	err := inv.InsertUpdateDelete(ctx, in)
+	require.NoError(t, err)
 	checkTermCount(t, b, 5)
 }
 
 func Test_BasicIntegerSearch(t *testing.T) {
 	// Test cases
 	b := diskstore.NewMemBucket(false)
-	inv, err := inverted.NewIndexInvertedInteger(b)
-	require.NoError(t, err)
+	inv := inverted.NewIndexInverted[int64](b)
 	ctx := context.Background()
 	in := make(chan inverted.IndexChange[int64])
-	errC := make(chan error)
 	go func() {
-		errC <- inv.InsertUpdateDelete(ctx, in)
-	}()
-	for i := 0; i < 20; i++ {
-		data := int64(i) % 17
-		in <- inverted.IndexChange[int64]{
-			Id:          uint64(i),
-			CurrentData: &data,
+		for i := 0; i < 20; i++ {
+			data := int64(i) % 17
+			in <- inverted.IndexChange[int64]{
+				Id:          uint64(i),
+				CurrentData: &data,
+			}
 		}
-	}
-	close(in)
-	require.NoError(t, <-errC)
+		close(in)
+	}()
+	err := inv.InsertUpdateDelete(ctx, in)
+	require.NoError(t, err)
 	checkTermCount(t, b, 17)
 	// ---------------------------
 	rSet, err := inv.Search(0, 0, models.OperatorEquals)

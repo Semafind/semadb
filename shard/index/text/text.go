@@ -40,6 +40,7 @@ import (
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/utils"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -208,31 +209,23 @@ func (index *indexText) InsertUpdateDelete(ctx context.Context, in <-chan Docume
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for {
-				select {
-				case <-ctx.Done():
+			err := utils.TransformWithContext(ctx, in, analysedDocs, func(doc Document) (ad analysedDocument, err error) {
+				// Perform analysis
+				tokens, err := index.analyser.Analyse(doc.Text)
+				if err != nil {
 					return
-				case doc, ok := <-in:
-					if !ok {
-						return
-					}
-					// Perform analysis
-					tokens, err := index.analyser.Analyse(doc.Text)
-					if err != nil {
-						cancel(fmt.Errorf("error analysing text: %w", err))
-						return
-					}
-					freq := make(map[string]int)
-					for _, t := range tokens {
-						freq[t.Term]++
-					}
-					analysedDocs <- analysedDocument{
-						Id:          doc.Id,
-						Frequencies: freq,
-						Length:      len(tokens),
-					}
-
 				}
+				freq := make(map[string]int)
+				for _, t := range tokens {
+					freq[t.Term]++
+				}
+				ad.Id = doc.Id
+				ad.Frequencies = freq
+				ad.Length = len(tokens)
+				return
+			})
+			if err != nil {
+				cancel(err)
 			}
 		}()
 	}
@@ -249,86 +242,80 @@ func (index *indexText) InsertUpdateDelete(ctx context.Context, in <-chan Docume
 	 * before we consider parallelising it. */
 	index.mu.Lock()
 	defer index.mu.Unlock()
-	for {
-		select {
-		case <-ctx.Done():
-			return context.Cause(ctx)
-		case ad, ok := <-analysedDocs:
-			if !ok {
-				// jobs done
-				return index.flush()
-			}
-			// ---------------------------
-			docItem, err := index.getDocCacheItem(ad.Id)
-			if err != nil {
-				return fmt.Errorf("error getting doc cache item: %w", err)
-			}
-			switch {
-			case docItem == nil && ad.Length > 0:
-				// Insert
-				terms := make(map[string]Term)
-				for term, frequency := range ad.Frequencies {
-					terms[term] = Term{
-						Frequency: frequency,
-					}
-					setItem, err := index.getSetCacheItem(term)
-					if err != nil {
-						return fmt.Errorf("error getting set cache item: %w", err)
-					}
-					setItem.isDirty = setItem.set.CheckedAdd(ad.Id)
-				}
-				index.docCache[ad.Id] = &docCacheItem{
-					Terms:  terms,
-					Length: ad.Length,
-				}
-				index.numDocs++
-			case docItem != nil && ad.Length == 0:
-				// Delete
-				for term := range docItem.Terms {
-					setItem, err := index.getSetCacheItem(term)
-					if err != nil {
-						return fmt.Errorf("error getting set cache item: %w", err)
-					}
-					setItem.isDirty = setItem.set.CheckedRemove(ad.Id)
-				}
-				index.docCache[ad.Id] = nil
-				index.numDocs--
-			case docItem != nil && ad.Length > 0:
-				// Update
-				// We need to remove the old terms from the set that are not in the new
-				// document and add the new terms to the set that are not in the old
-				for term := range docItem.Terms {
-					if _, ok := ad.Frequencies[term]; ok {
-						continue
-					}
-					setItem, err := index.getSetCacheItem(term)
-					if err != nil {
-						return fmt.Errorf("error getting set cache item: %w", err)
-					}
-					setItem.isDirty = setItem.set.CheckedRemove(ad.Id)
-				}
-				terms := make(map[string]Term)
-				for term, freq := range ad.Frequencies {
-					terms[term] = Term{
-						Frequency: freq,
-					}
-					if _, ok := docItem.Terms[term]; ok {
-						continue
-					}
-					setItem, err := index.getSetCacheItem(term)
-					if err != nil {
-						return fmt.Errorf("error getting set cache item: %w", err)
-					}
-					setItem.isDirty = setItem.set.CheckedAdd(ad.Id)
-				}
-				docItem.Terms = terms
-				docItem.Length = ad.Length
-			default:
-				return fmt.Errorf("unexpected state: docItem: %v, ad.Frequencies: %v", docItem, ad.Frequencies)
-			}
+	err := utils.SinkWithContext(ctx, analysedDocs, func(ad analysedDocument) error {
+		docItem, err := index.getDocCacheItem(ad.Id)
+		if err != nil {
+			return fmt.Errorf("error getting doc cache item: %w", err)
 		}
-
+		switch {
+		case docItem == nil && ad.Length > 0:
+			// Insert
+			terms := make(map[string]Term)
+			for term, frequency := range ad.Frequencies {
+				terms[term] = Term{
+					Frequency: frequency,
+				}
+				setItem, err := index.getSetCacheItem(term)
+				if err != nil {
+					return fmt.Errorf("error getting set cache item: %w", err)
+				}
+				setItem.isDirty = setItem.set.CheckedAdd(ad.Id)
+			}
+			index.docCache[ad.Id] = &docCacheItem{
+				Terms:  terms,
+				Length: ad.Length,
+			}
+			index.numDocs++
+		case docItem != nil && ad.Length == 0:
+			// Delete
+			for term := range docItem.Terms {
+				setItem, err := index.getSetCacheItem(term)
+				if err != nil {
+					return fmt.Errorf("error getting set cache item: %w", err)
+				}
+				setItem.isDirty = setItem.set.CheckedRemove(ad.Id)
+			}
+			index.docCache[ad.Id] = nil
+			index.numDocs--
+		case docItem != nil && ad.Length > 0:
+			// Update
+			// We need to remove the old terms from the set that are not in the new
+			// document and add the new terms to the set that are not in the old
+			for term := range docItem.Terms {
+				if _, ok := ad.Frequencies[term]; ok {
+					continue
+				}
+				setItem, err := index.getSetCacheItem(term)
+				if err != nil {
+					return fmt.Errorf("error getting set cache item: %w", err)
+				}
+				setItem.isDirty = setItem.set.CheckedRemove(ad.Id)
+			}
+			terms := make(map[string]Term)
+			for term, freq := range ad.Frequencies {
+				terms[term] = Term{
+					Frequency: freq,
+				}
+				if _, ok := docItem.Terms[term]; ok {
+					continue
+				}
+				setItem, err := index.getSetCacheItem(term)
+				if err != nil {
+					return fmt.Errorf("error getting set cache item: %w", err)
+				}
+				setItem.isDirty = setItem.set.CheckedAdd(ad.Id)
+			}
+			docItem.Terms = terms
+			docItem.Length = ad.Length
+		default:
+			return fmt.Errorf("unexpected state: docItem: %v, ad.Frequencies: %v", docItem, ad.Frequencies)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
+	return index.flush()
 }
 
 // Flush writes the index changes to the bucket. It should be called after write operation.

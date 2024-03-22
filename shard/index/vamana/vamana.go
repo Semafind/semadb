@@ -15,6 +15,7 @@ import (
 	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
+	"github.com/semafind/semadb/utils"
 )
 
 // ---------------------------
@@ -128,38 +129,33 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.ReadWrite
 	deletedPoints := make([]*cache.CachePoint, 0)
 	toRemoveInBoundNodeIds := make(map[uint64]struct{})
 	// ---------------------------
-outer:
-	for {
-		select {
-		case <-ctx.Done():
-			return fmt.Errorf("context interrupt while writing points: %w", context.Cause(ctx))
-		case point, ok := <-pointQueue:
-			if !ok {
-				break outer
-			}
-			// What operation is this?
-			cp, err := pc.GetPoint(point.NodeId)
-			switch {
-			case err == cache.ErrNotFound:
-				// Insert
-				insertQ <- point
-			case err == nil && point.Vector != nil:
-				// Update
-				updatedPoints = append(updatedPoints, point)
-				toRemoveInBoundNodeIds[point.NodeId] = struct{}{}
-			case err == nil && point.Vector == nil:
-				// Delete
-				deletedPoints = append(deletedPoints, cp)
-				toRemoveInBoundNodeIds[point.NodeId] = struct{}{}
-			default:
-				return err
-			}
+	err := utils.SinkWithContext(ctx, pointQueue, func(point cache.GraphNode) error {
+		// What operation is this?
+		cp, err := pc.GetPoint(point.NodeId)
+		switch {
+		case err == cache.ErrNotFound:
+			// Insert
+			insertQ <- point
+		case err == nil && point.Vector != nil:
+			// Update
+			updatedPoints = append(updatedPoints, point)
+			toRemoveInBoundNodeIds[point.NodeId] = struct{}{}
+		case err == nil && point.Vector == nil:
+			// Delete
+			deletedPoints = append(deletedPoints, cp)
+			toRemoveInBoundNodeIds[point.NodeId] = struct{}{}
+		default:
+			return err
 		}
-	}
+		return nil
+	})
 	// ---------------------------
 	/* We don't want to interleave inbound edge pruning for update and delete
 	 * while insert is happening. This may again lead to disconnected graphs. */
 	close(insertQ)
+	if err != nil {
+		return fmt.Errorf("could not sink point changes: %w", err)
+	}
 	wg.Wait()
 	// ---------------------------
 	/* Initially we doubled downed on the assumption that more often than not

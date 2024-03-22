@@ -7,27 +7,8 @@ import (
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/utils"
 )
-
-type IndexInvertedInteger struct {
-	*indexInverted[int64]
-}
-
-func NewIndexInvertedInteger(bucket diskstore.Bucket) (*IndexInvertedInteger, error) {
-	inv := newIndexInverted[int64](bucket)
-	return &IndexInvertedInteger{inv}, nil
-}
-
-// ---------------------------
-
-type IndexInvertedFloat struct {
-	*indexInverted[float64]
-}
-
-func NewIndexInvertedFloat(bucket diskstore.Bucket) (*IndexInvertedFloat, error) {
-	inv := newIndexInverted[float64](bucket)
-	return &IndexInvertedFloat{inv}, nil
-}
 
 // ---------------------------
 
@@ -37,7 +18,7 @@ type IndexInvertedString struct {
 }
 
 func NewIndexInvertedString(bucket diskstore.Bucket, params models.IndexStringParameters) (*IndexInvertedString, error) {
-	inv := newIndexInverted[string](bucket)
+	inv := NewIndexInverted[string](bucket)
 	return &IndexInvertedString{inner: inv, params: params}, nil
 }
 
@@ -57,23 +38,15 @@ func (inv *IndexInvertedString) InsertUpdateDelete(ctx context.Context, in <-cha
 		out := make(chan IndexChange[string])
 		go func() {
 			defer close(out)
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case change, ok := <-in:
-					if !ok {
-						return
-					}
-					if change.CurrentData != nil {
-						*change.CurrentData = inv.preProcessValue(*change.CurrentData)
-					}
-					if change.PreviousData != nil {
-						*change.PreviousData = inv.preProcessValue(*change.PreviousData)
-					}
-					out <- change
+			utils.TransformWithContext(ctx, in, out, func(change IndexChange[string]) (IndexChange[string], error) {
+				if change.CurrentData != nil {
+					*change.CurrentData = inv.preProcessValue(*change.CurrentData)
 				}
-			}
+				if change.PreviousData != nil {
+					*change.PreviousData = inv.preProcessValue(*change.PreviousData)
+				}
+				return change, nil
+			})
 		}()
 	}
 	return inv.inner.InsertUpdateDelete(ctx, out)
