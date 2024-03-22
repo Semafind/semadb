@@ -84,6 +84,45 @@ func TransformWithContext[A, B any](ctx context.Context, in <-chan A, transformF
 	return out, errC
 }
 
+func TransformWithContextMultiple[A, B any](ctx context.Context, in <-chan A, transformFn func(A) (out []B, err error)) (<-chan B, <-chan error) {
+	out := make(chan B)
+	errC := make(chan error, 1)
+	go func() {
+		defer close(out)
+		defer close(errC)
+		for {
+			select {
+			// Is the context cancelled?
+			case <-ctx.Done():
+				errC <- ctx.Err()
+				return
+			case a, ok := <-in:
+				// Is the channel closed?
+				if !ok {
+					errC <- nil
+					return
+				}
+				bs, err := transformFn(a)
+				if err != nil {
+					errC <- err
+					return
+				}
+				for _, b := range bs {
+					// Can we send? It may be the context is cancelled and there are
+					// no receivers.
+					select {
+					case out <- b:
+					case <-ctx.Done():
+						errC <- ctx.Err()
+						return
+					}
+				}
+			}
+		}
+	}()
+	return out, errC
+}
+
 func MergeWithContext[T any](ctx context.Context, cs ...<-chan T) <-chan T {
 	out := make(chan T)
 	var wg sync.WaitGroup
