@@ -6,51 +6,8 @@ import (
 	"math"
 )
 
-// Convert mixed precision types to 64 bit, passes through strings.
-func upCastTo64(v any) (any, error) {
-	/* This mess comes about because the index deals with 64 bit version yet
-	 * parsing of JSON, or just incoming data, can be of mixed precision. */
-	var vv = v
-	switch v := v.(type) {
-	// ---------------------------
-	case int:
-		vv = int64(v)
-	case int8:
-		vv = int64(v)
-	case int16:
-		vv = int64(v)
-	case int32:
-		vv = int64(v)
-	case uint:
-		vv = uint64(v)
-	case uint8:
-		vv = uint64(v)
-	case uint16:
-		vv = uint64(v)
-	case uint32:
-		vv = uint64(v)
-	case float32:
-		vv = float64(v)
-	// ---------------------------
-	case string:
-	case float64:
-	case uint64:
-	case int64:
-	// ---------------------------
-	default:
-		return nil, fmt.Errorf("unsupported upcast type %T", v)
-	}
-	return vv, nil
-}
-
-func toByteSortable(v any) ([]byte, error) {
-	v, err := upCastTo64(v)
-	if err != nil {
-		return nil, err
-	}
-	// TODO: Refactor to use a type switch with generic type constraint [T indexable]
-	// switch any(v).(type) {
-	switch v := v.(type) {
+func toByteSortable[T Invertable](v T) ([]byte, error) {
+	switch v := any(v).(type) {
 	case string:
 		return []byte(v), nil
 	case uint64:
@@ -87,8 +44,8 @@ func toByteSortable(v any) ([]byte, error) {
 	return nil, fmt.Errorf("unsupported sortable type %T", v)
 }
 
-func fromByteSortable(b []byte, v any) error {
-	switch v := v.(type) {
+func fromByteSortable[T Invertable](b []byte, v *T) error {
+	switch v := any(v).(type) {
 	case *string:
 		*v = string(b)
 	case *uint64:
