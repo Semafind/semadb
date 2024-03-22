@@ -198,124 +198,125 @@ type analysedDocument struct {
 	Length      int
 }
 
-func (index *indexText) InsertUpdateDelete(ctx context.Context, in <-chan Document) error {
-	numWorkers := runtime.NumCPU() - 1
-	ctx, cancel := context.WithCancelCause(ctx)
-	// ---------------------------
-	analysedDocs := make(chan analysedDocument)
-	var wg sync.WaitGroup
-	// ---------------------------
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			err := utils.TransformWithContext(ctx, in, analysedDocs, func(doc Document) (ad analysedDocument, err error) {
-				// Perform analysis
-				tokens, err := index.analyser.Analyse(doc.Text)
-				if err != nil {
-					return
-				}
-				freq := make(map[string]int)
-				for _, t := range tokens {
-					freq[t.Term]++
-				}
-				ad.Id = doc.Id
-				ad.Frequencies = freq
-				ad.Length = len(tokens)
-				return
-			})
-			if err != nil {
-				cancel(err)
-			}
-		}()
-	}
-	// ---------------------------
-	go func() {
-		wg.Wait()
-		close(analysedDocs)
-	}()
+func (index *indexText) InsertUpdateDelete(ctx context.Context, in <-chan Document) <-chan error {
+	analysedDocs, errC := index.parallelAnalyse(ctx, in)
 	// ---------------------------
 	/* We are currently leaving the update of sets and documents single threaded
 	 * to avoid excessive locking initially. One reason is that roaring bitmaps
 	 * are not thread-safe so we would have to lock around them. We should
 	 * monitor the performance of a single thread iterating over all the changes
 	 * before we consider parallelising it. */
-	index.mu.Lock()
-	defer index.mu.Unlock()
-	err := utils.SinkWithContext(ctx, analysedDocs, func(ad analysedDocument) error {
-		docItem, err := index.getDocCacheItem(ad.Id)
-		if err != nil {
-			return fmt.Errorf("error getting doc cache item: %w", err)
+	writeErrC := make(chan error, 1)
+	// This is the aforementioned single thread
+	go func() {
+		defer close(writeErrC)
+		index.mu.Lock()
+		defer index.mu.Unlock()
+		sinkErrC := utils.SinkWithContext(ctx, analysedDocs, index.processAnalysedDoc)
+		if err := <-sinkErrC; err != nil {
+			writeErrC <- fmt.Errorf("error processing analysed docs: %w", err)
+			return
 		}
-		switch {
-		case docItem == nil && ad.Length > 0:
-			// Insert
-			terms := make(map[string]Term)
-			for term, frequency := range ad.Frequencies {
-				terms[term] = Term{
-					Frequency: frequency,
-				}
-				setItem, err := index.getSetCacheItem(term)
-				if err != nil {
-					return fmt.Errorf("error getting set cache item: %w", err)
-				}
-				setItem.isDirty = setItem.set.CheckedAdd(ad.Id)
-			}
-			index.docCache[ad.Id] = &docCacheItem{
-				Terms:  terms,
-				Length: ad.Length,
-			}
-			index.numDocs++
-		case docItem != nil && ad.Length == 0:
-			// Delete
-			for term := range docItem.Terms {
-				setItem, err := index.getSetCacheItem(term)
-				if err != nil {
-					return fmt.Errorf("error getting set cache item: %w", err)
-				}
-				setItem.isDirty = setItem.set.CheckedRemove(ad.Id)
-			}
-			index.docCache[ad.Id] = nil
-			index.numDocs--
-		case docItem != nil && ad.Length > 0:
-			// Update
-			// We need to remove the old terms from the set that are not in the new
-			// document and add the new terms to the set that are not in the old
-			for term := range docItem.Terms {
-				if _, ok := ad.Frequencies[term]; ok {
-					continue
-				}
-				setItem, err := index.getSetCacheItem(term)
-				if err != nil {
-					return fmt.Errorf("error getting set cache item: %w", err)
-				}
-				setItem.isDirty = setItem.set.CheckedRemove(ad.Id)
-			}
-			terms := make(map[string]Term)
-			for term, freq := range ad.Frequencies {
-				terms[term] = Term{
-					Frequency: freq,
-				}
-				if _, ok := docItem.Terms[term]; ok {
-					continue
-				}
-				setItem, err := index.getSetCacheItem(term)
-				if err != nil {
-					return fmt.Errorf("error getting set cache item: %w", err)
-				}
-				setItem.isDirty = setItem.set.CheckedAdd(ad.Id)
-			}
-			docItem.Terms = terms
-			docItem.Length = ad.Length
-		default:
-			return fmt.Errorf("unexpected state: docItem: %v, ad.Frequencies: %v", docItem, ad.Frequencies)
-		}
-		return nil
-	})
+		writeErrC <- index.flush()
+	}()
+	return utils.MergeErrorsWithContext(ctx, errC, writeErrC)
+}
+
+func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
+	docItem, err := index.getDocCacheItem(ad.Id)
 	if err != nil {
-		return err
+		return fmt.Errorf("error getting doc cache item: %w", err)
 	}
-	return index.flush()
+	switch {
+	case docItem == nil && ad.Length > 0:
+		// Insert
+		terms := make(map[string]Term)
+		for term, frequency := range ad.Frequencies {
+			terms[term] = Term{
+				Frequency: frequency,
+			}
+			setItem, err := index.getSetCacheItem(term)
+			if err != nil {
+				return fmt.Errorf("error getting set cache item: %w", err)
+			}
+			setItem.isDirty = setItem.set.CheckedAdd(ad.Id)
+		}
+		index.docCache[ad.Id] = &docCacheItem{
+			Terms:  terms,
+			Length: ad.Length,
+		}
+		index.numDocs++
+	case docItem != nil && ad.Length == 0:
+		// Delete
+		for term := range docItem.Terms {
+			setItem, err := index.getSetCacheItem(term)
+			if err != nil {
+				return fmt.Errorf("error getting set cache item: %w", err)
+			}
+			setItem.isDirty = setItem.set.CheckedRemove(ad.Id)
+		}
+		index.docCache[ad.Id] = nil
+		index.numDocs--
+	case docItem != nil && ad.Length > 0:
+		// Update
+		// We need to remove the old terms from the set that are not in the new
+		// document and add the new terms to the set that are not in the old
+		for term := range docItem.Terms {
+			if _, ok := ad.Frequencies[term]; ok {
+				continue
+			}
+			setItem, err := index.getSetCacheItem(term)
+			if err != nil {
+				return fmt.Errorf("error getting set cache item: %w", err)
+			}
+			setItem.isDirty = setItem.set.CheckedRemove(ad.Id)
+		}
+		terms := make(map[string]Term)
+		for term, freq := range ad.Frequencies {
+			terms[term] = Term{
+				Frequency: freq,
+			}
+			if _, ok := docItem.Terms[term]; ok {
+				continue
+			}
+			setItem, err := index.getSetCacheItem(term)
+			if err != nil {
+				return fmt.Errorf("error getting set cache item: %w", err)
+			}
+			setItem.isDirty = setItem.set.CheckedAdd(ad.Id)
+		}
+		docItem.Terms = terms
+		docItem.Length = ad.Length
+	default:
+		return fmt.Errorf("unexpected state: docItem: %v, ad.Frequencies: %v", docItem, ad.Frequencies)
+	}
+	return nil
+}
+
+func (index *indexText) parallelAnalyse(ctx context.Context, in <-chan Document) (<-chan analysedDocument, <-chan error) {
+	numWorkers := runtime.NumCPU() - 1
+	outs := make([]<-chan analysedDocument, numWorkers)
+	errCs := make([]<-chan error, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		out, errC := utils.TransformWithContext(ctx, in, func(doc Document) (ad analysedDocument, skip bool, err error) {
+			// Perform analysis
+			tokens, err := index.analyser.Analyse(doc.Text)
+			if err != nil {
+				return
+			}
+			freq := make(map[string]int)
+			for _, t := range tokens {
+				freq[t.Term]++
+			}
+			ad.Id = doc.Id
+			ad.Frequencies = freq
+			ad.Length = len(tokens)
+			return
+		})
+		outs[i] = out
+		errCs[i] = errC
+	}
+	return utils.MergeWithContext(ctx, outs...), utils.MergeErrorsWithContext(ctx, errCs...)
 }
 
 // Flush writes the index changes to the bucket. It should be called after write operation.

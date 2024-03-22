@@ -8,7 +8,7 @@ import (
 	"github.com/semafind/semadb/utils"
 )
 
-func (v *IndexVamana) insertWorker(ctx context.Context, pc cache.ReadWriteCache, jobQueue <-chan cache.GraphNode) error {
+func (v *IndexVamana) insertWorker(ctx context.Context, pc cache.ReadWriteCache, jobQueue <-chan cache.GraphNode) <-chan error {
 	return utils.SinkWithContext(ctx, jobQueue, func(point cache.GraphNode) error {
 		// TODO: add test case for this
 		if point.NodeId == STARTID {

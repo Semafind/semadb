@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -205,21 +204,11 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		}
 		// ---------------------------
 		// Kick off index dispatcher
-		ctx, cancel := context.WithCancelCause(context.Background())
-		defer cancel(nil)
-		indexQ := make(chan index.IndexPointChange)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
-			err := im.Dispatch(ctx, indexQ)
-			if err != nil {
-				cancel(fmt.Errorf("could not dispatch index: %w", err))
-			}
-		}()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		// ---------------------------
-		for _, point := range points {
+		pointsQ := utils.ProduceWithContext(ctx, points)
+		indexQ, indexQErrC := utils.TransformWithContext(ctx, pointsQ, func(point models.Point) (ipc index.IndexPointChange, skip bool, err error) {
 			// ---------------------------
 			/* If the point exists, we can't re-insert it. This is actually an
 			 * error because the edges will be wrong in the graph. It needs to be
@@ -229,26 +218,30 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 			 * during insertion when there are multiple shards. We are returning
 			 * an error here to force the user to update the point instead which
 			 * handles the multiple shard case. */
-			if exists, err := CheckPointExists(bPoints, point.Id); err != nil {
-				return fmt.Errorf("could not check point existence: %w", err)
-			} else if exists {
-				return fmt.Errorf("point already exists: %s", point.Id.String())
+			var exists bool
+			if exists, err = CheckPointExists(bPoints, point.Id); err != nil {
+				err = fmt.Errorf("could not check point existence: %w", err)
+				return
+			}
+			if exists {
+				err = fmt.Errorf("point already exists: %s", point.Id.String())
+				return
 			}
 			sp := ShardPoint{Point: point, NodeId: nodeCounter.NextId()}
-			if err := SetPoint(bPoints, sp); err != nil {
-				return fmt.Errorf("could not set point: %w", err)
+			if err = SetPoint(bPoints, sp); err != nil {
+				err = fmt.Errorf("could not set point: %w", err)
+				return
 			}
-			// ---------------------------
-			select {
-			case <-ctx.Done():
-				return fmt.Errorf("context interrupt for shard insert: %w", context.Cause(ctx))
-			case indexQ <- index.IndexPointChange{NodeId: sp.NodeId, PreviousData: nil, NewData: point.Data}:
-			}
-		}
-		close(indexQ)
-		wg.Wait()
+			ipc.NodeId = sp.NodeId
+			ipc.NewData = point.Data
+			return
+		})
+		im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
+		dispatchErrC := im.Dispatch(ctx, indexQ)
+		// ---------------------------
+		mergedErrC := utils.MergeErrorsWithContext(ctx, indexQErrC, dispatchErrC)
 		// At this point concurrent stuff is over, we can check for errors
-		if err := context.Cause(ctx); err != nil {
+		if err := <-mergedErrC; err != nil {
 			return fmt.Errorf("could not complete insert: %w", err)
 		}
 		// ---------------------------
@@ -292,38 +285,33 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 		}
 		// ---------------------------
 		// Kick off index dispatcher
-		ctx, cancel := context.WithCancelCause(context.Background())
-		defer cancel(nil)
-		indexQ := make(chan index.IndexPointChange)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
-			err := im.Dispatch(ctx, indexQ)
-			if err != nil {
-				cancel(fmt.Errorf("could not dispatch index: %w", err))
-			}
-		}()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		// ---------------------------
-		for _, point := range points {
+		pointsQ := utils.ProduceWithContext(ctx, points)
+		indexQ, indexQErrC := utils.TransformWithContext(ctx, pointsQ, func(point models.Point) (ipc index.IndexPointChange, skip bool, err error) {
+			// ---------------------------
 			sp, err := GetPointByUUID(pointsBucket, point.Id)
 			if err == ErrPointDoesNotExist {
 				// Point does not exist, we can skip it, it may reside in
 				// another shard. Updating non-existing points is a no-op.
-				continue
+				skip = true
+				return
 			}
 			if err != nil {
-				return fmt.Errorf("could not get point node id: %w", err)
+				err = fmt.Errorf("could not get point by id: %w", err)
+				return
 			}
 			// Merge data on update
 			var existingData models.PointAsMap
 			var incomingData models.PointAsMap
-			if err := msgpack.Unmarshal(sp.Data, &existingData); err != nil {
-				return fmt.Errorf("could not unmarshal old data: %w", err)
+			if err = msgpack.Unmarshal(sp.Data, &existingData); err != nil {
+				err = fmt.Errorf("could not unmarshal old data: %w", err)
+				return
 			}
-			if err := msgpack.Unmarshal(point.Data, &incomingData); err != nil {
-				return fmt.Errorf("could not unmarshal new data: %w", err)
+			if err = msgpack.Unmarshal(point.Data, &incomingData); err != nil {
+				err = fmt.Errorf("could not unmarshal new data: %w", err)
+				return
 			}
 			// TODO: add tests for this merging and deleting of values
 			for k, v := range incomingData {
@@ -335,31 +323,36 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 			}
 			finalNewData, err := msgpack.Marshal(existingData)
 			if err != nil {
-				return fmt.Errorf("could not marshal new data: %w", err)
+				err = fmt.Errorf("could not marshal final new data: %w", err)
+				return
 			}
 			// Check if the user is making a point too large
 			// TODO: Add tests for this check
 			if len(finalNewData) > s.collection.UserPlan.MaxMetadataSize {
-				return fmt.Errorf("point size exceeds limit: %d", s.collection.UserPlan.MaxMetadataSize)
+				err = fmt.Errorf("point size exceeds limit: %d", s.collection.UserPlan.MaxMetadataSize)
+				return
 			}
 			// ---------------------------
 			point.Data = finalNewData
-			if err := SetPoint(pointsBucket, ShardPoint{Point: point, NodeId: sp.NodeId}); err != nil {
-				return fmt.Errorf("could not set updated point: %w", err)
+			if err = SetPoint(pointsBucket, ShardPoint{Point: point, NodeId: sp.NodeId}); err != nil {
+				err = fmt.Errorf("could not set updated point: %w", err)
+				return
 			}
-			select {
-			case <-ctx.Done():
-				return fmt.Errorf("context interrupt for shard update: %w", context.Cause(ctx))
-			case indexQ <- index.IndexPointChange{NodeId: sp.NodeId, PreviousData: sp.Data, NewData: finalNewData}:
-			}
+			ipc.NodeId = sp.NodeId
+			ipc.PreviousData = sp.Data
+			ipc.NewData = finalNewData
 			// ---------------------------
 			updatedIds = append(updatedIds, point.Id)
-		}
-		close(indexQ)
-		wg.Wait()
+			// ---------------------------
+			return
+		})
+		im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
+		dispatchErrC := im.Dispatch(ctx, indexQ)
+		// ---------------------------
+		mergedErrC := utils.MergeErrorsWithContext(ctx, indexQErrC, dispatchErrC)
 		// At this point concurrent stuff is over, we can check for errors
-		if err := context.Cause(ctx); err != nil {
-			return fmt.Errorf("could not complete insert: %w", err)
+		if err := <-mergedErrC; err != nil {
+			return fmt.Errorf("could not complete update: %w", err)
 		}
 		return nil
 	})
@@ -522,44 +515,39 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		}
 		// ---------------------------
 		// Kick off index dispatcher
-		ctx, cancel := context.WithCancelCause(context.Background())
-		defer cancel(nil)
-		indexQ := make(chan index.IndexPointChange)
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
-			err := im.Dispatch(ctx, indexQ)
-			if err != nil {
-				cancel(fmt.Errorf("could not dispatch index: %w", err))
-			}
-		}()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		// ---------------------------
-		for pointId := range deleteSet {
+		pointsQ := utils.ProduceWithContextMapKeys(ctx, deleteSet)
+		indexQ, indexQErrC := utils.TransformWithContext(ctx, pointsQ, func(pointId uuid.UUID) (ipc index.IndexPointChange, skip bool, err error) {
 			sp, err := GetPointByUUID(bPoints, pointId)
 			if err == ErrPointDoesNotExist {
 				// Deleting a non-existing point is a no-op
-				continue
+				skip = true
+				return
 			}
 			if err != nil {
-				return fmt.Errorf("could not get point for deletion: %w", err)
+				err = fmt.Errorf("could not get point for deletion: %w", err)
+				return
 			}
 			deletedIds = append(deletedIds, pointId)
 			nodeCounter.FreeId(sp.NodeId)
-			select {
-			case <-ctx.Done():
-				return fmt.Errorf("context interrupt for shard delete: %w", context.Cause(ctx))
-			case indexQ <- index.IndexPointChange{NodeId: sp.NodeId, PreviousData: sp.Data, NewData: nil}:
+			// ---------------------------
+			if err = DeletePoint(bPoints, pointId, sp.NodeId); err != nil {
+				err = fmt.Errorf("could not delete point %s: %w", pointId, err)
+				return
 			}
-			if err := DeletePoint(bPoints, pointId, sp.NodeId); err != nil {
-				return fmt.Errorf("could not delete point %s: %w", pointId, err)
-			}
-		}
-		close(indexQ)
-		wg.Wait()
+			// ---------------------------
+			ipc.NodeId = sp.NodeId
+			ipc.PreviousData = sp.Data
+			return
+		})
+		im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
+		dispatchErrC := im.Dispatch(ctx, indexQ)
+		// ---------------------------
+		mergedErrC := utils.MergeErrorsWithContext(ctx, indexQErrC, dispatchErrC)
 		// At this point concurrent stuff is over, we can check for errors
-		if err := context.Cause(ctx); err != nil {
+		if err := <-mergedErrC; err != nil {
 			return fmt.Errorf("could not complete insert: %w", err)
 		}
 		// ---------------------------

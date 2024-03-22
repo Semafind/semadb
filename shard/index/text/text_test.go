@@ -32,10 +32,7 @@ func Test_Insert(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 	out := make(chan text.Document)
-	errC := make(chan error)
-	go func() {
-		errC <- index.InsertUpdateDelete(ctx, out)
-	}()
+	errC := index.InsertUpdateDelete(ctx, out)
 	for i := 0; i < 100; i++ {
 		out <- text.Document{
 			Id:   uint64(i),
@@ -57,10 +54,7 @@ func Test_Search(t *testing.T) {
 	require.NoError(t, err)
 	ctx := context.Background()
 	out := make(chan text.Document)
-	errC := make(chan error)
-	go func() {
-		errC <- index.InsertUpdateDelete(ctx, out)
-	}()
+	errC := index.InsertUpdateDelete(ctx, out)
 	for i := 0; i < 100; i++ {
 		out <- text.Document{
 			Id:   uint64(i),

@@ -3,7 +3,6 @@ package index
 import (
 	"context"
 	"fmt"
-	"sync"
 
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
@@ -31,111 +30,102 @@ type decodedPointChange struct {
 func (im indexManager) Dispatch(
 	ctx context.Context,
 	changes <-chan IndexPointChange,
-) error {
+) <-chan error {
 	// ---------------------------
-	var wg sync.WaitGroup
-	ctx, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
-	dec := msgpack.NewDecoder(nil)
+	distributeErrC := make(chan error, 1)
 	// ---------------------------
-	decodedQ := make(map[string]chan decodedPointChange)
 	/* We drain the original changes channel to multiplex into the appropriate
 	 * index queues which become their own pipelines. */
-	err := utils.SinkWithContext(ctx, changes, func(change IndexPointChange) error {
-		for propName, params := range im.indexSchema {
-			prev, current, op, err := getOperation(dec, propName, change.PreviousData, change.NewData)
-			if err != nil {
-				return fmt.Errorf("could not get operation for property %s: %w", propName, err)
-			}
-			// This property has not changed or is not present
-			if op == opSkip {
-				continue
-			}
-			// e.g. index/vamana/myvector
-			bucketName := fmt.Sprintf("index/%s/%s", params.Type, propName)
-			queue, ok := decodedQ[bucketName]
-			if !ok {
-				queue = make(chan decodedPointChange)
-				decodedQ[bucketName] = queue
-				if err := im.getDrainFn(ctx, cancel, &wg, bucketName, params, queue); err != nil {
-					return fmt.Errorf("could not setup drain for %s: %w", bucketName, err)
+	go func() {
+		errCs := make([]<-chan error, 0)
+		decodedQ := make(map[string]chan decodedPointChange)
+		dec := msgpack.NewDecoder(nil)
+		errC := utils.SinkWithContext(ctx, changes, func(change IndexPointChange) error {
+			for propName, params := range im.indexSchema {
+				prev, current, op, err := getOperation(dec, propName, change.PreviousData, change.NewData)
+				if err != nil {
+					return fmt.Errorf("could not get operation for property %s: %w", propName, err)
+				}
+				// This property has not changed or is not present
+				if op == opSkip {
+					continue
+				}
+				// e.g. index/vamana/myvector
+				bucketName := fmt.Sprintf("index/%s/%s", params.Type, propName)
+				queue, ok := decodedQ[bucketName]
+				if !ok {
+					queue = make(chan decodedPointChange)
+					decodedQ[bucketName] = queue
+					df, err := im.getDrainFn(bucketName, params)
+					if err != nil {
+						return fmt.Errorf("could not setup drain function for %s: %w", bucketName, err)
+					}
+					errCs = append(errCs, df(ctx, queue))
+				}
+				// ---------------------------
+				// Submit job to the queue
+				select {
+				case queue <- decodedPointChange{nodeId: change.NodeId, oldData: prev, newData: current}:
+				case <-ctx.Done():
+					return fmt.Errorf("context done while dispatching to %s: %w", bucketName, context.Cause(ctx))
 				}
 			}
-			// ---------------------------
-			// Submit job to the queue
-			select {
-			case queue <- decodedPointChange{nodeId: change.NodeId, oldData: prev, newData: current}:
-			case <-ctx.Done():
-				return fmt.Errorf("context done while dispatching to %s: %w", bucketName, context.Cause(ctx))
-			}
+			return nil
+		})
+		err := <-errC
+		// Close any queues
+		for _, queue := range decodedQ {
+			close(queue)
 		}
-		return nil
-	})
-	if err != nil {
-		cancel(fmt.Errorf("could not dispatch index: %w", err))
-	}
+		if err != nil {
+			distributeErrC <- fmt.Errorf("error distributing changes: %w", err)
+		} else {
+			distributeErrC <- <-utils.MergeErrorsWithContext(ctx, errCs...)
+		}
+		close(distributeErrC)
+	}()
 	// ---------------------------
-	// Close any queues
-	for _, queue := range decodedQ {
-		close(queue)
-	}
-	// ---------------------------
-	// Wait for any indexing to finish
-	wg.Wait()
-	return context.Cause(ctx)
+	return distributeErrC
 }
 
-func (im indexManager) getDrainFn(ctx context.Context, cancel context.CancelCauseFunc, wg *sync.WaitGroup, bucketName string, params models.IndexSchemaValue, in <-chan decodedPointChange) error {
+type DrainFn func(ctx context.Context, in <-chan decodedPointChange) <-chan error
+
+func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaValue) (DrainFn, error) {
 	// ---------------------------
 	bucket, err := im.bm.Get(bucketName)
 	if err != nil {
-		return fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
+		return nil, fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
 	}
 	// ---------------------------
+	var drainFn DrainFn
 	switch params.Type {
 	case models.IndexTypeVectorVamana:
 		cacheName := im.cacheRoot + "/" + bucketName
 		vamanaIndex, err := vamana.NewIndexVamana(cacheName, im.cx, bucket, *params.VectorVamana, im.maxNodeId)
 		if err != nil {
-			return fmt.Errorf("could not create vamana index: %w", err)
+			return nil, fmt.Errorf("could not create vamana index: %w", err)
 		}
 		// Transform
-		setupDrain(ctx, cancel, wg, in, preProcessVamana, vamanaIndex.InsertUpdateDelete)
+		drainFn = func(ctx context.Context, in <-chan decodedPointChange) <-chan error {
+			out, transformErrC := utils.TransformWithContext(ctx, in, preProcessVamana)
+			errC := vamanaIndex.InsertUpdateDelete(ctx, out)
+			return utils.MergeErrorsWithContext(ctx, transformErrC, errC)
+		}
 		// ---------------------------
 	case models.IndexTypeInteger:
 		intIndex := inverted.NewIndexInverted[int64](bucket)
-		setupDrain(ctx, cancel, wg, in, preProcessInverted[int64], intIndex.InsertUpdateDelete)
+		drainFn = func(ctx context.Context, in <-chan decodedPointChange) <-chan error {
+			out, transformErrC := utils.TransformWithContext(ctx, in, preProcessInverted[int64])
+			errC := intIndex.InsertUpdateDelete(ctx, out)
+			return utils.MergeErrorsWithContext(ctx, transformErrC, errC)
+		}
 	default:
-		return fmt.Errorf("unsupported index property type: %s", params.Type)
+		return nil, fmt.Errorf("unsupported index property type: %s", params.Type)
 	} // End of property type switch
-	return nil
+	return drainFn, nil
 }
 
-func setupDrain[T any](ctx context.Context, cancel context.CancelCauseFunc, wg *sync.WaitGroup, in <-chan decodedPointChange, preProcess func(decodedPointChange) (T, error), endpoint func(context.Context, <-chan T) error) {
-	out := make(chan T)
-	// ---------------------------
-	// Kick off the pre-processing
-	wg.Add(1)
-	go func() {
-		if err := utils.TransformWithContext(ctx, in, out, preProcess); err != nil {
-			cancel(fmt.Errorf("could not transform: %w", err))
-		}
-		close(out)
-		wg.Done()
-	}()
-	// ---------------------------
-	// Start drain
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := endpoint(ctx, out); err != nil {
-			cancel(fmt.Errorf("could not drain: %w", err))
-		}
-	}()
-	// ---------------------------
-}
-
-func preProcessInverted[T inverted.Invertable](change decodedPointChange) (invChange inverted.IndexChange[T], err error) {
+func preProcessInverted[T inverted.Invertable](change decodedPointChange) (invChange inverted.IndexChange[T], skip bool, err error) {
 	// ---------------------------
 	invChange.Id = change.nodeId
 	if change.oldData != nil {
@@ -157,7 +147,7 @@ func preProcessInverted[T inverted.Invertable](change decodedPointChange) (invCh
 	return
 }
 
-func preProcessVamana(change decodedPointChange) (gn cache.GraphNode, err error) {
+func preProcessVamana(change decodedPointChange) (gn cache.GraphNode, skip bool, err error) {
 	// ---------------------------
 	gn.NodeId = change.nodeId
 	if change.newData != nil {

@@ -3,52 +3,37 @@ package utils_test
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/semafind/semadb/utils"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_TransformWithContext_NoInput(t *testing.T) {
 	in := make(chan int)
-	out := make(chan string)
-	transformFn := func(a int) (string, error) {
-		return fmt.Sprintf("%d-%d", a, a), nil
+	transformFn := func(a int) (string, bool, error) {
+		return fmt.Sprintf("%d-%d", a, a), false, nil
 	}
 	// ---------------------------
 	// No input data
 	ctx, cancel := context.WithCancel(context.Background())
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		err := utils.TransformWithContext(ctx, in, out, transformFn)
-		assert.Error(t, err)
-		wg.Done()
-	}()
+	_, errC := utils.TransformWithContext(ctx, in, transformFn)
 	cancel()
-	wg.Wait()
+	require.Error(t, <-errC)
 }
 
 func Test_TransformWithContext_NoReciever(t *testing.T) {
 	in := make(chan int, 1)
 	in <- 1
-	out := make(chan string)
-	transformFn := func(a int) (string, error) {
-		return fmt.Sprintf("%d-%d", a, a), nil
+	transformFn := func(a int) (string, bool, error) {
+		return fmt.Sprintf("%d-%d", a, a), false, nil
 	}
 	// ---------------------------
 	// No reciever
 	ctx, cancel := context.WithCancel(context.Background())
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		err := utils.TransformWithContext(ctx, in, out, transformFn)
-		assert.Error(t, err)
-		wg.Done()
-	}()
+	_, errC := utils.TransformWithContext(ctx, in, transformFn)
 	cancel()
-	wg.Wait()
+	require.Error(t, <-errC)
 	// ---------------------------
 }
 
@@ -60,13 +45,20 @@ func Test_SinkWithContext_NoInput(t *testing.T) {
 	// ---------------------------
 	// No input data
 	ctx, cancel := context.WithCancel(context.Background())
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		err := utils.SinkWithContext(ctx, in, sinkFn)
-		assert.Error(t, err)
-		wg.Done()
-	}()
+	errC := utils.SinkWithContext(ctx, in, sinkFn)
 	cancel()
-	wg.Wait()
+	require.Error(t, <-errC)
+}
+
+func Test_MergeErrorsWithContext(t *testing.T) {
+	errC1 := make(chan error, 1)
+	errC2 := make(chan error, 1)
+	errC1 <- fmt.Errorf("error 1")
+	errC2 <- fmt.Errorf("error 2")
+	// ---------------------------
+	// Merge errors
+	ctx, cancel := context.WithCancel(context.Background())
+	errC := utils.MergeErrorsWithContext(ctx, errC1, errC2)
+	cancel()
+	require.Error(t, <-errC)
 }

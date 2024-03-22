@@ -36,8 +36,8 @@ func Test_Integer(t *testing.T) {
 		}
 		close(in)
 	}()
-	err := inv.InsertUpdateDelete(ctx, in)
-	require.NoError(t, err)
+	errC := inv.InsertUpdateDelete(ctx, in)
+	require.NoError(t, <-errC)
 	checkTermCount(t, b, 5)
 }
 
@@ -57,8 +57,8 @@ func Test_BasicIntegerSearch(t *testing.T) {
 		}
 		close(in)
 	}()
-	err := inv.InsertUpdateDelete(ctx, in)
-	require.NoError(t, err)
+	errC := inv.InsertUpdateDelete(ctx, in)
+	require.NoError(t, <-errC)
 	checkTermCount(t, b, 17)
 	// ---------------------------
 	rSet, err := inv.Search(0, 0, models.OperatorEquals)

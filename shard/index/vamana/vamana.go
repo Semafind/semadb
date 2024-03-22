@@ -6,7 +6,6 @@ import (
 	"math"
 	"math/rand"
 	"runtime"
-	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -83,23 +82,21 @@ func (v *IndexVamana) setupStartNode(pc cache.ReadWriteCache) error {
 	return nil
 }
 
-func (v *IndexVamana) InsertUpdateDelete(ctx context.Context, points <-chan cache.GraphNode) error {
-	return v.cacheTx.With(v.cacheName, v.bucket, func(pc cache.ReadWriteCache) error {
-		if err := v.setupStartNode(pc); err != nil {
-			return fmt.Errorf("could not setup start node: %w", err)
-		}
-		return v.insertUpdateDelete(ctx, pc, points)
-	})
+func (v *IndexVamana) InsertUpdateDelete(ctx context.Context, points <-chan cache.GraphNode) <-chan error {
+	errC := make(chan error, 1)
+	go func() {
+		errC <- v.cacheTx.With(v.cacheName, v.bucket, func(pc cache.ReadWriteCache) error {
+			if err := v.setupStartNode(pc); err != nil {
+				return fmt.Errorf("could not setup start node: %w", err)
+			}
+			return v.insertUpdateDelete(ctx, pc, points)
+		})
+		close(errC)
+	}()
+	return errC
 }
 
 func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.ReadWriteCache, pointQueue <-chan cache.GraphNode) error {
-	/* We create our context for the workers. The way contexts work in go
-	 * language means if the parent context is cancelled all work here is
-	 * stopped, if a worker has an error than we cancel our context. It may very
-	 * well be that the parent context is eventually cancelled due to an error
-	 * here but we make no assumptions about that. */
-	ctx, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
 	// ---------------------------
 	/* In this funky case there are actually multiple goroutines operating on
 	 * the same cache. As opposed to multiple requests queuing to get access
@@ -108,17 +105,12 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.ReadWrite
 	numWorkers := runtime.NumCPU() - 1 // We leave 1 core for the main thread
 	startTime := time.Now()
 	insertQ := make(chan cache.GraphNode)
-	var wg sync.WaitGroup
+	errCs := make([]<-chan error, numWorkers)
 	// ---------------------------
 	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := v.insertWorker(ctx, pc, insertQ); err != nil {
-				cancel(err)
-			}
-		}()
+		errCs[i] = v.insertWorker(ctx, pc, insertQ)
 	}
+	insertErrC := utils.MergeErrorsWithContext(ctx, errCs...)
 	// ---------------------------
 	/* Update and delete operations do a full scan to prune nodes correctly.
 	 * There is an approximate version we can implement, i.e. prune locally but
@@ -129,7 +121,7 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.ReadWrite
 	deletedPoints := make([]*cache.CachePoint, 0)
 	toRemoveInBoundNodeIds := make(map[uint64]struct{})
 	// ---------------------------
-	err := utils.SinkWithContext(ctx, pointQueue, func(point cache.GraphNode) error {
+	errC := utils.SinkWithContext(ctx, pointQueue, func(point cache.GraphNode) error {
 		// What operation is this?
 		cp, err := pc.GetPoint(point.NodeId)
 		switch {
@@ -149,14 +141,16 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.ReadWrite
 		}
 		return nil
 	})
+	if err := <-errC; err != nil {
+		return fmt.Errorf("could not process point: %w", err)
+	}
 	// ---------------------------
 	/* We don't want to interleave inbound edge pruning for update and delete
 	 * while insert is happening. This may again lead to disconnected graphs. */
 	close(insertQ)
-	if err != nil {
-		return fmt.Errorf("could not sink point changes: %w", err)
+	if err := <-insertErrC; err != nil {
+		return fmt.Errorf("could not insert point: %w", err)
 	}
-	wg.Wait()
 	// ---------------------------
 	/* Initially we doubled downed on the assumption that more often than not
 	 * there would be bidirectional edges between points. This is, however,

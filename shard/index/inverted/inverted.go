@@ -67,49 +67,57 @@ type IndexChange[T Invertable] struct {
 	CurrentData  *T
 }
 
-func (inv *indexInverted[T]) InsertUpdateDelete(ctx context.Context, in <-chan IndexChange[T]) error {
-	inv.mu.Lock()
-	defer inv.mu.Unlock()
-	err := utils.SinkWithContext(ctx, in, func(change IndexChange[T]) error {
-		// ---------------------------
-		switch {
-		case change.PreviousData == nil && change.CurrentData == nil:
-			// Blank change, nothing to do
-		case change.PreviousData == nil && change.CurrentData != nil:
-			// Insert
-			set, err := inv.getSetCacheItem(*change.CurrentData, nil)
-			if err != nil {
-				return fmt.Errorf("error getting set cache item: %w", err)
-			}
-			set.isDirty = set.set.CheckedAdd(change.Id)
-		case change.PreviousData != nil && change.CurrentData == nil:
-			// Delete
-			set, err := inv.getSetCacheItem(*change.PreviousData, nil)
-			if err != nil {
-				return fmt.Errorf("error getting set cache item: %w", err)
-			}
-			set.isDirty = set.set.CheckedRemove(change.Id)
-		case *change.PreviousData != *change.CurrentData:
-			// Update
-			prevSet, err := inv.getSetCacheItem(*change.PreviousData, nil)
-			if err != nil {
-				return fmt.Errorf("error getting set cache item: %w", err)
-			}
-			prevSet.isDirty = prevSet.set.CheckedRemove(change.Id)
-			currSet, err := inv.getSetCacheItem(*change.CurrentData, nil)
-			if err != nil {
-				return fmt.Errorf("error getting set cache item: %w", err)
-			}
-			currSet.isDirty = currSet.set.CheckedAdd(change.Id)
-		case *change.PreviousData == *change.CurrentData:
-			// This case needs to be last not to get null pointer exception
+func (inv *indexInverted[T]) InsertUpdateDelete(ctx context.Context, in <-chan IndexChange[T]) <-chan error {
+	errC := make(chan error, 1)
+	go func() {
+		defer close(errC)
+		inv.mu.Lock()
+		defer inv.mu.Unlock()
+		processErrC := utils.SinkWithContext(ctx, in, inv.processChange)
+		if err := <-processErrC; err != nil {
+			errC <- fmt.Errorf("error processing change: %w", err)
+			return
 		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("error sinking changes: %w", err)
+		errC <- inv.flush()
+	}()
+	return errC
+}
+
+func (inv *indexInverted[T]) processChange(change IndexChange[T]) error {
+	// ---------------------------
+	switch {
+	case change.PreviousData == nil && change.CurrentData == nil:
+		// Blank change, nothing to do
+	case change.PreviousData == nil && change.CurrentData != nil:
+		// Insert
+		set, err := inv.getSetCacheItem(*change.CurrentData, nil)
+		if err != nil {
+			return fmt.Errorf("error getting set cache item: %w", err)
+		}
+		set.isDirty = set.set.CheckedAdd(change.Id)
+	case change.PreviousData != nil && change.CurrentData == nil:
+		// Delete
+		set, err := inv.getSetCacheItem(*change.PreviousData, nil)
+		if err != nil {
+			return fmt.Errorf("error getting set cache item: %w", err)
+		}
+		set.isDirty = set.set.CheckedRemove(change.Id)
+	case *change.PreviousData != *change.CurrentData:
+		// Update
+		prevSet, err := inv.getSetCacheItem(*change.PreviousData, nil)
+		if err != nil {
+			return fmt.Errorf("error getting set cache item: %w", err)
+		}
+		prevSet.isDirty = prevSet.set.CheckedRemove(change.Id)
+		currSet, err := inv.getSetCacheItem(*change.CurrentData, nil)
+		if err != nil {
+			return fmt.Errorf("error getting set cache item: %w", err)
+		}
+		currSet.isDirty = currSet.set.CheckedAdd(change.Id)
+	case *change.PreviousData == *change.CurrentData:
+		// This case needs to be last not to get null pointer exception
 	}
-	return inv.flush()
+	return nil
 }
 
 func (inv *indexInverted[T]) flush() error {

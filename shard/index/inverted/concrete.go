@@ -30,26 +30,27 @@ func (inv *IndexInvertedString) preProcessValue(term string) string {
 	return term
 }
 
-func (inv *IndexInvertedString) InsertUpdateDelete(ctx context.Context, in <-chan IndexChange[string]) error {
+func (inv *IndexInvertedString) InsertUpdateDelete(ctx context.Context, in <-chan IndexChange[string]) <-chan error {
 	// Process any transformers such as lowercasing before inserting
 	out := in
+	var transformErrC <-chan error
 	// Do we need to pre process?
 	if !inv.params.CaseSensitive {
-		out := make(chan IndexChange[string])
-		go func() {
-			defer close(out)
-			utils.TransformWithContext(ctx, in, out, func(change IndexChange[string]) (IndexChange[string], error) {
-				if change.CurrentData != nil {
-					*change.CurrentData = inv.preProcessValue(*change.CurrentData)
-				}
-				if change.PreviousData != nil {
-					*change.PreviousData = inv.preProcessValue(*change.PreviousData)
-				}
-				return change, nil
-			})
-		}()
+		out, transformErrC = utils.TransformWithContext(ctx, in, func(change IndexChange[string]) (IndexChange[string], bool, error) {
+			if change.CurrentData != nil {
+				*change.CurrentData = inv.preProcessValue(*change.CurrentData)
+			}
+			if change.PreviousData != nil {
+				*change.PreviousData = inv.preProcessValue(*change.PreviousData)
+			}
+			return change, false, nil
+		})
 	}
-	return inv.inner.InsertUpdateDelete(ctx, out)
+	insertErrC := inv.inner.InsertUpdateDelete(ctx, out)
+	if transformErrC != nil {
+		return utils.MergeErrorsWithContext(ctx, transformErrC, insertErrC)
+	}
+	return insertErrC
 }
 
 func (inv *IndexInvertedString) Search(options models.SearchStringOptions) (*roaring64.Bitmap, error) {
