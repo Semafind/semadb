@@ -13,7 +13,7 @@ import (
 // ---------------------------
 
 type IndexInvertedString struct {
-	inner  *indexInverted[string]
+	inner  *IndexInverted[string]
 	params models.IndexStringParameters
 }
 

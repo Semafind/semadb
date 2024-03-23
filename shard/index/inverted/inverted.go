@@ -21,21 +21,21 @@ type setCacheItem struct {
 	isDirty bool
 }
 
-type indexInverted[T Invertable] struct {
+type IndexInverted[T Invertable] struct {
 	setCache map[T]*setCacheItem
 	bucket   diskstore.Bucket
 	mu       sync.Mutex
 }
 
-func NewIndexInverted[T Invertable](b diskstore.Bucket) *indexInverted[T] {
-	inv := &indexInverted[T]{
+func NewIndexInverted[T Invertable](b diskstore.Bucket) *IndexInverted[T] {
+	inv := &IndexInverted[T]{
 		setCache: make(map[T]*setCacheItem),
 		bucket:   b,
 	}
 	return inv
 }
 
-func (inv *indexInverted[T]) getSetCacheItem(value T, setBytes []byte) (*setCacheItem, error) {
+func (inv *IndexInverted[T]) getSetCacheItem(value T, setBytes []byte) (*setCacheItem, error) {
 	item, ok := inv.setCache[value]
 	if !ok {
 		// Attempt to read from the bucket
@@ -67,7 +67,7 @@ type IndexChange[T Invertable] struct {
 	CurrentData  *T
 }
 
-func (inv *indexInverted[T]) InsertUpdateDelete(ctx context.Context, in <-chan IndexChange[T]) <-chan error {
+func (inv *IndexInverted[T]) InsertUpdateDelete(ctx context.Context, in <-chan IndexChange[T]) <-chan error {
 	errC := make(chan error, 1)
 	go func() {
 		defer close(errC)
@@ -83,7 +83,7 @@ func (inv *indexInverted[T]) InsertUpdateDelete(ctx context.Context, in <-chan I
 	return errC
 }
 
-func (inv *indexInverted[T]) processChange(change IndexChange[T]) error {
+func (inv *IndexInverted[T]) processChange(change IndexChange[T]) error {
 	// ---------------------------
 	switch {
 	case change.PreviousData == nil && change.CurrentData == nil:
@@ -120,7 +120,7 @@ func (inv *indexInverted[T]) processChange(change IndexChange[T]) error {
 	return nil
 }
 
-func (inv *indexInverted[T]) flush() error {
+func (inv *IndexInverted[T]) flush() error {
 	// ---------------------------
 	for term, item := range inv.setCache {
 		if !item.isDirty {
@@ -150,7 +150,7 @@ func (inv *indexInverted[T]) flush() error {
 	return nil
 }
 
-func (inv *indexInverted[T]) Search(query T, endQuery T, operator string) (*roaring64.Bitmap, error) {
+func (inv *IndexInverted[T]) Search(query T, endQuery T, operator string) (*roaring64.Bitmap, error) {
 	inv.mu.Lock()
 	defer inv.mu.Unlock()
 	// ---------------------------
@@ -169,7 +169,7 @@ func (inv *indexInverted[T]) Search(query T, endQuery T, operator string) (*roar
 		if err != nil {
 			return nil, fmt.Errorf("error getting set cache item: %w", err)
 		}
-		sets = append(sets, item.set)
+		return item.set, nil
 	case models.OperatorNotEquals:
 		// This is actually a costly operation, we should let users know it
 		// causes an index scan
@@ -254,11 +254,11 @@ func (inv *indexInverted[T]) Search(query T, endQuery T, operator string) (*roar
 	}
 	// ---------------------------
 	if len(sets) == 0 {
-		return nil, nil
+		return roaring64.New(), nil
 	}
 	if len(sets) == 1 {
-		return sets[0].Clone(), nil
+		return sets[0], nil
 	}
 	// ---------------------------
-	return roaring64.FastAnd(sets...), nil
+	return roaring64.FastOr(sets...), nil
 }

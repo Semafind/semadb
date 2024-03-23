@@ -11,7 +11,7 @@ import (
 )
 
 type indexInvertedArray[T Invertable] struct {
-	inner *indexInverted[T]
+	inner *IndexInverted[T]
 }
 
 func NewIndexInvertedArray[T Invertable](bucket diskstore.Bucket) *indexInvertedArray[T] {
