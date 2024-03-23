@@ -1,3 +1,7 @@
+/*
+Inverted index is a data structure that maps terms to a set of documents that
+contain the term. It is an inverse lookup table.
+*/
 package inverted
 
 import (
@@ -12,6 +16,7 @@ import (
 	"github.com/semafind/semadb/utils"
 )
 
+// Defines which types can be indexed in an inverted index
 type Invertable interface {
 	uint64 | int64 | float64 | string
 }
@@ -67,6 +72,11 @@ type IndexChange[T Invertable] struct {
 	CurrentData  *T
 }
 
+// Perform an insert, update or delete operation on the inverted index. The
+// actual operation is determined by the previous and current data fields. That
+// is, if the previous data is nil and the current data is not, it is an insert
+// operation. If the previous data is not nil and the current data is nil, it is
+// a delete operation. If both are not nil, it is an update operation.
 func (inv *IndexInverted[T]) InsertUpdateDelete(ctx context.Context, in <-chan IndexChange[T]) <-chan error {
 	errC := make(chan error, 1)
 	go func() {
@@ -83,6 +93,9 @@ func (inv *IndexInverted[T]) InsertUpdateDelete(ctx context.Context, in <-chan I
 	return errC
 }
 
+// Process a change in the inverted index. This function is called by the
+// InsertUpdateDelete function. It performs the actual insert, update or delete
+// operation on the inverted index.
 func (inv *IndexInverted[T]) processChange(change IndexChange[T]) error {
 	// ---------------------------
 	switch {
@@ -120,6 +133,8 @@ func (inv *IndexInverted[T]) processChange(change IndexChange[T]) error {
 	return nil
 }
 
+// Flush the inverted index to the disk store. This function is called by the
+// InsertUpdateDelete function. It writes the inverted index to the disk store.
 func (inv *IndexInverted[T]) flush() error {
 	// ---------------------------
 	for term, item := range inv.setCache {
@@ -164,12 +179,14 @@ func (inv *IndexInverted[T]) Search(query T, endQuery T, operator string) (*roar
 	var inclusive bool
 	// ---------------------------
 	switch operator {
+	// ---------------------------
 	case models.OperatorEquals:
 		item, err := inv.getSetCacheItem(query, nil)
 		if err != nil {
 			return nil, fmt.Errorf("error getting set cache item: %w", err)
 		}
 		return item.set, nil
+	// ---------------------------
 	case models.OperatorNotEquals:
 		// This is actually a costly operation, we should let users know it
 		// causes an index scan
@@ -193,6 +210,7 @@ func (inv *IndexInverted[T]) Search(query T, endQuery T, operator string) (*roar
 		if err != nil {
 			return nil, fmt.Errorf("error iterating over bucket for inverted search: %w", err)
 		}
+	// ---------------------------
 	case models.OperatorStartsWith:
 		err := inv.bucket.PrefixScan(queryKey, func(k, v []byte) error {
 			var reverseKey T
@@ -210,6 +228,7 @@ func (inv *IndexInverted[T]) Search(query T, endQuery T, operator string) (*roar
 		if err != nil {
 			return nil, fmt.Errorf("error prefix scanning over bucket for inverted search: %w", err)
 		}
+	// ---------------------------
 	case models.OperatorGreaterThan:
 		start = queryKey
 		inclusive = false
@@ -230,6 +249,7 @@ func (inv *IndexInverted[T]) Search(query T, endQuery T, operator string) (*roar
 		}
 		end = endk
 		inclusive = true
+	// ---------------------------
 	default:
 		return nil, fmt.Errorf("unknown inverted search operator: %s", operator)
 	}
