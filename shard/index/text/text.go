@@ -14,27 +14,28 @@ The term to document index is handled by roaring bitmaps. The term to document i
 is a map of terms to a set of document ids.
 
 Storage in bucket:
-NUMDOCUMENTSKEY: The number of documents in the index. This is used to calculate
+NUMDOCUMENTSKEY: The number of documents in the index. This is used to calculate tf-idf score.
 t<TERM>s: roaring set of document ids where the term occurs.
-d<DOCID>d: document cache item containing the terms and their frequencies in the document.
+d<DOCID>: document cache item containing the terms and their frequencies in the document.
 */
 package text
 
 import (
-	// The init function in the package registers the analysers so we have to
-	// import them to get the side effect of the registration.
-
 	"bytes"
 	"cmp"
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"runtime"
 	"slices"
 	"sync"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/blevesearch/bleve/v2/analysis"
+
+	// The init function in the package registers the analysers so we have to
+	// import them to get the side effect of the registration.
 	_ "github.com/blevesearch/bleve/v2/analysis/analyzer/standard"
 	"github.com/blevesearch/bleve/v2/registry"
 	"github.com/semafind/semadb/conversion"
@@ -50,30 +51,37 @@ const numDocumentsKey = "_numDocuments"
 
 // ---------------------------
 
+// For example, the term "hello" would be stored as "thellos".
 func termKey(term string) []byte {
 	return []byte("t" + term + "s")
 }
 
+// For example, the document with id 123 would be stored as "d<binary123>".
 func documentKey(id uint64) []byte {
-	key := [10]byte{}
+	key := [9]byte{}
 	key[0] = 'd'
 	binary.LittleEndian.PutUint64(key[1:], id)
-	key[9] = 'd'
 	return key[:]
 }
 
 // ---------------------------
+// Stores the term and the start and end position in the document. Usually
+// obtained after analysing / tokenising the document.
 type Token struct {
 	Term  string
 	Start int
 	End   int
 }
 
+// Common interface for analysers. The bleveAnalyser implements this interface.
+// It is here to allow for different analysers in the future.
 type analyser interface {
 	Analyse(string) ([]Token, error)
 }
 
 // ---------------------------
+/* The bleve analysis package uses a global registry and init functions to
+ * register them. So we need a cache to get the analyser. */
 var analyserCache = registry.NewCache()
 
 type bleeveAnalyser struct {
@@ -103,6 +111,8 @@ func (a *bleeveAnalyser) Analyse(text string) ([]Token, error) {
 
 // ---------------------------
 
+// setCacheItem is used to store the roaring set and a flag to indicate if the
+// set has been modified.
 type setCacheItem struct {
 	set     *roaring64.Bitmap
 	isDirty bool
@@ -117,6 +127,8 @@ type docCacheItem struct {
 	Length int             `msgpack:"length"`
 }
 
+// indexText is the main struct for the text index. The mutex is used to protect
+// both caches.
 type indexText struct {
 	analyser analyser
 	setCache map[string]*setCacheItem
@@ -126,6 +138,9 @@ type indexText struct {
 	mu       sync.Mutex
 }
 
+// NewIndexText creates a new text index. The analyser parameter is the name of
+// the analyser to use. The analyser is used to convert a document into a list
+// of tokens.
 func NewIndexText(b diskstore.Bucket, params models.IndexTextParameters) (*indexText, error) {
 	analyser, err := newBeleeveAnalyser(params.Analyser)
 	if err != nil {
@@ -222,12 +237,15 @@ func (index *indexText) InsertUpdateDelete(ctx context.Context, in <-chan Docume
 	return utils.MergeErrorsWithContext(ctx, errC, writeErrC)
 }
 
+// Updates the index with the analysed document. The document is either inserted,
+// updated or deleted based on the length of the document.
 func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 	docItem, err := index.getDocCacheItem(ad.Id)
 	if err != nil {
 		return fmt.Errorf("error getting doc cache item: %w", err)
 	}
 	switch {
+	// ---------------------------
 	case docItem == nil && ad.Length > 0:
 		// Insert
 		terms := make(map[string]Term)
@@ -246,6 +264,7 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 			Length: ad.Length,
 		}
 		index.numDocs++
+	// ---------------------------
 	case docItem != nil && ad.Length == 0:
 		// Delete
 		for term := range docItem.Terms {
@@ -257,6 +276,7 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 		}
 		index.docCache[ad.Id] = nil
 		index.numDocs--
+	// ---------------------------
 	case docItem != nil && ad.Length > 0:
 		// Update
 		// We need to remove the old terms from the set that are not in the new
@@ -287,6 +307,7 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 		}
 		docItem.Terms = terms
 		docItem.Length = ad.Length
+	// ---------------------------
 	default:
 		return fmt.Errorf("unexpected state: docItem: %v, ad.Frequencies: %v", docItem, ad.Frequencies)
 	}
@@ -304,6 +325,7 @@ func (index *indexText) parallelAnalyse(ctx context.Context, in <-chan Document)
 			if err != nil {
 				return
 			}
+			// Calculate term frequencies from tokens
 			freq := make(map[string]int)
 			for _, t := range tokens {
 				freq[t.Term]++
@@ -409,18 +431,29 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 		if docItem == nil {
 			return nil, fmt.Errorf("doc cache item not found for id: %d", docId)
 		}
+		// ---------------------------
+		// TF-IDF scoring
+		// https://en.wikipedia.org/wiki/Tf%E2%80%93idf
 		score := float32(0)
+		// E.g. queryTerms = ["gandalf", "wizard"]
 		for term := range queryTerms {
 			freq := 0
+			// How many times the term occurs in the document? Is gandalf
+			// mentioned a lot?
 			if termItem, ok := docItem.Terms[term]; ok {
 				freq = termItem.Frequency
 			}
 			// Calculate the tf-idf score
+			// term frequency tf = how often does the term occur in the document
+			// with respect to the length of the document
 			tf := float32(freq) / float32(docItem.Length)
 			termSetItem, _ := index.getSetCacheItem(term)
-			idf := float32(index.numDocs) / float32(termSetItem.set.GetCardinality()+1)
-			score += tf * idf
+			// inverse document frequency idf = how rare is the term in the
+			// index
+			idf := math.Log10(float64(index.numDocs) / float64(termSetItem.set.GetCardinality()+1))
+			score += tf * float32(idf)
 		}
+		// ---------------------------
 		weightedScore := score
 		if options.Weight != nil {
 			weightedScore *= *options.Weight
