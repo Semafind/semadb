@@ -16,7 +16,7 @@ is a map of terms to a set of document ids.
 Storage in bucket:
 NUMDOCUMENTSKEY: The number of documents in the index. This is used to calculate
 t<TERM>s: roaring set of document ids where the term occurs.
-d<DOCID>f: map of term frequencies
+d<DOCID>d: document cache item containing the terms and their frequencies in the document.
 */
 package text
 
@@ -58,7 +58,7 @@ func documentKey(id uint64) []byte {
 	key := [10]byte{}
 	key[0] = 'd'
 	binary.LittleEndian.PutUint64(key[1:], id)
-	key[9] = 'f'
+	key[9] = 'd'
 	return key[:]
 }
 
