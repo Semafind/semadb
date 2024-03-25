@@ -45,12 +45,15 @@ func NewIndexVamana(name string, pc cache.SharedPointCache, params models.IndexV
 		maxNodeId:  maxNodeId,
 		logger:     log.With().Str("component", "IndexVamana").Str("name", name).Logger(),
 	}
+	if err := index.setupStartNode(); err != nil {
+		return nil, fmt.Errorf("could not setup start node: %w", err)
+	}
 	return index, nil
 }
 
-func (v *IndexVamana) setupStartNode(pc cache.SharedPointCache) error {
+func (v *IndexVamana) setupStartNode() error {
 	// ---------------------------
-	if _, err := pc.GetPoint(STARTID); err == nil {
+	if _, err := v.pointCache.GetPoint(STARTID); err == nil {
 		return nil
 	}
 	// ---------------------------
@@ -71,7 +74,7 @@ func (v *IndexVamana) setupStartNode(pc cache.SharedPointCache) error {
 		NodeId: STARTID,
 		Vector: randVector,
 	}
-	if _, err := pc.SetPoint(randPoint); err != nil {
+	if _, err := v.pointCache.SetPoint(randPoint); err != nil {
 		return fmt.Errorf("could not set start point: %w", err)
 	}
 	return nil
@@ -80,12 +83,8 @@ func (v *IndexVamana) setupStartNode(pc cache.SharedPointCache) error {
 func (v *IndexVamana) InsertUpdateDelete(ctx context.Context, points <-chan cache.GraphNode) <-chan error {
 	errC := make(chan error, 1)
 	go func() {
-		defer close(errC)
-		if err := v.setupStartNode(v.pointCache); err != nil {
-			errC <- fmt.Errorf("could not setup start node: %w", err)
-			return
-		}
 		errC <- v.insertUpdateDelete(ctx, v.pointCache, points)
+		close(errC)
 	}()
 	return errC
 }
