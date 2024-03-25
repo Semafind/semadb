@@ -8,19 +8,10 @@ import (
 
 // ---------------------------
 
-/* We are creating these two type interfaces so that the compiler can stop us
- * from accidentally writing to a read only cache. This way, things will be
- * enforced at compile time. */
-
-// A read only cache that only exposes the functions that are safe to use in
-// read only mode.
-type ReadOnlyCache interface {
+type SharedPointCache interface {
+	IsReadOnly() bool
 	GetPoint(uint64) (*CachePoint, error)
 	WithPointNeighbours(point *CachePoint, readOnly bool, fn func([]*CachePoint) error) error
-}
-
-type ReadWriteCache interface {
-	ReadOnlyCache
 	SetPoint(GraphNode) (*CachePoint, error)
 	EdgeScan(deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error)
 	flush() error
@@ -29,8 +20,13 @@ type ReadWriteCache interface {
 // ---------------------------
 
 type pointCache struct {
+	isReadOnly  bool
 	sharedCache *sharedInMemCache
 	graphBucket diskstore.Bucket // This takes precedence over the read only bucket.
+}
+
+func (pc *pointCache) IsReadOnly() bool {
+	return pc.isReadOnly
 }
 
 func (pc *pointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
@@ -59,6 +55,9 @@ func (pc *pointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 // Operate with a lock on the point neighbours. If the neighbours are not
 // loaded, load them from the database.
 func (pc *pointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn func([]*CachePoint) error) error {
+	if pc.isReadOnly && !readOnly {
+		return fmt.Errorf("read only cache cannot be used for writing neighbours")
+	}
 	/* We have to lock here because we can't have another goroutine changing the
 	 * edges while we are using them. The read only case mainly occurs in
 	 * searching whereas the writes happen for pruning edges. By using
@@ -111,6 +110,9 @@ func (pc *pointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn f
 }
 
 func (pc *pointCache) SetPoint(point GraphNode) (*CachePoint, error) {
+	if pc.isReadOnly {
+		return nil, fmt.Errorf("read only cache cannot be used for writing points")
+	}
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
 	newPoint := &CachePoint{
@@ -130,6 +132,9 @@ func (pc *pointCache) EdgeScan(deleteSet map[uint64]struct{}) (toPrune, toSave [
 }
 
 func (pc *pointCache) flush() error {
+	if pc.isReadOnly {
+		return fmt.Errorf("read only cache cannot be flushed")
+	}
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
 	for _, point := range pc.sharedCache.points {

@@ -53,7 +53,7 @@ func NewIndexVamana(cacheName string, cacheTx *cache.Transaction, bucket disksto
 	return index, nil
 }
 
-func (v *IndexVamana) setupStartNode(pc cache.ReadWriteCache) error {
+func (v *IndexVamana) setupStartNode(pc cache.SharedPointCache) error {
 	// ---------------------------
 	if _, err := pc.GetPoint(STARTID); err == nil {
 		return nil
@@ -85,7 +85,7 @@ func (v *IndexVamana) setupStartNode(pc cache.ReadWriteCache) error {
 func (v *IndexVamana) InsertUpdateDelete(ctx context.Context, points <-chan cache.GraphNode) <-chan error {
 	errC := make(chan error, 1)
 	go func() {
-		errC <- v.cacheTx.With(v.cacheName, v.bucket, func(pc cache.ReadWriteCache) error {
+		errC <- v.cacheTx.With(v.cacheName, v.bucket, func(pc cache.SharedPointCache) error {
 			if err := v.setupStartNode(pc); err != nil {
 				return fmt.Errorf("could not setup start node: %w", err)
 			}
@@ -96,7 +96,7 @@ func (v *IndexVamana) InsertUpdateDelete(ctx context.Context, points <-chan cach
 	return errC
 }
 
-func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.ReadWriteCache, pointQueue <-chan cache.GraphNode) error {
+func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.SharedPointCache, pointQueue <-chan cache.GraphNode) error {
 	// ---------------------------
 	/* In this funky case there are actually multiple goroutines operating on
 	 * the same cache. As opposed to multiple requests queuing to get access
@@ -211,7 +211,7 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.ReadWrite
 
 func (v *IndexVamana) Search(ctx context.Context, query []float32, limit int) ([]models.SearchResult, error) {
 	var results []models.SearchResult
-	err := v.cacheTx.WithReadOnly(v.cacheName, v.bucket, func(pc cache.ReadOnlyCache) error {
+	err := v.cacheTx.WithReadOnly(v.cacheName, v.bucket, func(pc cache.SharedPointCache) error {
 		startTime := time.Now()
 		searchSet, _, err := greedySearch(pc, query, limit, v.parameters.SearchSize, v.distFn, v.maxNodeId)
 		if err != nil {

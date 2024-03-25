@@ -233,7 +233,7 @@ func (t *Transaction) with(name string, readOnly bool, f func(cacheToUse *shared
 	return nil
 }
 
-func (t *Transaction) With(name string, graphBucket diskstore.Bucket, f func(c ReadWriteCache) error) error {
+func (t *Transaction) With(name string, graphBucket diskstore.Bucket, f func(c SharedPointCache) error) error {
 	return t.with(name, false, func(cacheToUse *sharedInMemCache) error {
 		pc := &pointCache{
 			sharedCache: cacheToUse,
@@ -247,11 +247,12 @@ func (t *Transaction) With(name string, graphBucket diskstore.Bucket, f func(c R
 	})
 }
 
-func (t *Transaction) WithReadOnly(name string, graphBucket diskstore.Bucket, f func(c ReadOnlyCache) error) error {
+func (t *Transaction) WithReadOnly(name string, graphBucket diskstore.Bucket, f func(c SharedPointCache) error) error {
 	return t.with(name, true, func(cacheToUse *sharedInMemCache) error {
 		pc := &pointCache{
 			graphBucket: graphBucket,
 			sharedCache: cacheToUse,
+			isReadOnly:  true,
 		}
 		return f(pc)
 	})

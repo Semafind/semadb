@@ -86,7 +86,7 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	err := shard.db.Read(func(bm diskstore.BucketManager) error {
 		graphBucket, err := bm.Get(GRAPHINDEXBUCKETKEY)
 		require.NoError(t, err)
-		err = tx.WithReadOnly("checkConnectivity", graphBucket, func(pc cache.ReadOnlyCache) error {
+		err = tx.WithReadOnly("checkConnectivity", graphBucket, func(pc cache.SharedPointCache) error {
 			for len(queue) > 0 {
 				pointId := queue[0]
 				queue = queue[1:]
