@@ -10,7 +10,6 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
@@ -27,28 +26,24 @@ const STARTID = 1
 // ---------------------------
 
 type IndexVamana struct {
-	cacheName  string
 	distFn     distance.DistFunc
 	parameters models.IndexVectorVamanaParameters
+	pointCache cache.SharedPointCache
 	maxNodeId  uint64
-	cacheTx    *cache.Transaction
-	bucket     diskstore.Bucket
 	logger     zerolog.Logger
 }
 
-func NewIndexVamana(cacheName string, cacheTx *cache.Transaction, bucket diskstore.Bucket, parameters models.IndexVectorVamanaParameters, maxNodeId uint64) (*IndexVamana, error) {
-	distFn, err := distance.GetDistanceFn(parameters.DistanceMetric)
+func NewIndexVamana(name string, pc cache.SharedPointCache, params models.IndexVectorVamanaParameters, maxNodeId uint64) (*IndexVamana, error) {
+	distFn, err := distance.GetDistanceFn(params.DistanceMetric)
 	if err != nil {
 		return nil, fmt.Errorf("could not get distance function: %w", err)
 	}
 	index := &IndexVamana{
-		cacheName:  cacheName,
 		distFn:     distFn,
-		parameters: parameters,
+		parameters: params,
+		pointCache: pc,
 		maxNodeId:  maxNodeId,
-		cacheTx:    cacheTx,
-		bucket:     bucket,
-		logger:     log.With().Str("component", "IndexVamana").Str("name", cacheName).Logger(),
+		logger:     log.With().Str("component", "IndexVamana").Str("name", name).Logger(),
 	}
 	return index, nil
 }
@@ -85,13 +80,12 @@ func (v *IndexVamana) setupStartNode(pc cache.SharedPointCache) error {
 func (v *IndexVamana) InsertUpdateDelete(ctx context.Context, points <-chan cache.GraphNode) <-chan error {
 	errC := make(chan error, 1)
 	go func() {
-		errC <- v.cacheTx.With(v.cacheName, v.bucket, func(pc cache.SharedPointCache) error {
-			if err := v.setupStartNode(pc); err != nil {
-				return fmt.Errorf("could not setup start node: %w", err)
-			}
-			return v.insertUpdateDelete(ctx, pc, points)
-		})
-		close(errC)
+		defer close(errC)
+		if err := v.setupStartNode(v.pointCache); err != nil {
+			errC <- fmt.Errorf("could not setup start node: %w", err)
+			return
+		}
+		errC <- v.insertUpdateDelete(ctx, v.pointCache, points)
 	}()
 	return errC
 }
@@ -210,29 +204,25 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.SharedPoi
 }
 
 func (v *IndexVamana) Search(ctx context.Context, query []float32, limit int) ([]models.SearchResult, error) {
-	var results []models.SearchResult
-	err := v.cacheTx.WithReadOnly(v.cacheName, v.bucket, func(pc cache.SharedPointCache) error {
-		startTime := time.Now()
-		searchSet, _, err := greedySearch(pc, query, limit, v.parameters.SearchSize, v.distFn, v.maxNodeId)
-		if err != nil {
-			return fmt.Errorf("could not perform graph search: %w", err)
+	startTime := time.Now()
+	searchSet, _, err := greedySearch(v.pointCache, query, limit, v.parameters.SearchSize, v.distFn, v.maxNodeId)
+	if err != nil {
+		return nil, fmt.Errorf("could not perform graph search: %w", err)
+	}
+	v.logger.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("SearchPoints - GreedySearch")
+	results := make([]models.SearchResult, 0, min(len(searchSet.items), limit))
+	for _, elem := range searchSet.items {
+		if elem.point.NodeId == STARTID {
+			continue
 		}
-		v.logger.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("SearchPoints - GreedySearch")
-		results = make([]models.SearchResult, 0, min(len(searchSet.items), limit))
-		for _, elem := range searchSet.items {
-			if elem.point.NodeId == STARTID {
-				continue
-			}
-			if len(results) >= limit {
-				break
-			}
-			sr := models.SearchResult{
-				NodeId:   elem.point.NodeId,
-				Distance: &elem.distance,
-			}
-			results = append(results, sr)
+		if len(results) >= limit {
+			break
 		}
-		return nil
-	})
+		sr := models.SearchResult{
+			NodeId:   elem.point.NodeId,
+			Distance: &elem.distance,
+		}
+		results = append(results, sr)
+	}
 	return results, err
 }

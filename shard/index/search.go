@@ -7,6 +7,7 @@ import (
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index/vamana"
 )
 
@@ -49,13 +50,21 @@ func (im indexManager) Search(
 		}
 		// ---------------------------
 		cacheName := im.cacheRoot + "/" + bucketName
-		vIndex, err := vamana.NewIndexVamana(cacheName, im.cx, bucket, *iparams.VectorVamana, im.maxNodeId)
+		var vamanaRes []models.SearchResult
+		err := im.cx.WithReadOnly(cacheName, bucket, func(pc cache.SharedPointCache) error {
+			vIndex, err := vamana.NewIndexVamana(cacheName, pc, *iparams.VectorVamana, im.maxNodeId)
+			if err != nil {
+				return fmt.Errorf("could not create vamana index: %w", err)
+			}
+			res, err := vIndex.Search(ctx, q.VectorVamana.Vector, q.VectorVamana.Limit)
+			if err != nil {
+				return fmt.Errorf("could not perform vamana search %s: %w", bucketName, err)
+			}
+			vamanaRes = res
+			return nil
+		})
 		if err != nil {
-			return nil, nil, fmt.Errorf("could not create vamana index: %w", err)
-		}
-		vamanaRes, err := vIndex.Search(ctx, q.VectorVamana.Vector, q.VectorVamana.Limit)
-		if err != nil {
-			return nil, nil, fmt.Errorf("could not complete search %s: %w", bucketName, err)
+			return nil, nil, fmt.Errorf("could not search %s: %w", bucketName, err)
 		}
 		// ---------------------------
 		weight := float32(1)

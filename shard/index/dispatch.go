@@ -101,15 +101,22 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 	switch params.Type {
 	case models.IndexTypeVectorVamana:
 		cacheName := im.cacheRoot + "/" + bucketName
-		vamanaIndex, err := vamana.NewIndexVamana(cacheName, im.cx, bucket, *params.VectorVamana, im.maxNodeId)
-		if err != nil {
-			return nil, fmt.Errorf("could not create vamana index: %w", err)
-		}
 		// Transform
 		drainFn = func(ctx context.Context, in <-chan decodedPointChange) <-chan error {
 			out, transformErrC := utils.TransformWithContext(ctx, in, preProcessVamana)
-			errC := vamanaIndex.InsertUpdateDelete(ctx, out)
-			return utils.MergeErrorsWithContext(ctx, transformErrC, errC)
+			writeErrC := make(chan error, 1)
+			go func() {
+				err := im.cx.With(cacheName, bucket, func(pc cache.SharedPointCache) error {
+					vamanaIndex, err := vamana.NewIndexVamana(cacheName, pc, *params.VectorVamana, im.maxNodeId)
+					if err != nil {
+						return fmt.Errorf("could not create vamana index: %w", err)
+					}
+					return <-vamanaIndex.InsertUpdateDelete(ctx, out)
+				})
+				writeErrC <- err
+				close(writeErrC)
+			}()
+			return utils.MergeErrorsWithContext(ctx, transformErrC, writeErrC)
 		}
 		// ---------------------------
 	case models.IndexTypeInteger:
