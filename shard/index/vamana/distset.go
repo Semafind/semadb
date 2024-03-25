@@ -1,7 +1,6 @@
 package vamana
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/bits-and-blooms/bitset"
@@ -162,10 +161,6 @@ func NewDistSet(queryVector []float32, capacity int, maxNodeId uint64, distFn di
 
 func (ds *DistSet) Len() int {
 	return len(ds.items)
-}
-
-func (ds *DistSet) String() string {
-	return fmt.Sprintf("DistSet{items: %+v}", ds.items)
 }
 
 // ---------------------------
