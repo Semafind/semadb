@@ -118,3 +118,18 @@ func TestPointCache_Flush(t *testing.T) {
 	}
 	require.Len(t, pc.sharedCache.points, 9)
 }
+
+func TestPointCache_ReadOnly(t *testing.T) {
+	pc := tempPointCache()
+	pc.isReadOnly = true
+	// ---------------------------
+	require.True(t, pc.IsReadOnly())
+	_, err := pc.SetPoint(GraphNode{NodeId: 1})
+	require.Error(t, err)
+	err = pc.WithPointNeighbours(&CachePoint{}, false, func([]*CachePoint) error {
+		return nil
+	})
+	require.Error(t, err)
+	err = pc.flush()
+	require.Error(t, err)
+}

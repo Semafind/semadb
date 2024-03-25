@@ -25,6 +25,13 @@ type pointCache struct {
 	graphBucket diskstore.Bucket // This takes precedence over the read only bucket.
 }
 
+func NewMemPointCache() SharedPointCache {
+	return &pointCache{
+		sharedCache: newSharedInMemCache(),
+		graphBucket: diskstore.NewMemBucket(false),
+	}
+}
+
 func (pc *pointCache) IsReadOnly() bool {
 	return pc.isReadOnly
 }
