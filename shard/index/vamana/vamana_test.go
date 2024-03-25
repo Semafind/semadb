@@ -80,6 +80,25 @@ func Test_Insert(t *testing.T) {
 	}
 }
 
+func Test_InvalidIdInsert(t *testing.T) {
+	pc := cache.NewMemPointCache()
+	inv, err := vamana.NewIndexVamana("test", pc, vamanaParams, 200)
+	require.NoError(t, err)
+	// ---------------------------
+	// Insert invalid id
+	in := make(chan cache.GraphNode)
+	errC := inv.InsertUpdateDelete(context.Background(), in)
+	in <- cache.GraphNode{NodeId: 0, Vector: nil}
+	close(in)
+	require.Error(t, <-errC)
+	// ---------------------------
+	in = make(chan cache.GraphNode)
+	errC = inv.InsertUpdateDelete(context.Background(), in)
+	in <- cache.GraphNode{NodeId: 1, Vector: nil}
+	close(in)
+	require.Error(t, <-errC)
+}
+
 func Test_ConcurrentCUD(t *testing.T) {
 	pc := cache.NewMemPointCache()
 	inv, err := vamana.NewIndexVamana("test", pc, vamanaParams, 200)

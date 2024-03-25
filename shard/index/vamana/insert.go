@@ -10,10 +10,6 @@ import (
 
 func (v *IndexVamana) insertWorker(ctx context.Context, pc cache.SharedPointCache, jobQueue <-chan cache.GraphNode) <-chan error {
 	return utils.SinkWithContext(ctx, jobQueue, func(point cache.GraphNode) error {
-		// TODO: add test case for this
-		if point.NodeId == STARTID {
-			return fmt.Errorf("cannot insert start node with id: %d", STARTID)
-		}
 		// Check if the point exists
 		_, err := pc.GetPoint(point.NodeId)
 		if err == nil {

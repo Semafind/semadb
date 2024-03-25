@@ -115,6 +115,9 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.SharedPoi
 	toRemoveInBoundNodeIds := make(map[uint64]struct{})
 	// ---------------------------
 	errC := utils.SinkWithContext(ctx, pointQueue, func(point cache.GraphNode) error {
+		if point.NodeId == STARTID {
+			return fmt.Errorf("cannot modify point with start id: %d", STARTID)
+		}
 		// What operation is this?
 		cp, err := pc.GetPoint(point.NodeId)
 		switch {
