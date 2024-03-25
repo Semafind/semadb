@@ -56,7 +56,7 @@ func (inv *IndexInvertedString) Search(options models.SearchStringOptions) (*roa
 // ---------------------------
 
 type IndexInvertedArrayString struct {
-	inner  *indexInvertedArray[string]
+	inner  *IndexInvertedArray[string]
 	params models.IndexStringArrayParameters
 }
 

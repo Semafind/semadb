@@ -10,13 +10,13 @@ import (
 	"github.com/semafind/semadb/utils"
 )
 
-type indexInvertedArray[T Invertable] struct {
+type IndexInvertedArray[T Invertable] struct {
 	inner *IndexInverted[T]
 }
 
-func NewIndexInvertedArray[T Invertable](bucket diskstore.Bucket) *indexInvertedArray[T] {
+func NewIndexInvertedArray[T Invertable](bucket diskstore.Bucket) *IndexInvertedArray[T] {
 	inv := NewIndexInverted[T](bucket)
-	return &indexInvertedArray[T]{inner: inv}
+	return &IndexInvertedArray[T]{inner: inv}
 }
 
 type IndexArrayChange[T Invertable] struct {
@@ -25,7 +25,7 @@ type IndexArrayChange[T Invertable] struct {
 	CurrentData  []T
 }
 
-func (inv *indexInvertedArray[T]) InsertUpdateDelete(ctx context.Context, in <-chan IndexArrayChange[T]) <-chan error {
+func (inv *IndexInvertedArray[T]) InsertUpdateDelete(ctx context.Context, in <-chan IndexArrayChange[T]) <-chan error {
 	// We are ignoring the error because the transformation never returns an error
 	out, _ := utils.TransformWithContextMultiple(ctx, in, func(change IndexArrayChange[T]) ([]IndexChange[T], error) {
 		// Any value present in current but not in previous is added
@@ -56,7 +56,7 @@ func (inv *indexInvertedArray[T]) InsertUpdateDelete(ctx context.Context, in <-c
 	return inv.inner.InsertUpdateDelete(ctx, out)
 }
 
-func (inv *indexInvertedArray[T]) Search(query []T, operator string) (*roaring64.Bitmap, error) {
+func (inv *IndexInvertedArray[T]) Search(query []T, operator string) (*roaring64.Bitmap, error) {
 	if len(query) == 0 {
 		return nil, nil
 	}
