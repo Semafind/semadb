@@ -127,6 +127,12 @@ func (v *IndexVamana) removeInboundEdges(pc cache.SharedPointCache, deleteSet ma
 			return fmt.Errorf("could not get start node for saving: %w", err)
 		}
 		for _, pointId := range toSave {
+			if pointId == STARTID {
+				// We don't want to add the start node to itself, start node
+				// never needs saving but may be in the list if no other node is
+				// pointing to it.
+				continue
+			}
 			point, err := pc.GetPoint(pointId)
 			if err != nil {
 				return fmt.Errorf("could not get point for saving: %w", err)
