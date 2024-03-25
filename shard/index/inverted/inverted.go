@@ -107,26 +107,26 @@ func (inv *IndexInverted[T]) processChange(change IndexChange[T]) error {
 		if err != nil {
 			return fmt.Errorf("error getting set cache item: %w", err)
 		}
-		set.isDirty = set.set.CheckedAdd(change.Id)
+		set.isDirty = set.set.CheckedAdd(change.Id) || set.isDirty
 	case change.PreviousData != nil && change.CurrentData == nil:
 		// Delete
 		set, err := inv.getSetCacheItem(*change.PreviousData, nil)
 		if err != nil {
 			return fmt.Errorf("error getting set cache item: %w", err)
 		}
-		set.isDirty = set.set.CheckedRemove(change.Id)
+		set.isDirty = set.set.CheckedRemove(change.Id) || set.isDirty
 	case *change.PreviousData != *change.CurrentData:
 		// Update
 		prevSet, err := inv.getSetCacheItem(*change.PreviousData, nil)
 		if err != nil {
 			return fmt.Errorf("error getting set cache item: %w", err)
 		}
-		prevSet.isDirty = prevSet.set.CheckedRemove(change.Id)
+		prevSet.isDirty = prevSet.set.CheckedRemove(change.Id) || prevSet.isDirty
 		currSet, err := inv.getSetCacheItem(*change.CurrentData, nil)
 		if err != nil {
 			return fmt.Errorf("error getting set cache item: %w", err)
 		}
-		currSet.isDirty = currSet.set.CheckedAdd(change.Id)
+		currSet.isDirty = currSet.set.CheckedAdd(change.Id) || currSet.isDirty
 	case *change.PreviousData == *change.CurrentData:
 		// This case needs to be last not to get null pointer exception
 	}

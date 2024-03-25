@@ -50,7 +50,6 @@ func (inv *IndexInvertedArray[T]) InsertUpdateDelete(ctx context.Context, in <-c
 				changes = append(changes, IndexChange[T]{Id: change.Id, PreviousData: &val})
 			}
 		}
-
 		return changes, nil
 	})
 	return inv.inner.InsertUpdateDelete(ctx, out)

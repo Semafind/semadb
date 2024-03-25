@@ -17,18 +17,19 @@ type IndexInvertedString struct {
 	params models.IndexStringParameters
 }
 
-func NewIndexInvertedString(bucket diskstore.Bucket, params models.IndexStringParameters) (*IndexInvertedString, error) {
+func NewIndexInvertedString(bucket diskstore.Bucket, params models.IndexStringParameters) *IndexInvertedString {
 	inv := NewIndexInverted[string](bucket)
-	return &IndexInvertedString{inner: inv, params: params}, nil
+	return &IndexInvertedString{inner: inv, params: params}
 }
 
 func (inv *IndexInvertedString) InsertUpdateDelete(ctx context.Context, in <-chan IndexChange[string]) <-chan error {
 	// Process any transformers such as lowercasing before inserting
 	out := in
-	var transformErrC <-chan error
 	// Do we need to pre process?
 	if !inv.params.CaseSensitive {
-		out, transformErrC = utils.TransformWithContext(ctx, in, func(change IndexChange[string]) (IndexChange[string], bool, error) {
+		// We ignore the error because the transform function below never
+		// returns one
+		out, _ = utils.TransformWithContext(ctx, in, func(change IndexChange[string]) (IndexChange[string], bool, error) {
 			if change.CurrentData != nil {
 				*change.CurrentData = strings.ToLower(*change.CurrentData)
 			}
@@ -38,11 +39,7 @@ func (inv *IndexInvertedString) InsertUpdateDelete(ctx context.Context, in <-cha
 			return change, false, nil
 		})
 	}
-	insertErrC := inv.inner.InsertUpdateDelete(ctx, out)
-	if transformErrC != nil {
-		return utils.MergeErrorsWithContext(ctx, transformErrC, insertErrC)
-	}
-	return insertErrC
+	return inv.inner.InsertUpdateDelete(ctx, out)
 }
 
 func (inv *IndexInvertedString) Search(options models.SearchStringOptions) (*roaring64.Bitmap, error) {
@@ -60,9 +57,9 @@ type IndexInvertedArrayString struct {
 	params models.IndexStringArrayParameters
 }
 
-func NewIndexInvertedArrayString(bucket diskstore.Bucket, params models.IndexStringArrayParameters) (*IndexInvertedArrayString, error) {
+func NewIndexInvertedArrayString(bucket diskstore.Bucket, params models.IndexStringArrayParameters) *IndexInvertedArrayString {
 	inv := NewIndexInvertedArray[string](bucket)
-	return &IndexInvertedArrayString{inner: inv, params: params}, nil
+	return &IndexInvertedArrayString{inner: inv, params: params}
 }
 
 func (inv *IndexInvertedArrayString) InsertUpdateDelete(ctx context.Context, in <-chan IndexArrayChange[string]) <-chan error {
