@@ -257,7 +257,7 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
-			setItem.isDirty = setItem.set.CheckedAdd(ad.Id)
+			setItem.isDirty = setItem.set.CheckedAdd(ad.Id) || setItem.isDirty
 		}
 		index.docCache[ad.Id] = &docCacheItem{
 			Terms:  terms,
@@ -272,7 +272,7 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
-			setItem.isDirty = setItem.set.CheckedRemove(ad.Id)
+			setItem.isDirty = setItem.set.CheckedRemove(ad.Id) || setItem.isDirty
 		}
 		index.docCache[ad.Id] = nil
 		index.numDocs--
@@ -289,7 +289,7 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
-			setItem.isDirty = setItem.set.CheckedRemove(ad.Id)
+			setItem.isDirty = setItem.set.CheckedRemove(ad.Id) || setItem.isDirty
 		}
 		terms := make(map[string]Term)
 		for term, freq := range ad.Frequencies {
@@ -303,7 +303,7 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
-			setItem.isDirty = setItem.set.CheckedAdd(ad.Id)
+			setItem.isDirty = setItem.set.CheckedAdd(ad.Id) || setItem.isDirty
 		}
 		docItem.Terms = terms
 		docItem.Length = ad.Length
