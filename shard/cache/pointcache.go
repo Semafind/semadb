@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/semafind/semadb/diskstore"
@@ -36,13 +37,15 @@ func (pc *pointCache) IsReadOnly() bool {
 	return pc.isReadOnly
 }
 
+var ErrIsDeleted = errors.New("point is deleted")
+
 func (pc *pointCache) GetPoint(nodeId uint64) (*CachePoint, error) {
 	pc.sharedCache.pointsMu.Lock()
 	defer pc.sharedCache.pointsMu.Unlock()
 	// ---------------------------
 	if point, ok := pc.sharedCache.points[nodeId]; ok {
 		if point.isDeleted {
-			return nil, fmt.Errorf("point is deleted")
+			return nil, ErrIsDeleted
 		}
 		return point, nil
 	}
@@ -104,7 +107,7 @@ func (pc *pointCache) WithPointNeighbours(point *CachePoint, readOnly bool, fn f
 	for _, edgeId := range point.edges {
 		edge, err := pc.GetPoint(edgeId)
 		if err != nil {
-			return err
+			return fmt.Errorf("error getting neighbour %d: %w", edgeId, err)
 		}
 		neighbours = append(neighbours, edge)
 	}
@@ -134,8 +137,84 @@ func (pc *pointCache) SetPoint(point GraphNode) (*CachePoint, error) {
 	return newPoint, nil
 }
 
+// This function is used to check if the edges of a point are valid. That is,
+// are any of the nodes have edges to deletedSet.
+// NOTE: This loads the entire graph into the cache.
 func (pc *pointCache) EdgeScan(deleteSet map[uint64]struct{}) (toPrune, toSave []uint64, err error) {
-	return scanNodeEdges(pc.graphBucket, deleteSet)
+	// ---------------------------
+	/* toPrune is a list of nodes that have edges to nodes in the delete set.
+	 * toSave are nodes that have no inbound edges left.
+	 * For example, A -> B -> C, if B is in the delete set, A is in toPrune and C
+	 * is in toSave.
+	 *
+	 * This is probably one of the most inefficient components of the index but
+	 * it's correct. One can ignore this edge scanning business but may obtain
+	 * disconnected graphs.*/
+	// ---------------------------
+	// We set capacity to the length of the delete set because we guess there is
+	// at least one node pointing to each deleted node.
+	toPrune = make([]uint64, 0, len(deleteSet))
+	validNodes := make(map[uint64]struct{})
+	hasInbound := make(map[uint64]struct{})
+	// ---------------------------
+	/* We first collect all the point ids in this bucket. Recall that some may be
+	 * in cache and some may be flushed out. So we first scan the cache then go
+	 * on to scan the bucket. */
+	allPointIds := make(map[uint64]struct{})
+	pc.sharedCache.pointsMu.Lock()
+	for _, point := range pc.sharedCache.points {
+		allPointIds[point.NodeId] = struct{}{}
+	}
+	pc.sharedCache.pointsMu.Unlock()
+	pc.graphBucket.ForEach(func(k, v []byte) error {
+		if k[len(k)-1] == 'v' {
+			nodeId := NodeIdFromKey(k)
+			allPointIds[nodeId] = struct{}{}
+		}
+		return nil
+	})
+	// ---------------------------
+	for pointId := range allPointIds {
+		if _, ok := deleteSet[pointId]; ok {
+			continue
+		}
+		p, err := pc.GetPoint(pointId)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error getting point %d during scan: %w", pointId, err)
+		}
+		// ---------------------------
+		validNodes[pointId] = struct{}{}
+		/* We now check if the neighbours of this point are in the delete set. If
+		 * they are, we add this point to the toPrune list whilst also
+		 * maintaining which nodes have inbound edges. */
+		err = pc.WithPointNeighbours(p, true, func(neighbours []*CachePoint) error {
+			addedToPrune := false
+			for _, n := range neighbours {
+				hasInbound[n.NodeId] = struct{}{}
+				if !addedToPrune {
+					_, inDeleteSet := deleteSet[n.NodeId]
+					if inDeleteSet || n.isDeleted {
+						toPrune = append(toPrune, p.NodeId)
+						addedToPrune = true
+					}
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("error getting neighbours of point %d during scan: %w", pointId, err)
+		}
+		// ---------------------------
+	}
+	// ---------------------------
+	toSave = make([]uint64, 0)
+	for nodeId := range validNodes {
+		if _, ok := hasInbound[nodeId]; !ok {
+			toSave = append(toSave, nodeId)
+		}
+	}
+	// ---------------------------
+	return toPrune, toSave, nil
 }
 
 func (pc *pointCache) flush() error {

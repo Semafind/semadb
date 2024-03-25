@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/semafind/semadb/diskstore"
@@ -92,6 +93,47 @@ func TestPointCache_Neighbours(t *testing.T) {
 		})
 		require.NoError(t, err)
 	}
+}
+
+func TestPointCache_EdgeScan(t *testing.T) {
+	pc := tempPointCache()
+	randPoints := randCachePoints(5)
+	/* Example edge scan graph:
+	 * 1,2,5
+	 * 2,1,3
+	 * 3,2,4
+	 * 4,3
+	 * 5,1
+	 */
+	randPoints[0].AddNeighbour(randPoints[1])
+	randPoints[0].AddNeighbour(randPoints[4])
+	randPoints[1].AddNeighbour(randPoints[0])
+	randPoints[1].AddNeighbour(randPoints[2])
+	randPoints[2].AddNeighbour(randPoints[1])
+	randPoints[2].AddNeighbour(randPoints[3])
+	randPoints[3].AddNeighbour(randPoints[2])
+	randPoints[4].AddNeighbour(randPoints[0])
+	// Some points on disk, some in cache
+	pc.SetPoint(randPoints[0].GraphNode)
+	pc.SetPoint(randPoints[1].GraphNode)
+	pc.flush()
+	clear(pc.sharedCache.points)
+	pc.SetPoint(randPoints[2].GraphNode)
+	pc.SetPoint(randPoints[3].GraphNode)
+	pc.SetPoint(randPoints[4].GraphNode)
+	// ---------------------------
+	// We are deleting 2 and 3
+	deleteSet := map[uint64]struct{}{
+		2: {},
+		3: {},
+	}
+	// ---------------------------
+	toPrune, toSave, err := pc.EdgeScan(deleteSet)
+	slices.Sort(toPrune)
+	slices.Sort(toSave)
+	require.NoError(t, err)
+	require.Equal(t, []uint64{1, 4}, toPrune)
+	require.Equal(t, []uint64{4}, toSave)
 }
 
 func TestPointCache_Flush(t *testing.T) {
