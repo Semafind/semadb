@@ -14,16 +14,6 @@ type Collection struct {
 	IndexSchema IndexSchema
 }
 
-const (
-	IndexTypeVectorFlat   = "vectorFlat"
-	IndexTypeVectorVamana = "vectorVamana"
-	IndexTypeText         = "text"
-	IndexTypeString       = "string"
-	IndexTypeInteger      = "integer"
-	IndexTypeFloat        = "float"
-	IndexTypeStringArray  = "stringArray"
-)
-
 // Defines the index schema for a collection, each index type is a map of property names
 // to index parameters. The index parameters are different for each index type.
 type IndexSchema map[string]IndexSchemaValue

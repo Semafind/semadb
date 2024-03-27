@@ -1,0 +1,32 @@
+package models
+
+/* The general trend here is we prefix the type of the constant */
+
+// ---------------------------
+
+const (
+	IndexTypeVectorFlat   = "vectorFlat"
+	IndexTypeVectorVamana = "vectorVamana"
+	IndexTypeText         = "text"
+	IndexTypeString       = "string"
+	IndexTypeInteger      = "integer"
+	IndexTypeFloat        = "float"
+	IndexTypeStringArray  = "stringArray"
+)
+
+// ---------------------------
+
+const (
+	OperatorContainsAll = "containsAll"
+	OperatorContainsAny = "containsAny"
+	OperatorEquals      = "equals"
+	OperatorNotEquals   = "notEquals"
+	OperatorStartsWith  = "startsWith"
+	OperatorGreaterThan = "greaterThan"
+	OperatorGreaterOrEq = "greaterThanOrEquals"
+	OperatorLessThan    = "lessThan"
+	OperatorLessOrEq    = "lessThanOrEquals"
+	OperatorInRange     = "inRange"
+)
+
+// ---------------------------

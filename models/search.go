@@ -49,21 +49,6 @@ type SearchResult struct {
 
 // ---------------------------
 
-const (
-	OperatorContainsAll = "containsAll"
-	OperatorContainsAny = "containsAny"
-	OperatorEquals      = "equals"
-	OperatorNotEquals   = "notEquals"
-	OperatorStartsWith  = "startsWith"
-	OperatorGreaterThan = "greaterThan"
-	OperatorGreaterOrEq = "greaterThanOrEquals"
-	OperatorLessThan    = "lessThan"
-	OperatorLessOrEq    = "lessThanOrEquals"
-	OperatorInRange     = "inRange"
-)
-
-// ---------------------------
-
 type SortOption struct {
 	Property   string `json:"property" binding:"required"`
 	Descending bool   `json:"descending"`
