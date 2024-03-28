@@ -8,8 +8,30 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
-	"github.com/semafind/semadb/diskstore"
 )
+
+// Every item that is stored in the cache must implement this interface. It is
+// used to determine the overall size of the cache.
+type Cachable interface {
+	SizeInMemory() int64
+}
+
+// A single stored item that wraps the size. It provides when it was accessed and a lock.
+type sharedCacheElem struct {
+	item         Cachable
+	lastAccessed time.Time
+	// ---------------------------
+	// We currently allow a single writer to the cache at a time. This is because
+	// within a single transaction there could be multiple goroutines writing to
+	// the cache and invalidating the cache is difficult with multiple writers.
+	mu sync.RWMutex
+	// ---------------------------
+	// Indicates if the cache is not consistent with the database and must be
+	// discarded, occurs if a transaction goes wrong but was operating on the
+	// cache. So, we get two options, either roll back stuff in the cache
+	// (difficult to do) or scrap it (easy). We are going with the easy option.
+	scrapped bool
+}
 
 // The cache manager allows us to reuse the same cache for multiple operations
 // such as search and insert. It will try to keep the total cache sizes under
@@ -17,13 +39,13 @@ import (
 type Manager struct {
 	// In bytes, set to -1 for unlimited, 0 for no shared caching
 	maxSize      int64
-	sharedCaches map[string]*sharedInMemCache
+	sharedCaches map[string]*sharedCacheElem
 	mu           sync.Mutex
 }
 
 func NewManager(maxSize int64) *Manager {
 	return &Manager{
-		sharedCaches: make(map[string]*sharedInMemCache),
+		sharedCaches: make(map[string]*sharedCacheElem),
 		maxSize:      maxSize,
 	}
 }
@@ -53,15 +75,15 @@ func (m *Manager) checkAndPrune() {
 	}
 	// ---------------------------
 	type cacheElem struct {
-		name   string
-		sCache *sharedInMemCache
-		size   int64
+		name         string
+		lastAccessed time.Time
+		size         int64
 	}
 	caches := make([]cacheElem, 0, len(m.sharedCaches))
 	totalSize := int64(0)
 	for n, s := range m.sharedCaches {
-		ssize := s.estimatedSize.Load()
-		caches = append(caches, cacheElem{name: n, sCache: s, size: ssize})
+		ssize := s.item.SizeInMemory()
+		caches = append(caches, cacheElem{name: n, size: ssize, lastAccessed: s.lastAccessed})
 		totalSize += ssize
 	}
 	// ---------------------------
@@ -72,7 +94,7 @@ func (m *Manager) checkAndPrune() {
 	// ---------------------------
 	// Prune until we are under the limit
 	slices.SortFunc(caches, func(a, b cacheElem) int {
-		return a.sCache.lastAccessed.Compare(b.sCache.lastAccessed)
+		return a.lastAccessed.Compare(b.lastAccessed)
 	})
 	for _, s := range caches {
 		if totalSize <= m.maxSize {
@@ -85,7 +107,7 @@ func (m *Manager) checkAndPrune() {
 }
 
 type Transaction struct {
-	writtenCaches map[string]*sharedInMemCache
+	writtenCaches map[string]*sharedCacheElem
 	mu            sync.Mutex
 	manager       *Manager
 	failed        atomic.Bool
@@ -93,12 +115,12 @@ type Transaction struct {
 
 func (m *Manager) NewTransaction() *Transaction {
 	return &Transaction{
-		writtenCaches: make(map[string]*sharedInMemCache),
+		writtenCaches: make(map[string]*sharedCacheElem),
 		manager:       m,
 	}
 }
 
-func (t *Transaction) with(name string, readOnly bool, f func(cacheToUse *sharedInMemCache) error) error {
+func (t *Transaction) With(name string, readOnly bool, createFn func() (Cachable, error), f func(cacheToUse Cachable) error) error {
 	if t.failed.Load() {
 		return fmt.Errorf("transaction has already failed")
 	}
@@ -131,7 +153,9 @@ func (t *Transaction) with(name string, readOnly bool, f func(cacheToUse *shared
 			// let other go routines on the same transaction to concurrently
 			// read from it whilst one go routine is writing.
 			t.mu.Lock()
-			if _, ok := t.writtenCaches[name]; !ok {
+			_, ok := t.writtenCaches[name]
+			t.mu.Unlock()
+			if !ok {
 				/* We are using TryRLock here because we can survive if we don't get
 				* the lock with a fresh cold cache. The idea is, if there is an
 				* available cache then use it, otherwise use a cold cache to keep
@@ -145,10 +169,17 @@ func (t *Transaction) with(name string, readOnly bool, f func(cacheToUse *shared
 					// one else will benefit from this cache but it's better than
 					// waiting.
 					log.Debug().Str("name", name).Msg("Creating read only cold cache")
-					cacheToUse = newSharedInMemCache()
+					freshCachable, err := createFn()
+					if err != nil {
+						t.failed.Store(true)
+						return fmt.Errorf("error while creating fresh read only cold cache: %w", err)
+					}
+					cacheToUse = &sharedCacheElem{
+						item:         freshCachable,
+						lastAccessed: time.Now(),
+					}
 				}
 			}
-			t.mu.Unlock()
 		} else {
 			/* We are going to write, so we'll wait for a write lock, as we do that
 			 * the incoming search requests will start getting a cold cache because
@@ -181,7 +212,15 @@ func (t *Transaction) with(name string, readOnly bool, f func(cacheToUse *shared
 			 * opt to create a cold cache instead of waiting for another shared
 			 * cache. For example a search comes in while we are inserting
 			 * points. */
-			cacheToUse = newSharedInMemCache()
+			freshCachable, err := createFn()
+			if err != nil {
+				t.failed.Store(true)
+				return fmt.Errorf("error while creating fresh cold temporary cache: %w", err)
+			}
+			cacheToUse = &sharedCacheElem{
+				item:         freshCachable,
+				lastAccessed: time.Now(),
+			}
 			/* It is responsibility of the goroutine which scrapped the cache to
 			 * delete it from the manager which happens below. */
 		}
@@ -189,7 +228,7 @@ func (t *Transaction) with(name string, readOnly bool, f func(cacheToUse *shared
 			log.Debug().Str("name", name).Bool("readOnly", readOnly).Msg("Reusing cache")
 			defer t.manager.checkAndPrune()
 		}
-		if err := f(cacheToUse); err != nil {
+		if err := f(cacheToUse.item); err != nil {
 			/* Something went wrong, we'll scrap the cache and delete it from the
 			 * manager. */
 			t.failed.Store(true)
@@ -202,7 +241,16 @@ func (t *Transaction) with(name string, readOnly bool, f func(cacheToUse *shared
 		return nil
 	}
 	log.Debug().Str("name", name).Bool("readOnly", readOnly).Msg("Creating new cache")
-	s := newSharedInMemCache()
+	freshCachable, err := createFn()
+	if err != nil {
+		t.failed.Store(true)
+		t.manager.mu.Unlock()
+		return fmt.Errorf("error while creating fresh cache: %w", err)
+	}
+	s := &sharedCacheElem{
+		item:         freshCachable,
+		lastAccessed: time.Now(),
+	}
 	if t.manager.maxSize != 0 {
 		t.manager.sharedCaches[name] = s
 		defer t.manager.checkAndPrune()
@@ -222,7 +270,7 @@ func (t *Transaction) with(name string, readOnly bool, f func(cacheToUse *shared
 	// By unlocking after we have the cache lock, we guarantee that the cache
 	// will not be scrapped by another goroutine.
 	t.manager.mu.Unlock()
-	if err := f(s); err != nil {
+	if err := f(s.item); err != nil {
 		t.failed.Store(true)
 		s.scrapped = true
 		t.manager.mu.Lock()
@@ -231,31 +279,6 @@ func (t *Transaction) with(name string, readOnly bool, f func(cacheToUse *shared
 		return fmt.Errorf("error while executing on new cache operation: %w", err)
 	}
 	return nil
-}
-
-func (t *Transaction) With(name string, graphBucket diskstore.Bucket, f func(c SharedPointCache) error) error {
-	return t.with(name, false, func(cacheToUse *sharedInMemCache) error {
-		pc := &pointCache{
-			sharedCache: cacheToUse,
-			graphBucket: graphBucket,
-		}
-		if err := f(pc); err != nil {
-			return err
-		}
-		// Automatic flush here, the user doesn't need to call it.
-		return pc.flush()
-	})
-}
-
-func (t *Transaction) WithReadOnly(name string, graphBucket diskstore.Bucket, f func(c SharedPointCache) error) error {
-	return t.with(name, true, func(cacheToUse *sharedInMemCache) error {
-		pc := &pointCache{
-			graphBucket: graphBucket,
-			sharedCache: cacheToUse,
-			isReadOnly:  true,
-		}
-		return f(pc)
-	})
 }
 
 // Releases all the locks on the caches. Must be called after the transaction.
