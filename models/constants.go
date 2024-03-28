@@ -30,3 +30,11 @@ const (
 )
 
 // ---------------------------
+
+const (
+	QuantizerNone    = "none"
+	QuantizerBinary  = "binary"
+	QuantizerProduct = "product"
+)
+
+// ---------------------------
