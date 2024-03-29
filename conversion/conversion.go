@@ -66,6 +66,16 @@ func BytesToUint64(b []byte) uint64 {
 	return binary.LittleEndian.Uint64(b)
 }
 
+func SingleFloat32ToBytes(f float32) []byte {
+	b := [4]byte{}
+	binary.LittleEndian.PutUint32(b[:], math.Float32bits(f))
+	return b[:]
+}
+
+func BytesToSingleFloat32(b []byte) float32 {
+	return math.Float32frombits(binary.LittleEndian.Uint32(b))
+}
+
 func float32ToBytesSafe(f []float32) []byte {
 	b := make([]byte, len(f)*4)
 	for i, v := range f {

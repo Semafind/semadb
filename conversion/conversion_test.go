@@ -16,6 +16,14 @@ func Test_Uint64ToBytes(t *testing.T) {
 	}
 }
 
+func Test_SingleFloat32ToBytes(t *testing.T) {
+	for i := 0; i < 10; i++ {
+		randFloat := rand.Float32()
+		b := SingleFloat32ToBytes(randFloat)
+		require.Equal(t, randFloat, BytesToSingleFloat32(b))
+	}
+}
+
 func Test_float32ToBytes(t *testing.T) {
 	fns := []struct {
 		name      string
