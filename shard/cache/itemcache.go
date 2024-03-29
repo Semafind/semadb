@@ -4,6 +4,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/diskstore"
 )
 
@@ -80,6 +81,34 @@ func (ic *ItemCache[T]) Get(id uint64) (T, error) {
 	return ic.read(id)
 }
 
+func (ic *ItemCache[T]) Count() int {
+	ic.itemsMu.Lock()
+	defer ic.itemsMu.Unlock()
+	bucketCount := 0
+	err := ic.bucket.ForEach(func(key, value []byte) error {
+		var dummyValue T
+		id, ok := dummyValue.IdFromKey(key)
+		if !ok {
+			return nil
+		}
+		if _, ok := ic.items[id]; !ok {
+			bucketCount++
+		}
+		return nil
+	})
+	if err != nil {
+		log.Warn().Err(err).Msg("error counting item cache items in bucket")
+		return 0
+	}
+	cacheCount := 0
+	for _, item := range ic.items {
+		if !item.IsDeleted {
+			cacheCount++
+		}
+	}
+	return cacheCount + bucketCount
+}
+
 // Put an item in the cache, it will be marked as dirty and written to the bucket
 // on the next Flush.
 func (ic *ItemCache[T]) Put(id uint64, item T) error {
@@ -94,8 +123,8 @@ func (ic *ItemCache[T]) Put(id uint64, item T) error {
 func (ic *ItemCache[T]) Delete(id uint64) error {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
-	if item, ok := ic.items[id]; ok {
-		item.IsDeleted = true
+	if elem, ok := ic.items[id]; ok {
+		elem.IsDeleted = true
 		return nil
 	}
 	_, err := ic.read(id)
@@ -118,8 +147,8 @@ func (ic *ItemCache[T]) ForEach(fn func(id uint64, item T) error) error {
 	defer ic.itemsMu.Unlock()
 	// ---------------------------
 	err := ic.bucket.ForEach(func(key, value []byte) error {
-		item := &itemCacheElem[T]{}
-		id, ok := item.value.IdFromKey(key)
+		var dummyValue T
+		id, ok := dummyValue.IdFromKey(key)
 		// Is this a valid key? It may be that a single item stores multiple key
 		// values and wants to recover the original id from one key.
 		if !ok {

@@ -16,7 +16,7 @@ type dummyStorable struct {
 }
 
 func (d dummyStorable) IdFromKey(key []byte) (uint64, bool) {
-	return conversion.BytesToUint64(key), true
+	return conversion.BytesToUint64(key), len(key) == 8
 }
 func (d dummyStorable) CheckAndClearDirty() bool {
 	return false
@@ -37,6 +37,15 @@ func (d dummyStorable) WriteTo(bucket diskstore.Bucket) error {
 }
 func (d dummyStorable) DeleteFrom(bucket diskstore.Bucket) error {
 	return bucket.Delete(conversion.Uint64ToBytes(d.id))
+}
+
+func seedBucketWithDummy(t *testing.T, bucket diskstore.Bucket, items ...dummyStorable) {
+	t.Helper()
+	c := cache.NewItemCache[dummyStorable](bucket)
+	for _, item := range items {
+		require.NoError(t, c.Put(item.id, item))
+	}
+	require.NoError(t, c.Flush())
 }
 
 func TestItemCache_Get(t *testing.T) {
@@ -61,38 +70,42 @@ func TestItemCache_Put(t *testing.T) {
 	d2, err := c.Get(43)
 	require.NoError(t, err)
 	require.EqualValues(t, d, d2)
+	require.Equal(t, 1, c.Count())
 }
 
 func TestItemCache_Delete(t *testing.T) {
 	bucket := diskstore.NewMemBucket(false)
-	d1 := dummyStorable{42, 42}
-	d1.WriteTo(bucket)
+	seedBucketWithDummy(t, bucket, dummyStorable{42, 42})
 	c := cache.NewItemCache[dummyStorable](bucket)
 	// Delete existing item in cache
 	d2 := dummyStorable{43, 43}
 	require.NoError(t, c.Put(43, d2))
+	require.Equal(t, 2, c.Count())
 	require.NoError(t, c.Delete(43))
+	require.Equal(t, 1, c.Count())
 	_, err := c.Get(43)
 	require.ErrorIs(t, err, cache.ErrNotFound)
 	// Delete non-existing item in cache, but exists in bucket
 	require.NoError(t, c.Delete(42))
+	require.Equal(t, 0, c.Count())
 	_, err = c.Get(42)
 	require.ErrorIs(t, err, cache.ErrNotFound)
 	// Delete non-existing item in cache and bucket
 	require.NoError(t, c.Delete(44))
+	require.Equal(t, 0, c.Count())
 	_, err = c.Get(44)
 	require.ErrorIs(t, err, cache.ErrNotFound)
 }
 
 func TestItemCache_Flush(t *testing.T) {
 	bucket := diskstore.NewMemBucket(false)
-	d1 := dummyStorable{42, 42}
-	d1.WriteTo(bucket)
+	seedBucketWithDummy(t, bucket, dummyStorable{42, 42})
 	c := cache.NewItemCache[dummyStorable](bucket)
 	d := dummyStorable{43, 43}
 	require.NoError(t, c.Put(43, d))
 	require.NoError(t, c.Delete(42))
 	require.NoError(t, c.Flush())
+	require.Equal(t, 1, c.Count())
 	err := bucket.ForEach(func(key, value []byte) error {
 		require.EqualValues(t, 43, conversion.BytesToUint64(key))
 		require.EqualValues(t, 43, conversion.BytesToUint64(value))
