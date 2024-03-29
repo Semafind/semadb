@@ -58,6 +58,15 @@ func TestASMSquaredEuclidean(t *testing.T) {
 	require.Equal(t, want, got)
 }
 
+func TestHammingDistance(t *testing.T) {
+	x := []uint64{0b1001, 0b1}
+	y := []uint64{0b1101, 0b0}
+	dist := HammingDistance(x, y)
+	require.Equal(t, float32(2), dist)
+}
+
+// ---------------------------
+
 var benchTable = []struct {
 	name string
 	fn   func([]float32, []float32) float32

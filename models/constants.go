@@ -5,6 +5,15 @@ package models
 // ---------------------------
 
 const (
+	DistanceEuclidean = "euclidean"
+	DistanceCosine    = "cosine"
+	DistanceDot       = "dot"
+	DistanceHamming   = "hamming"
+)
+
+// ---------------------------
+
+const (
 	IndexTypeVectorFlat   = "vectorFlat"
 	IndexTypeVectorVamana = "vectorVamana"
 	IndexTypeText         = "text"
