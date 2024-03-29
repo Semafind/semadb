@@ -31,15 +31,21 @@ type VectorStore interface {
 
 // ---------------------------
 
-func New(storeType string, bucket diskstore.Bucket, distFn distance.DistFunc) (VectorStore, error) {
-	switch storeType {
-	case models.QuantizerNone:
+type vectorStoreParameters interface {
+	models.PlainQuantizerParameters | models.BinaryQuantizerParamaters
+}
+
+func New[T vectorStoreParameters](params T, bucket diskstore.Bucket, distFn distance.DistFunc) (VectorStore, error) {
+	switch p := any(params).(type) {
+	case models.PlainQuantizerParameters:
 		ps := plainStore{
 			items:  cache.NewItemCache[plainPoint](bucket),
 			distFn: distFn,
 		}
 		return ps, nil
+	case models.BinaryQuantizerParamaters:
+		return newBinaryQuantizer(bucket, distFn, p), nil
 	default:
-		return nil, fmt.Errorf("unknown vector store type %s", storeType)
+		return nil, fmt.Errorf("unknown vector store type %T", p)
 	}
 }

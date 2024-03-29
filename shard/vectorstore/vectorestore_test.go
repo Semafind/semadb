@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var storeTypes = []string{models.QuantizerNone}
+var storeTypes = []string{models.QuantizerNone, models.QuantizerBinary}
 
 func checkBucketIsEmpty(t *testing.T, bucket diskstore.Bucket, empty bool) {
 	t.Helper()
@@ -23,13 +23,31 @@ func checkBucketIsEmpty(t *testing.T, bucket diskstore.Bucket, empty bool) {
 	require.Equal(t, empty, count == 0)
 }
 
+func setupVectorStore(t *testing.T, storeType string, bucket diskstore.Bucket) vectorstore.VectorStore {
+	t.Helper()
+	distFn, _ := distance.GetDistanceFn("euclidean")
+	var s vectorstore.VectorStore
+	var err error
+	switch storeType {
+	case models.QuantizerNone:
+		params := models.PlainQuantizerParameters{}
+		s, err = vectorstore.New(params, bucket, distFn)
+	case models.QuantizerBinary:
+		params := models.BinaryQuantizerParamaters{
+			Threshold:        nil,
+			TriggerThreshold: 5,
+		}
+		s, err = vectorstore.New(params, bucket, distFn)
+	}
+	require.NoError(t, err)
+	return s
+}
+
 func Test_ExistsSetDeleteFlush(t *testing.T) {
-	distFn, _ := distance.GetDistanceFn("cosine")
 	for _, storeType := range storeTypes {
 		t.Run(storeType, func(t *testing.T) {
 			bucket := diskstore.NewMemBucket(false)
-			s, err := vectorstore.New(storeType, bucket, distFn)
-			require.NoError(t, err)
+			s := setupVectorStore(t, storeType, bucket)
 			require.False(t, s.Exists(1))
 			require.NoError(t, s.Set(1, []float32{1, 2, 3}))
 			require.True(t, s.Exists(1))
@@ -46,28 +64,23 @@ func Test_ExistsSetDeleteFlush(t *testing.T) {
 }
 
 func Test_Persistance(t *testing.T) {
-	distFn, _ := distance.GetDistanceFn("cosine")
 	for _, storeType := range storeTypes {
 		t.Run(storeType, func(t *testing.T) {
 			bucket := diskstore.NewMemBucket(false)
-			s, err := vectorstore.New(storeType, bucket, distFn)
-			require.NoError(t, err)
+			s := setupVectorStore(t, storeType, bucket)
 			require.NoError(t, s.Set(1, []float32{1, 2, 3}))
 			require.NoError(t, s.Flush())
-			s2, err := vectorstore.New(storeType, bucket, distFn)
-			require.NoError(t, err)
+			s2 := setupVectorStore(t, storeType, bucket)
 			require.True(t, s2.Exists(1))
 		})
 	}
 }
 
 func Test_DistanceFromFloat(t *testing.T) {
-	distFn, _ := distance.GetDistanceFn("euclidean")
 	for _, storeType := range storeTypes {
 		t.Run(storeType, func(t *testing.T) {
 			bucket := diskstore.NewMemBucket(false)
-			s, err := vectorstore.New(storeType, bucket, distFn)
-			require.NoError(t, err)
+			s := setupVectorStore(t, storeType, bucket)
 			require.NoError(t, s.Set(1, []float32{1, 2, 3}))
 			require.NoError(t, s.Set(2, []float32{4, 5, 6}))
 			dist := s.DistanceFromFloat([]float32{1, 2, 3})
@@ -79,12 +92,10 @@ func Test_DistanceFromFloat(t *testing.T) {
 }
 
 func Test_DistanceFromPoint(t *testing.T) {
-	distFn, _ := distance.GetDistanceFn("euclidean")
 	for _, storeType := range storeTypes {
 		t.Run(storeType, func(t *testing.T) {
 			bucket := diskstore.NewMemBucket(false)
-			s, err := vectorstore.New(storeType, bucket, distFn)
-			require.NoError(t, err)
+			s := setupVectorStore(t, storeType, bucket)
 			require.NoError(t, s.Set(1, []float32{1, 2, 3}))
 			require.NoError(t, s.Set(2, []float32{4, 5, 6}))
 			dist := s.DistanceFromPoint(1)
