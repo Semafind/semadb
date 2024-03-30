@@ -26,14 +26,14 @@ type binaryQuantizer struct {
 	// between 0 value vs not set.
 	threshold *float32
 	params    models.BinaryQuantizerParamaters
-	items     *cache.ItemCache[binaryQuantizedPoint]
+	items     *cache.ItemCache[*binaryQuantizedPoint]
 	bucket    diskstore.Bucket
 	distFn    distance.DistFunc
 }
 
-func newBinaryQuantizer(bucket diskstore.Bucket, distFn distance.DistFunc, params models.BinaryQuantizerParamaters) binaryQuantizer {
-	bq := binaryQuantizer{
-		items:     cache.NewItemCache[binaryQuantizedPoint](bucket),
+func newBinaryQuantizer(bucket diskstore.Bucket, distFn distance.DistFunc, params models.BinaryQuantizerParamaters) *binaryQuantizer {
+	bq := &binaryQuantizer{
+		items:     cache.NewItemCache[*binaryQuantizedPoint](bucket),
 		params:    params,
 		distFn:    distFn,
 		threshold: params.Threshold,
@@ -43,18 +43,19 @@ func newBinaryQuantizer(bucket diskstore.Bucket, distFn distance.DistFunc, param
 		// Check storage
 		floatBytes := bucket.Get([]byte(binaryQuantizerThresholdKey))
 		if floatBytes != nil {
-			*bq.threshold = conversion.BytesToSingleFloat32(floatBytes)
+			t := conversion.BytesToSingleFloat32(floatBytes)
+			bq.threshold = &t
 		}
 	}
 	return bq
 }
 
-func (bq binaryQuantizer) Exists(id uint64) bool {
+func (bq *binaryQuantizer) Exists(id uint64) bool {
 	_, err := bq.items.Get(id)
 	return err == nil
 }
 
-func (bq binaryQuantizer) encode(vector []float32) []uint64 {
+func (bq *binaryQuantizer) encode(vector []float32) []uint64 {
 	if bq.threshold == nil {
 		return nil
 	}
@@ -82,8 +83,8 @@ func (bq binaryQuantizer) encode(vector []float32) []uint64 {
 	return encoded
 }
 
-func (bq binaryQuantizer) Set(id uint64, vector []float32) error {
-	point := binaryQuantizedPoint{
+func (bq *binaryQuantizer) Set(id uint64, vector []float32) error {
+	point := &binaryQuantizedPoint{
 		Id:           id,
 		Vector:       vector,
 		BinaryVector: bq.encode(vector),
@@ -91,11 +92,11 @@ func (bq binaryQuantizer) Set(id uint64, vector []float32) error {
 	return bq.items.Put(id, point)
 }
 
-func (bq binaryQuantizer) Delete(id uint64) error {
+func (bq *binaryQuantizer) Delete(id uint64) error {
 	return bq.items.Delete(id)
 }
 
-func (bq binaryQuantizer) Fit() error {
+func (bq *binaryQuantizer) Fit() error {
 	// Have we already fitted the quantizer or are there enough points to fit it? The short-circuiting
 	// here is important to avoid unnecessary work of counting the items.
 	if bq.threshold != nil || bq.items.Count() < bq.params.TriggerThreshold {
@@ -107,7 +108,7 @@ func (bq binaryQuantizer) Fit() error {
 	count := 0
 	sum := float32(0)
 	startTime := time.Now()
-	err := bq.items.ForEach(func(id uint64, point binaryQuantizedPoint) error {
+	err := bq.items.ForEach(func(id uint64, point *binaryQuantizedPoint) error {
 		for _, v := range point.Vector {
 			sum += v
 		}
@@ -117,20 +118,22 @@ func (bq binaryQuantizer) Fit() error {
 	if err != nil {
 		return err
 	}
-	*bq.threshold = sum / float32(count)
+	threshold := sum / float32(count)
+	bq.threshold = &threshold
 	// ---------------------------
 	// Second pass to encode
-	err = bq.items.ForEach(func(id uint64, point binaryQuantizedPoint) error {
+	err = bq.items.ForEach(func(id uint64, point *binaryQuantizedPoint) error {
 		point.BinaryVector = bq.encode(point.Vector)
+		point.isDirty = true
 		return nil
 	})
-	log.Debug().Dur("duration", time.Since(startTime)).Msg("fitting binary quantizer")
+	log.Debug().Dur("duration", time.Since(startTime)).Float32("threshold", threshold).Msg("fitted binary quantizer")
 	// ---------------------------
 	return err
 
 }
 
-func (bq binaryQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
+func (bq *binaryQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 	if bq.threshold != nil {
 		encodedX := bq.encode(x)
 		return func(id uint64) float32 {
@@ -154,7 +157,7 @@ func (bq binaryQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 	}
 }
 
-func (bq binaryQuantizer) DistanceFromPoint(xId uint64) PointIdDistFn {
+func (bq *binaryQuantizer) DistanceFromPoint(xId uint64) PointIdDistFn {
 	if bq.threshold != nil {
 		a, errA := bq.items.Get(xId)
 		return func(id uint64) float32 {
@@ -178,7 +181,7 @@ func (bq binaryQuantizer) DistanceFromPoint(xId uint64) PointIdDistFn {
 	}
 }
 
-func (bq binaryQuantizer) Flush() error {
+func (bq *binaryQuantizer) Flush() error {
 	if err := bq.items.Flush(); err != nil {
 		return err
 	}
@@ -194,18 +197,23 @@ type binaryQuantizedPoint struct {
 	Id           uint64
 	Vector       []float32
 	BinaryVector []uint64
+	isDirty      bool
 }
 
-func (bqp binaryQuantizedPoint) IdFromKey(key []byte) (uint64, bool) {
+func (bqp *binaryQuantizedPoint) IdFromKey(key []byte) (uint64, bool) {
 	return conversion.NodeIdFromKey(key, 'v')
 }
 
-func (bqp binaryQuantizedPoint) CheckAndClearDirty() bool {
-	return false
+func (bqp *binaryQuantizedPoint) CheckAndClearDirty() bool {
+	// This case occurs usually after fitting the quantizer. That is we modify
+	// the binary vectors and request that the points are rewritten.
+	dirty := bqp.isDirty
+	bqp.isDirty = false
+	return dirty
 }
 
-func (bqp binaryQuantizedPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (point binaryQuantizedPoint, err error) {
-	point.Id = id
+func (bqp *binaryQuantizedPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (point *binaryQuantizedPoint, err error) {
+	point = &binaryQuantizedPoint{Id: id}
 	// ---------------------------
 	binaryVecBytes := bucket.Get(conversion.NodeKey(id, 'q'))
 	if binaryVecBytes != nil {
@@ -225,7 +233,7 @@ func (bqp binaryQuantizedPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (po
 	return
 }
 
-func (bqp binaryQuantizedPoint) WriteTo(bucket diskstore.Bucket) error {
+func (bqp *binaryQuantizedPoint) WriteTo(bucket diskstore.Bucket) error {
 	if len(bqp.Vector) != 0 {
 		if err := bucket.Put(conversion.NodeKey(bqp.Id, 'v'), conversion.Float32ToBytes(bqp.Vector)); err != nil {
 			return err
@@ -239,7 +247,7 @@ func (bqp binaryQuantizedPoint) WriteTo(bucket diskstore.Bucket) error {
 	return nil
 }
 
-func (bqp binaryQuantizedPoint) DeleteFrom(bucket diskstore.Bucket) error {
+func (bqp *binaryQuantizedPoint) DeleteFrom(bucket diskstore.Bucket) error {
 	if err := bucket.Delete(conversion.NodeKey(bqp.Id, 'v')); err != nil {
 		return err
 	}

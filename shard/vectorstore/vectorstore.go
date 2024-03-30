@@ -32,10 +32,14 @@ type VectorStore interface {
 // ---------------------------
 
 type vectorStoreParameters interface {
-	models.PlainQuantizerParameters | models.BinaryQuantizerParamaters
+	models.PlainQuantizerParameters | models.BinaryQuantizerParamaters | models.ProductQuantizerParameters
 }
 
-func New[T vectorStoreParameters](params T, bucket diskstore.Bucket, distFn distance.DistFunc) (VectorStore, error) {
+func New[T vectorStoreParameters](params T, bucket diskstore.Bucket, distFnName string, vectorLength int) (VectorStore, error) {
+	distFn, err := distance.GetDistanceFn(distFnName)
+	if err != nil {
+		return nil, err
+	}
 	switch p := any(params).(type) {
 	case models.PlainQuantizerParameters:
 		ps := plainStore{
@@ -45,6 +49,8 @@ func New[T vectorStoreParameters](params T, bucket diskstore.Bucket, distFn dist
 		return ps, nil
 	case models.BinaryQuantizerParamaters:
 		return newBinaryQuantizer(bucket, distFn, p), nil
+	case models.ProductQuantizerParameters:
+		return newProductQuantizer(bucket, distFnName, p, vectorLength)
 	default:
 		return nil, fmt.Errorf("unknown vector store type %T", p)
 	}
