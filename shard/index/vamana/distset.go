@@ -4,8 +4,7 @@ import (
 	"sync"
 
 	"github.com/bits-and-blooms/bitset"
-	"github.com/semafind/semadb/distance"
-	"github.com/semafind/semadb/shard/cache"
+	"github.com/semafind/semadb/shard/vectorstore"
 )
 
 /* The bitset size is an important number to consider. If we just have a single
@@ -119,7 +118,7 @@ func (vb *VisitedBitSet) Release() {
 // ---------------------------
 
 type DistSetElem struct {
-	point        *cache.CachePoint
+	Id           uint64
 	distance     float32
 	visited      bool
 	pruneRemoved bool
@@ -134,13 +133,11 @@ type DistSetElem struct {
 type DistSet struct {
 	items       []DistSetElem
 	set         visitedSet
-	queryVector []float32
-	distFn      distance.DistFunc
+	distFn      vectorstore.PointIdDistFn
 	sortedUntil int
 }
 
-// TODO: change visitSize to uint64 to match nodeId type
-func NewDistSet(queryVector []float32, capacity int, maxNodeId uint64, distFn distance.DistFunc) DistSet {
+func NewDistSet(capacity int, maxNodeId uint64, distFn vectorstore.PointIdDistFn) DistSet {
 	var set visitedSet
 	visitSize := maxNodeId
 	if visitSize == 0 || visitSize > uint64(visitBitSetSizes[len(visitBitSetSizes)-1]) {
@@ -154,7 +151,7 @@ func NewDistSet(queryVector []float32, capacity int, maxNodeId uint64, distFn di
 			}
 		}
 	}
-	return DistSet{queryVector: queryVector, items: make([]DistSetElem, 0, capacity), set: set, distFn: distFn}
+	return DistSet{items: make([]DistSetElem, 0, capacity), set: set, distFn: distFn}
 }
 
 // ---------------------------
@@ -166,20 +163,20 @@ func (ds *DistSet) Len() int {
 // ---------------------------
 
 // Add points while respecting the capacity of the array, used in greedy search
-func (ds *DistSet) AddPointWithLimit(points ...*cache.CachePoint) {
-	for _, p := range points {
+func (ds *DistSet) AddWithLimit(ids ...uint64) {
+	for _, id := range ids {
 		// ---------------------------
 		// First check if we've seen this point before. We we have than it has
 		// been considered and we can skip it. We are casting to uint because
 		// we don't expect the shards to grow above couple million points. In
 		// the future we can look to address this with bitsets that use
 		// compression such as roaring.
-		if ds.set.CheckAndVisit(p.NodeId) {
+		if ds.set.CheckAndVisit(id) {
 			continue
 		}
 		// ---------------------------
 		// If we haven't seen it before, compute the distance
-		distance := ds.distFn(p.Vector, ds.queryVector)
+		distance := ds.distFn(id)
 		// Is it worth adding? Greedy search is only interested in the k closest
 		// points. If we have already seen k points and this point is further
 		// away than the kth point, then we can skip it.
@@ -188,7 +185,7 @@ func (ds *DistSet) AddPointWithLimit(points ...*cache.CachePoint) {
 			continue
 		}
 		// We are going to add it, so create the new element
-		newElem := DistSetElem{distance: distance, point: p}
+		newElem := DistSetElem{Id: id, distance: distance}
 		if len(ds.items) < limit {
 			ds.items = append(ds.items, newElem)
 			ds.sortedUntil++
@@ -203,13 +200,13 @@ func (ds *DistSet) AddPointWithLimit(points ...*cache.CachePoint) {
 }
 
 // Add entries and only computes distance if the point is never seen before
-func (ds *DistSet) AddPoint(points ...*cache.CachePoint) {
-	for _, p := range points {
-		if ds.set.CheckAndVisit(p.NodeId) {
+func (ds *DistSet) Add(ids ...uint64) {
+	for _, id := range ids {
+		if ds.set.CheckAndVisit(id) {
 			continue
 		}
-		distance := ds.distFn(p.Vector, ds.queryVector)
-		ds.items = append(ds.items, DistSetElem{distance: distance, point: p})
+		distance := ds.distFn(id)
+		ds.items = append(ds.items, DistSetElem{Id: id, distance: distance})
 	}
 }
 

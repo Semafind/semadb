@@ -3,65 +3,55 @@ package vamana
 import (
 	"testing"
 
-	"github.com/semafind/semadb/distance"
-	"github.com/semafind/semadb/shard/cache"
 	"github.com/stretchr/testify/require"
 )
 
-func randDistElems(queryVector []float32, dists ...float32) []*cache.CachePoint {
-	elems := make([]*cache.CachePoint, len(dists))
-	for i, dist := range dists {
-		elems[i] = &cache.CachePoint{
-			GraphNode: cache.GraphNode{
-				NodeId: uint64(i),
-				Vector: []float32{queryVector[0] + dist, queryVector[1] + dist},
-			},
-		}
+func setupDistSet(capacity int, maxId uint64, dists ...float32) DistSet {
+	distFn := func(id uint64) float32 {
+		return dists[id]
 	}
-	return elems
+	return NewDistSet(capacity, maxId, distFn)
 }
 
-func setupDistSet(capacity int) DistSet {
-	distFn, _ := distance.GetDistanceFn("euclidean")
-	return NewDistSet([]float32{1.0, 2.0}, capacity, 0, distFn)
+func checkOrder(t *testing.T, ds DistSet, order ...uint64) {
+	t.Helper()
+	require.Equal(t, len(order), ds.Len())
+	for i, elem := range ds.items {
+		require.Equal(t, order[i], elem.Id)
+	}
 }
 
 func TestDistSet_Add(t *testing.T) {
-	ds := setupDistSet(2)
-	elems := randDistElems(ds.queryVector, 0.5, 1.0, 0.2)
-	ds.AddPoint(elems...)
-	require.Equal(t, 3, ds.Len())
-	wantOrder := []uint{0, 1, 2}
-	for i, elem := range ds.items {
-		require.Equal(t, elems[wantOrder[i]].NodeId, elem.point.NodeId)
-	}
+	ds := setupDistSet(2, 0, 0.5, 1.0, 0.2)
+	// So adding 0 means the point distance will be 0.5, 1 means 1.0, 2 means
+	ds.Add(0, 1, 2)
+	checkOrder(t, ds, 0, 1, 2)
 	ds.Sort()
-	wantOrder = []uint{2, 0, 1}
-	for i, elem := range ds.items {
-		require.Equal(t, elems[wantOrder[i]].NodeId, elem.point.NodeId)
-	}
+	checkOrder(t, ds, 2, 0, 1)
+}
+
+func TestDistSet_Add_Bitset(t *testing.T) {
+	ds := setupDistSet(2, 10, 0.5, 1.0, 0.2)
+	ds.Add(0, 1, 2, 0)
+	checkOrder(t, ds, 0, 1, 2)
+	ds.Sort()
+	checkOrder(t, ds, 2, 0, 1)
+	ds.Release()
 }
 
 func TestDistSet_Add_Duplicate(t *testing.T) {
-	ds := setupDistSet(3)
-	elems := randDistElems(ds.queryVector, 0.5, 1.0, 0.1)
-	ds.AddPoint(elems...)
-	ds.AddPoint(elems[0])
+	ds := setupDistSet(3, 0, 0.5, 1.0, 0.1)
+	ds.Add(0, 1, 2)
+	ds.Add(0)
 	require.Equal(t, 3, ds.Len())
 	ds.Sort()
-	wantOrder := []uint{2, 0, 1}
-	for i, elem := range ds.items {
-		require.Equal(t, elems[wantOrder[i]].NodeId, elem.point.NodeId)
-	}
+	checkOrder(t, ds, 2, 0, 1)
 }
 
 func TestDistSet_AddWithLimit(t *testing.T) {
-	ds := setupDistSet(2)
-	elems := randDistElems(ds.queryVector, 0.5, 1.0, 0.1)
-	ds.AddPointWithLimit(elems...)
-	require.Equal(t, 2, ds.Len())
-	wantOrder := []uint{2, 0}
-	for i, elem := range ds.items {
-		require.Equal(t, elems[wantOrder[i]].NodeId, elem.point.NodeId)
-	}
+	ds := setupDistSet(2, 0, 0.5, 1.0, 0.1, 1.2)
+	ds.AddWithLimit(0, 1, 2)
+	checkOrder(t, ds, 2, 0)
+	ds.AddWithLimit(3, 3)
+	checkOrder(t, ds, 2, 0)
 }
