@@ -11,7 +11,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var storeTypes = []string{models.QuantizerNone, models.QuantizerBinary, models.QuantizerProduct}
+var storeTypes = []*models.Quantizer{
+	{Type: models.QuantizerNone},
+	{Type: models.QuantizerBinary, Binary: &models.BinaryQuantizerParamaters{Threshold: nil, TriggerThreshold: 5}},
+	{Type: models.QuantizerProduct, Product: &models.ProductQuantizerParameters{NumCentroids: 256, NumSubVectors: 2, TriggerThreshold: 5}},
+}
 
 func checkBucketIsEmpty(t *testing.T, bucket diskstore.Bucket, empty bool) {
 	t.Helper()
@@ -23,28 +27,9 @@ func checkBucketIsEmpty(t *testing.T, bucket diskstore.Bucket, empty bool) {
 	require.Equal(t, empty, count == 0)
 }
 
-func setupVectorStore(t *testing.T, storeType string, bucket diskstore.Bucket) vectorstore.VectorStore {
+func setupVectorStore(t *testing.T, storeType *models.Quantizer, bucket diskstore.Bucket) vectorstore.VectorStore {
 	t.Helper()
-	var s vectorstore.VectorStore
-	var err error
-	switch storeType {
-	case models.QuantizerNone:
-		params := models.PlainQuantizerParameters{}
-		s, err = vectorstore.New(params, bucket, models.DistanceEuclidean, 4)
-	case models.QuantizerBinary:
-		params := models.BinaryQuantizerParamaters{
-			Threshold:        nil,
-			TriggerThreshold: 5,
-		}
-		s, err = vectorstore.New(params, bucket, models.DistanceEuclidean, 4)
-	case models.QuantizerProduct:
-		params := models.ProductQuantizerParameters{
-			NumCentroids:     256,
-			NumSubVectors:    2,
-			TriggerThreshold: 5,
-		}
-		s, err = vectorstore.New(params, bucket, models.DistanceEuclidean, 4)
-	}
+	s, err := vectorstore.New(storeType, bucket, models.DistanceEuclidean, 4)
 	require.NoError(t, err)
 	return s
 }
@@ -61,7 +46,7 @@ func triggerFit(t *testing.T, s vectorstore.VectorStore) {
 
 func Test_Fit(t *testing.T) {
 	for _, storeType := range storeTypes {
-		t.Run(storeType, func(t *testing.T) {
+		t.Run(storeType.Type, func(t *testing.T) {
 			bucket := diskstore.NewMemBucket(false)
 			s := setupVectorStore(t, storeType, bucket)
 			triggerFit(t, s)
@@ -72,7 +57,7 @@ func Test_Fit(t *testing.T) {
 func Test_ExistsSetDeleteFlush(t *testing.T) {
 	for _, storeType := range storeTypes {
 		for _, trigger := range []bool{true, false} {
-			t.Run(fmt.Sprintf("%s/fit=%v", storeType, trigger), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/fit=%v", storeType.Type, trigger), func(t *testing.T) {
 				bucket := diskstore.NewMemBucket(false)
 				s := setupVectorStore(t, storeType, bucket)
 				checkBucketIsEmpty(t, bucket, true)
@@ -96,7 +81,7 @@ func Test_ExistsSetDeleteFlush(t *testing.T) {
 func Test_Persistance(t *testing.T) {
 	for _, storeType := range storeTypes {
 		for _, trigger := range []bool{true, false} {
-			t.Run(fmt.Sprintf("%s/fit=%v", storeType, trigger), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/fit=%v", storeType.Type, trigger), func(t *testing.T) {
 				bucket := diskstore.NewMemBucket(false)
 				s := setupVectorStore(t, storeType, bucket)
 				if trigger {
@@ -114,7 +99,7 @@ func Test_Persistance(t *testing.T) {
 func Test_DistanceFromFloat(t *testing.T) {
 	for _, storeType := range storeTypes {
 		for _, trigger := range []bool{true, false} {
-			t.Run(fmt.Sprintf("%s/fit=%v", storeType, trigger), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/fit=%v", storeType.Type, trigger), func(t *testing.T) {
 				bucket := diskstore.NewMemBucket(false)
 				s := setupVectorStore(t, storeType, bucket)
 				if trigger {
@@ -134,7 +119,7 @@ func Test_DistanceFromFloat(t *testing.T) {
 func Test_DistanceFromPoint(t *testing.T) {
 	for _, storeType := range storeTypes {
 		for _, trigger := range []bool{true, false} {
-			t.Run(fmt.Sprintf("%s/fit=%v", storeType, trigger), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/fit=%v", storeType.Type, trigger), func(t *testing.T) {
 				bucket := diskstore.NewMemBucket(false)
 				s := setupVectorStore(t, storeType, bucket)
 				if trigger {

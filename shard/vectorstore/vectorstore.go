@@ -31,27 +31,29 @@ type VectorStore interface {
 
 // ---------------------------
 
-type vectorStoreParameters interface {
-	models.PlainQuantizerParameters | models.BinaryQuantizerParamaters | models.ProductQuantizerParameters
-}
-
-func New[T vectorStoreParameters](params T, bucket diskstore.Bucket, distFnName string, vectorLength int) (VectorStore, error) {
+func New(params *models.Quantizer, bucket diskstore.Bucket, distFnName string, vectorLength int) (VectorStore, error) {
 	distFn, err := distance.GetDistanceFn(distFnName)
 	if err != nil {
 		return nil, err
 	}
-	switch p := any(params).(type) {
-	case models.PlainQuantizerParameters:
+	if params == nil || params.Type == models.QuantizerNone {
 		ps := plainStore{
 			items:  cache.NewItemCache[plainPoint](bucket),
 			distFn: distFn,
 		}
 		return ps, nil
-	case models.BinaryQuantizerParamaters:
-		return newBinaryQuantizer(bucket, distFn, p), nil
-	case models.ProductQuantizerParameters:
-		return newProductQuantizer(bucket, distFnName, p, vectorLength)
-	default:
-		return nil, fmt.Errorf("unknown vector store type %T", p)
 	}
+	switch params.Type {
+	case models.QuantizerBinary:
+		if params.Binary == nil {
+			return nil, fmt.Errorf("binary quantizer parameters are nil")
+		}
+		return newBinaryQuantizer(bucket, distFn, *params.Binary), nil
+	case models.QuantizerProduct:
+		if params.Product == nil {
+			return nil, fmt.Errorf("product quantizer parameters are nil")
+		}
+		return newProductQuantizer(bucket, distFnName, *params.Product, vectorLength)
+	}
+	return nil, fmt.Errorf("unknown vector store type %T", params.Type)
 }

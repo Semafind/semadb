@@ -1,6 +1,10 @@
 package models
 
-type PlainQuantizerParameters struct{}
+type Quantizer struct {
+	Type    string                      `json:"type" binding:"required,oneof=none binary product"`
+	Binary  *BinaryQuantizerParamaters  `json:"binary,omitempty"`
+	Product *ProductQuantizerParameters `json:"product,omitempty"`
+}
 
 type BinaryQuantizerParamaters struct {
 	// The threshold value for the binary quantizer. It is a pointer to distinguish
