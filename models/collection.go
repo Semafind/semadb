@@ -182,16 +182,18 @@ func (s IndexSchema) CheckCompatibleMap(m PointAsMap) error {
 }
 
 type IndexVectorFlatParameters struct {
-	VectorSize     uint   `json:"vectorSize" binding:"required,min=1,max=4096"`
-	DistanceMetric string `json:"distanceMetric" binding:"required,oneof=euclidean cosine dot"`
+	VectorSize     uint       `json:"vectorSize" binding:"required,min=1,max=4096"`
+	DistanceMetric string     `json:"distanceMetric" binding:"required,oneof=euclidean cosine dot"`
+	Quantizer      *Quantizer `json:"quantizer,omitempty"`
 }
 
 type IndexVectorVamanaParameters struct {
-	VectorSize     uint    `json:"vectorSize" binding:"required,min=1,max=4096"`
-	DistanceMetric string  `json:"distanceMetric" binding:"required,oneof=euclidean cosine dot"`
-	SearchSize     int     `json:"searchSize" binding:"min=25,max=75"`
-	DegreeBound    int     `json:"degreeBound" binding:"min=32,max=64"`
-	Alpha          float32 `json:"alpha" binding:"min=1.1,max=1.5"`
+	VectorSize     uint       `json:"vectorSize" binding:"required,min=1,max=4096"`
+	DistanceMetric string     `json:"distanceMetric" binding:"required,oneof=euclidean cosine dot"`
+	SearchSize     int        `json:"searchSize" binding:"min=25,max=75"`
+	DegreeBound    int        `json:"degreeBound" binding:"min=32,max=64"`
+	Alpha          float32    `json:"alpha" binding:"min=1.1,max=1.5"`
+	Quantizer      *Quantizer `json:"quantizer,omitempty"`
 }
 
 type IndexTextParameters struct {
