@@ -3,15 +3,13 @@ package vamana
 import (
 	"fmt"
 	"time"
-
-	"github.com/semafind/semadb/shard/cache"
 )
 
 // This point has a neighbour that is being deleted. We need to pool together
 // the deleted neighbour neighbours and prune the point.
-func (v *IndexVamana) pruneDeleteNeighbour(pc cache.SharedPointCache, id uint64, deleteSet map[uint64]struct{}) error {
+func (iv *IndexVamana) pruneDeleteNeighbour(id uint64, deleteSet map[uint64]struct{}) error {
 	// ---------------------------
-	pointA, err := pc.GetPoint(id)
+	nodeA, err := iv.nodeStore.Get(id)
 	if err != nil {
 		return fmt.Errorf("could not get point: %w", err)
 	}
@@ -24,60 +22,54 @@ func (v *IndexVamana) pruneDeleteNeighbour(pc cache.SharedPointCache, id uint64,
 	 * behind nodes in removeInBoundEdges. */
 	deletedNothing := true
 	// ---------------------------
-	err = pc.WithPointNeighbours(pointA, false, func(nnA []*cache.CachePoint) error {
-		// These are the neighbours of A
-		candidateSet := NewDistSet(pointA.Vector, len(nnA)*2, 0, v.distFn)
-		for _, pointB := range nnA {
-			// Is B deleted?
-			if _, ok := deleteSet[pointB.NodeId]; ok {
-				// Pull the neighbours of the deleted neighbour (B), and add them to the candidate set
-				err := pc.WithPointNeighbours(pointB, true, func(nnB []*cache.CachePoint) error {
-					// Check if those neighbours are in the delete set, if not add them
-					// to the candidate set. We do this check in case our neighbour has
-					// neighbours that are being deleted too.
-					for _, pointC := range nnB {
-						// Is C a valid candidate or is it deleted too?
-						if _, ok := deleteSet[pointC.NodeId]; !ok {
-							candidateSet.AddPoint(pointC)
-						}
-					}
-					deletedNothing = false
-					return nil
-				})
-				if err != nil {
-					return fmt.Errorf("could not get deleted neighbour point neighbours: %w", err)
-				}
-			} else {
-				// Nope, B is not deleted so we just add it to the candidate set
-				candidateSet.AddPoint(pointB)
+	nodeA.edgesMu.Lock()
+	defer nodeA.edgesMu.Unlock()
+	// Potential new candidates for A
+	candidateSet := NewDistSet(len(nodeA.edges)*2, 0, iv.vecStore.DistanceFromPoint(nodeA.Id))
+	for _, nB := range nodeA.edges {
+		// Is B deleted?
+		if _, ok := deleteSet[nB]; ok {
+			// Pull the neighbours of the deleted neighbour (B), and add them to the candidate set
+			nodeB, err := iv.nodeStore.Get(nB)
+			if err != nil {
+				return fmt.Errorf("could not get neighbour point for prune deletion: %w", err)
 			}
-		}
-		candidateSet.Sort()
-		// ---------------------------
-		if candidateSet.Len() > v.parameters.DegreeBound {
-			// We need to prune the neighbour as well to keep the degree bound
-			robustPrune(pointA, candidateSet, v.parameters.Alpha, v.parameters.DegreeBound, v.distFn)
+			nodeB.edgesMu.RLock()
+			for _, nC := range nodeB.edges {
+				// Is C a valid candidate or is it deleted too?
+				if _, ok := deleteSet[nC]; !ok {
+					candidateSet.Add(nC)
+				}
+			}
+			nodeB.edgesMu.RUnlock()
+			deletedNothing = false
 		} else {
-			// There is enough space for the candidate neighbours
-			pointA.ClearNeighbours()
-			for _, dse := range candidateSet.items {
-				if dse.point.NodeId == pointA.NodeId {
-					// We don't want to add the point to itself, it may be here
-					// if a deleted node was pointing back to us. Recall that we
-					// add bi-directional edges.
-					continue
-				}
-				pointA.AddNeighbour(dse.point)
-			}
+			// B seems to be in tact, add it to the candidate set
+			candidateSet.Add(nB)
 		}
-		return nil
-	})
-	if err != nil {
-		return fmt.Errorf("could not get point neighbours: %w", err)
 	}
+	candidateSet.Sort()
+	// ---------------------------
+	if candidateSet.Len() > iv.parameters.DegreeBound {
+		// We need to prune the neighbour as well to keep the degree bound
+		iv.robustPrune(nodeA, candidateSet)
+	} else {
+		// There is enough space for the candidate neighbours
+		nodeA.ClearNeighbours()
+		for _, dse := range candidateSet.items {
+			if dse.Id == nodeA.Id {
+				// We don't want to add the point to itself, it may be here
+				// if a deleted node was pointing back to us. Recall that we
+				// add bi-directional edges.
+				continue
+			}
+			nodeA.AddNeighbour(dse.Id)
+		}
+	}
+	// ---------------------------
 	if deletedNothing {
 		// No neighbours are to be deleted, something's up
-		return fmt.Errorf("no neighbours to be deleted for point: %d", pointA.NodeId)
+		return fmt.Errorf("no neighbours to be deleted for point: %d", id)
 	}
 	// ---------------------------
 	return nil
@@ -85,12 +77,12 @@ func (v *IndexVamana) pruneDeleteNeighbour(pc cache.SharedPointCache, id uint64,
 
 // Attempts to remove the edges of the deleted points. This is done by scanning
 // all the edges and removing the ones that point to a deleted point.
-func (v *IndexVamana) removeInboundEdges(pc cache.SharedPointCache, deleteSet map[uint64]struct{}) error {
+func (v *IndexVamana) removeInboundEdges(deleteSet map[uint64]struct{}) error {
 	// The scanning may not be efficient but it is correct. We can optimise this
 	// in the future.
 	// ---------------------------
 	startTime := time.Now()
-	toPrune, toSave, err := pc.EdgeScan(deleteSet)
+	toPrune, toSave, err := v.EdgeScan(deleteSet)
 	if err != nil {
 		return fmt.Errorf("could not scan edges: %w", err)
 	}
@@ -98,7 +90,7 @@ func (v *IndexVamana) removeInboundEdges(pc cache.SharedPointCache, deleteSet ma
 	// ---------------------------
 	startTime = time.Now()
 	for _, pointId := range toPrune {
-		if err := v.pruneDeleteNeighbour(pc, pointId, deleteSet); err != nil {
+		if err := v.pruneDeleteNeighbour(pointId, deleteSet); err != nil {
 			return fmt.Errorf("could not prune delete neighbour: %w", err)
 		}
 	}
@@ -122,7 +114,7 @@ func (v *IndexVamana) removeInboundEdges(pc cache.SharedPointCache, deleteSet ma
 	 * huge computation. Instead we are taking the simple option of putting
 	 * these few stragglers back to the start node. */
 	if len(toSave) > 0 {
-		startNode, err := pc.GetPoint(STARTID)
+		startNode, err := v.nodeStore.Get(STARTID)
 		if err != nil {
 			return fmt.Errorf("could not get start node for saving: %w", err)
 		}
@@ -133,12 +125,8 @@ func (v *IndexVamana) removeInboundEdges(pc cache.SharedPointCache, deleteSet ma
 				// pointing to it.
 				continue
 			}
-			point, err := pc.GetPoint(pointId)
-			if err != nil {
-				return fmt.Errorf("could not get point for saving: %w", err)
-			}
 			// You have been saved
-			startNode.AddNeighbourIfNotExists(point)
+			startNode.AddNeighbourIfNotExists(pointId)
 		}
 	}
 	// ---------------------------

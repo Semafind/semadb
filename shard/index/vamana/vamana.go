@@ -10,9 +10,12 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/conversion"
+	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
+	"github.com/semafind/semadb/shard/vectorstore"
 	"github.com/semafind/semadb/utils"
 )
 
@@ -23,37 +26,69 @@ import (
 // the start node.
 const STARTID = 1
 
+const (
+	MAXNODEIDKEY = "_vamanaMaxNodeId"
+)
+
 // ---------------------------
 
 type IndexVamana struct {
 	distFn     distance.DistFunc
 	parameters models.IndexVectorVamanaParameters
-	pointCache cache.SharedPointCache
-	maxNodeId  uint64
-	logger     zerolog.Logger
+	// ---------------------------
+	vecStore  vectorstore.VectorStore
+	nodeStore *cache.ItemCache[*graphNode]
+	maxNodeId uint64
+	// ---------------------------
+	bucket diskstore.Bucket
+	logger zerolog.Logger
 }
 
-func NewIndexVamana(name string, pc cache.SharedPointCache, params models.IndexVectorVamanaParameters, maxNodeId uint64) (*IndexVamana, error) {
+func NewIndexVamana(name string, params models.IndexVectorVamanaParameters, bucket diskstore.Bucket) (*IndexVamana, error) {
 	distFn, err := distance.GetDistanceFn(params.DistanceMetric)
 	if err != nil {
 		return nil, fmt.Errorf("could not get distance function: %w", err)
 	}
+	logger := log.With().Str("component", "IndexVamana").Str("name", name).Logger()
 	index := &IndexVamana{
 		distFn:     distFn,
 		parameters: params,
-		pointCache: pc,
-		maxNodeId:  maxNodeId,
-		logger:     log.With().Str("component", "IndexVamana").Str("name", name).Logger(),
+		nodeStore:  cache.NewItemCache[*graphNode](bucket),
+		bucket:     bucket,
+		logger:     logger,
 	}
+	// ---------------------------
+	vstore, err := vectorstore.New(params.Quantizer, bucket, params.DistanceMetric, int(params.VectorSize))
+	if err != nil {
+		return nil, fmt.Errorf("could not create vector store: %w", err)
+	}
+	index.vecStore = vstore
+	// ---------------------------
 	if err := index.setupStartNode(); err != nil {
 		return nil, fmt.Errorf("could not setup start node: %w", err)
 	}
+	// ---------------------------
+	// Max node id from bucket
+	if maxNodeIdVal := bucket.Get([]byte(MAXNODEIDKEY)); maxNodeIdVal != nil {
+		index.maxNodeId = conversion.BytesToUint64(maxNodeIdVal)
+	}
+	logger.Debug().Uint64("maxNodeId", index.maxNodeId).Msg("IndexVamana- New")
+	// ---------------------------
 	return index, nil
+}
+
+func (v *IndexVamana) SizeInMemory() int64 {
+	// TODO: Size based on vecstore and nodestore
+	return 0
+}
+
+func (v *IndexVamana) UpdateBucket(bucket diskstore.Bucket) {
+	v.bucket = bucket
 }
 
 func (v *IndexVamana) setupStartNode() error {
 	// ---------------------------
-	if _, err := v.pointCache.GetPoint(STARTID); err == nil {
+	if v.vecStore.Exists(STARTID) {
 		return nil
 	}
 	// ---------------------------
@@ -70,82 +105,90 @@ func (v *IndexVamana) setupStartNode() error {
 		randVector[i] *= norm
 	}
 	// Create start point
-	randPoint := cache.GraphNode{
-		NodeId: STARTID,
-		Vector: randVector,
-	}
-	if _, err := v.pointCache.SetPoint(randPoint); err != nil {
+	if err := v.vecStore.Set(STARTID, randVector); err != nil {
 		return fmt.Errorf("could not set start point: %w", err)
+	}
+	startNode := &graphNode{
+		Id: STARTID,
+	}
+	if err := v.nodeStore.Put(STARTID, startNode); err != nil {
+		return fmt.Errorf("could not put start node: %w", err)
 	}
 	return nil
 }
 
-func (v *IndexVamana) InsertUpdateDelete(ctx context.Context, points <-chan cache.GraphNode) <-chan error {
+type IndexVectorChange struct {
+	Id     uint64
+	Vector []float32
+}
+
+func (v *IndexVamana) InsertUpdateDelete(ctx context.Context, points <-chan IndexVectorChange) <-chan error {
 	errC := make(chan error, 1)
 	go func() {
-		errC <- v.insertUpdateDelete(ctx, v.pointCache, points)
+		errC <- v.insertUpdateDelete(ctx, points)
 		close(errC)
 	}()
 	return errC
 }
 
-func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.SharedPointCache, pointQueue <-chan cache.GraphNode) error {
+func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pointQueue <-chan IndexVectorChange) error {
 	// ---------------------------
-	/* In this funky case there are actually multiple goroutines operating on
-	 * the same cache. As opposed to multiple requests queuing to get access
-	 * to the shared cache. Internal concurrency (workers) vs external
-	 * concurrency (user requests). */
-	numWorkers := runtime.NumCPU() - 1 // We leave 1 core for the main thread
 	startTime := time.Now()
-	insertQ := make(chan cache.GraphNode)
-	errCs := make([]<-chan error, numWorkers)
-	// ---------------------------
-	for i := 0; i < numWorkers; i++ {
-		errCs[i] = v.insertWorker(ctx, pc, insertQ)
-	}
-	insertErrC := utils.MergeErrorsWithContext(ctx, errCs...)
 	// ---------------------------
 	/* Update and delete operations do a full scan to prune nodes correctly.
 	 * There is an approximate version we can implement, i.e. prune locally but
 	 * on smaller graphs this may lead to disconnected nodes. We opt for going
 	 * correctness initially. So to prune all the inbound edges to remove these
 	 * nodes from the graph, we collect them and do a single scan. */
-	updatedPoints := make([]cache.GraphNode, 0)
-	deletedPoints := make([]*cache.CachePoint, 0)
+	updatedPoints := make([]IndexVectorChange, 0)
+	deletedPointsIds := make([]uint64, 0)
 	toRemoveInBoundNodeIds := make(map[uint64]struct{})
 	// ---------------------------
-	errC := utils.SinkWithContext(ctx, pointQueue, func(point cache.GraphNode) error {
-		if point.NodeId == STARTID {
-			return fmt.Errorf("cannot modify point with start id: %d", STARTID)
+	insertQ, distributeErrC := utils.TransformWithContext(ctx, pointQueue, func(point IndexVectorChange) (out IndexVectorChange, skip bool, err error) {
+		if point.Id == STARTID {
+			err = fmt.Errorf("cannot modify point with start id: %d", STARTID)
+			return
 		}
 		// What operation is this?
-		cp, err := pc.GetPoint(point.NodeId)
+		exists := v.vecStore.Exists(point.Id)
 		switch {
-		case err == cache.ErrNotFound:
+		case !exists && point.Vector != nil:
 			// Insert
-			insertQ <- point
-		case err == nil && point.Vector != nil:
+			if point.Id > v.maxNodeId {
+				v.maxNodeId = point.Id
+			}
+			skip = false
+			out = point
+		case exists && point.Vector != nil:
 			// Update
 			updatedPoints = append(updatedPoints, point)
-			toRemoveInBoundNodeIds[point.NodeId] = struct{}{}
-		case err == nil && point.Vector == nil:
+			toRemoveInBoundNodeIds[point.Id] = struct{}{}
+			skip = true
+		case exists && point.Vector == nil:
 			// Delete
-			deletedPoints = append(deletedPoints, cp)
-			toRemoveInBoundNodeIds[point.NodeId] = struct{}{}
+			deletedPointsIds = append(deletedPointsIds, point.Id)
+			toRemoveInBoundNodeIds[point.Id] = struct{}{}
+			skip = true
 		default:
-			return err
+			err = fmt.Errorf("unknown operation for point: %d", point.Id)
 		}
-		return nil
+		return
 	})
-	if err := <-errC; err != nil {
-		return fmt.Errorf("could not process point: %w", err)
-	}
+	/* In this funky case there are actually multiple goroutines operating on
+	 * the same cache. As opposed to multiple requests queuing to get access
+	 * to the shared cache. Internal concurrency (workers) vs external
+	 * concurrency (user requests). */
+	numWorkers := runtime.NumCPU() - 1 // We leave 1 core for the main thread
+	errCs := make([]<-chan error, numWorkers+1)
 	// ---------------------------
+	for i := 0; i < numWorkers; i++ {
+		errCs[i] = v.insertWorker(ctx, insertQ)
+	}
+	errCs[numWorkers] = distributeErrC
 	/* We don't want to interleave inbound edge pruning for update and delete
 	 * while insert is happening. This may again lead to disconnected graphs. */
-	close(insertQ)
-	if err := <-insertErrC; err != nil {
-		return fmt.Errorf("could not insert point: %w", err)
+	if err := <-utils.MergeErrorsWithContext(ctx, errCs...); err != nil {
+		return fmt.Errorf("could not distribute or insert points: %w", err)
 	}
 	// ---------------------------
 	/* Initially we doubled downed on the assumption that more often than not
@@ -168,16 +211,17 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.SharedPoi
 	 * implement 3 by keeping track of the number of deleted points and only
 	 * doing a full prune when it reaches a certain threshold.
 	 */
-	if err := v.removeInboundEdges(pc, toRemoveInBoundNodeIds); err != nil {
+	if err := v.removeInboundEdges(toRemoveInBoundNodeIds); err != nil {
 		return fmt.Errorf("could not remove inbound edges: %w", err)
 	}
-	for _, cp := range deletedPoints {
+	for _, id := range deletedPointsIds {
 		/* Mark as deleted. We do this here after the inbound edges have been
 		 * removed because we don't want to remove nodes while insertion is
 		 * potentially happening. Again we don't expect to have large number of
 		 * deletions so this is single threaded. When a node is marked, it then
 		 * gets deleted during a flush. */
-		cp.Delete()
+		v.vecStore.Delete(id)
+		v.nodeStore.Delete(id)
 	}
 	// ---------------------------
 	/* The updated nodes are now re-inserted into the graph. We do this under the
@@ -190,38 +234,51 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pc cache.SharedPoi
 	 * the workers to finish draining the insert channel and returning, you wait
 	 * until they have drained but are idle. */
 	for _, point := range updatedPoints {
-		if err := v.insertSinglePoint(pc, point); err != nil {
+		if err := v.insertSinglePoint(point); err != nil {
 			return fmt.Errorf("could not re-insert updated point: %w", err)
 		}
 	}
 	// ---------------------------
 	v.logger.Debug().Str("duration", time.Since(startTime).String()).Msg("IndexVamana- Write")
 	// ---------------------------
-	if err := context.Cause(ctx); err != nil {
-		v.logger.Debug().Msg("IndexVamana - Insert - Context Done")
-		return fmt.Errorf("insert context error: %w", err)
+	// Check vector store optimisation, this may include quantisation etc.
+	if err := v.vecStore.Fit(); err != nil {
+		return fmt.Errorf("could not fit vector store: %w", err)
 	}
 	// ---------------------------
+	return v.flush()
+}
+
+func (v *IndexVamana) flush() error {
+	if err := v.vecStore.Flush(); err != nil {
+		return fmt.Errorf("could not flush vector store: %w", err)
+	}
+	if err := v.nodeStore.Flush(); err != nil {
+		return fmt.Errorf("could not flush node store: %w", err)
+	}
+	if err := v.bucket.Put([]byte(MAXNODEIDKEY), conversion.Uint64ToBytes(v.maxNodeId)); err != nil {
+		return fmt.Errorf("could not set max node id: %w", err)
+	}
 	return nil
 }
 
 func (v *IndexVamana) Search(ctx context.Context, query []float32, limit int) ([]models.SearchResult, error) {
 	startTime := time.Now()
-	searchSet, _, err := greedySearch(v.pointCache, query, limit, v.parameters.SearchSize, v.distFn, v.maxNodeId)
+	searchSet, _, err := v.greedySearch(query, limit, v.parameters.SearchSize)
 	if err != nil {
 		return nil, fmt.Errorf("could not perform graph search: %w", err)
 	}
 	v.logger.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("SearchPoints - GreedySearch")
 	results := make([]models.SearchResult, 0, min(len(searchSet.items), limit))
 	for _, elem := range searchSet.items {
-		if elem.point.NodeId == STARTID {
+		if elem.Id == STARTID {
 			continue
 		}
 		if len(results) >= limit {
 			break
 		}
 		sr := models.SearchResult{
-			NodeId:   elem.point.NodeId,
+			NodeId:   elem.Id,
 			Distance: &elem.distance,
 		}
 		results = append(results, sr)
