@@ -11,7 +11,6 @@ import (
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
-	"github.com/semafind/semadb/shard/cache"
 )
 
 var ErrPointDoesNotExist = errors.New("point does not exist")
@@ -44,7 +43,7 @@ func PointKey(id uuid.UUID, suffix byte) []byte {
 func SetPoint(bucket diskstore.Bucket, point ShardPoint) error {
 	// ---------------------------
 	// Set matching ids
-	if err := bucket.Put(cache.NodeKey(point.NodeId, 'i'), point.Id[:]); err != nil {
+	if err := bucket.Put(conversion.NodeKey(point.NodeId, 'i'), point.Id[:]); err != nil {
 		return fmt.Errorf("could not set point id: %w", err)
 	}
 	if err := bucket.Put(PointKey(point.Id, 'i'), conversion.Uint64ToBytes(point.NodeId)); err != nil {
@@ -53,11 +52,11 @@ func SetPoint(bucket diskstore.Bucket, point ShardPoint) error {
 	// ---------------------------
 	// Handle point data
 	if len(point.Data) > 0 {
-		if err := bucket.Put(cache.NodeKey(point.NodeId, 'd'), point.Data); err != nil {
+		if err := bucket.Put(conversion.NodeKey(point.NodeId, 'd'), point.Data); err != nil {
 			return fmt.Errorf("could not set point data: %w", err)
 		}
 	} else {
-		if err := bucket.Delete(cache.NodeKey(point.NodeId, 'd')); err != nil {
+		if err := bucket.Delete(conversion.NodeKey(point.NodeId, 'd')); err != nil {
 			return fmt.Errorf("could not delete empty point data: %w", err)
 		}
 	}
@@ -83,7 +82,7 @@ func GetPointByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (ShardPo
 	if err != nil {
 		return ShardPoint{}, err
 	}
-	data := bucket.Get(cache.NodeKey(nodeId, 'd'))
+	data := bucket.Get(conversion.NodeKey(nodeId, 'd'))
 	sp := ShardPoint{
 		Point: models.Point{
 			Id:   pointId,
@@ -95,7 +94,7 @@ func GetPointByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (ShardPo
 }
 
 func GetPointByNodeId(bucket diskstore.ReadOnlyBucket, nodeId uint64) (ShardPoint, error) {
-	pointIdBytes := bucket.Get(cache.NodeKey(nodeId, 'i'))
+	pointIdBytes := bucket.Get(conversion.NodeKey(nodeId, 'i'))
 	if pointIdBytes == nil {
 		return ShardPoint{}, ErrPointDoesNotExist
 	}
@@ -103,7 +102,7 @@ func GetPointByNodeId(bucket diskstore.ReadOnlyBucket, nodeId uint64) (ShardPoin
 	if err != nil {
 		return ShardPoint{}, fmt.Errorf("could not parse point id: %w", err)
 	}
-	data := bucket.Get(cache.NodeKey(nodeId, 'd'))
+	data := bucket.Get(conversion.NodeKey(nodeId, 'd'))
 	sp := ShardPoint{
 		Point: models.Point{
 			Id:   pointId,
@@ -118,10 +117,10 @@ func DeletePoint(bucket diskstore.Bucket, pointId uuid.UUID, nodeId uint64) erro
 	if err := bucket.Delete(PointKey(pointId, 'i')); err != nil {
 		return fmt.Errorf("could not delete point id: %w", err)
 	}
-	if err := bucket.Delete(cache.NodeKey(nodeId, 'i')); err != nil {
+	if err := bucket.Delete(conversion.NodeKey(nodeId, 'i')); err != nil {
 		return fmt.Errorf("could not delete node id: %w", err)
 	}
-	if err := bucket.Delete(cache.NodeKey(nodeId, 'd')); err != nil {
+	if err := bucket.Delete(conversion.NodeKey(nodeId, 'd')); err != nil {
 		return fmt.Errorf("could not delete point data: %w", err)
 	}
 	return nil
