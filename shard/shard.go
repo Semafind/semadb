@@ -455,6 +455,9 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 	}
 	// ---------------------------
 	// Offset and limit
+	if searchRequest.Limit == 0 {
+		searchRequest.Limit = len(finalResults)
+	}
 	finalResults = finalResults[min(searchRequest.Offset, len(finalResults)):min(searchRequest.Offset+searchRequest.Limit, len(finalResults))]
 	// ---------------------------
 	return finalResults, nil
