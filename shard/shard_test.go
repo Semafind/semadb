@@ -368,7 +368,6 @@ func TestShard_BucketSearch(t *testing.T) {
 	require.NoError(t, shard.InsertPoints(points))
 	// Clear the cache
 	shard.cacheManager.Release(shard.dbFile + "/index/vectorVamana/vector")
-	require.NoError(t, shard.InsertPoints(points))
 	// Search from the bucket directly
 	res, err := shard.SearchPoints(searchRequest(points[0], 1))
 	require.NoError(t, err)

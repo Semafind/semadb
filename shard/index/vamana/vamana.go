@@ -114,7 +114,7 @@ func (v *IndexVamana) setupStartNode() error {
 		randVector[i] *= norm
 	}
 	// Create start point
-	if err := v.vecStore.Set(STARTID, randVector); err != nil {
+	if _, err := v.vecStore.Set(STARTID, randVector); err != nil {
 		return fmt.Errorf("could not set start point: %w", err)
 	}
 	startNode := &graphNode{
@@ -225,15 +225,13 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pointQueue <-chan 
 			return fmt.Errorf("could not remove inbound edges: %w", err)
 		}
 	}
-	for _, id := range deletedPointsIds {
-		/* Mark as deleted. We do this here after the inbound edges have been
-		 * removed because we don't want to remove nodes while insertion is
-		 * potentially happening. Again we don't expect to have large number of
-		 * deletions so this is single threaded. When a node is marked, it then
-		 * gets deleted during a flush. */
-		v.vecStore.Delete(id)
-		v.nodeStore.Delete(id)
-	}
+	/* Mark as deleted. We do this here after the inbound edges have been
+	 * removed because we don't want to remove nodes while insertion is
+	 * potentially happening. Again we don't expect to have large number of
+	 * deletions so this is single threaded. When a node is marked, it then
+	 * gets deleted during a flush. */
+	v.vecStore.Delete(deletedPointsIds...)
+	v.nodeStore.Delete(deletedPointsIds...)
 	// ---------------------------
 	/* The updated nodes are now re-inserted into the graph. We do this under the
 	 * assumption that change the vector of a point will change its neighbours so
@@ -282,14 +280,14 @@ func (v *IndexVamana) Search(ctx context.Context, query []float32, limit int) ([
 	v.logger.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("SearchPoints - GreedySearch")
 	results := make([]models.SearchResult, 0, min(len(searchSet.items), limit))
 	for _, elem := range searchSet.items {
-		if elem.Id == STARTID {
+		if elem.Point.Id() == STARTID {
 			continue
 		}
 		if len(results) >= limit {
 			break
 		}
 		sr := models.SearchResult{
-			NodeId:   elem.Id,
+			NodeId:   elem.Point.Id(),
 			Distance: &elem.distance,
 		}
 		results = append(results, sr)

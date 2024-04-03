@@ -23,11 +23,11 @@ func (v *IndexVamana) greedySearch(query []float32, k int, searchSize int) (Dist
 	// point is not part of the database but an entry point to the graph.
 	// Upstream search function filters it out but we return it here so the
 	// graph can be constructed correctly.
-	sn, err := v.nodeStore.Get(STARTID)
+	sn, err := v.vecStore.Get(STARTID)
 	if err != nil {
 		return searchSet, visitedSet, fmt.Errorf("failed to get start point: %w", err)
 	}
-	searchSet.AddWithLimit(sn.Id)
+	searchSet.AddWithLimit(sn[0])
 	// ---------------------------
 	/* This loop looks to curate the closest nodes to the query vector along the
 	 * way. The loop terminates when we visited all the nodes in our search list. */
@@ -40,17 +40,22 @@ func (v *IndexVamana) greedySearch(query []float32, k int, searchSize int) (Dist
 		visitedSet.AddAlreadyUnique(distElem)
 		searchSet.items[i].visited = true
 		// ---------------------------
+		// Get the node and its neighbours
+		nodes, err := v.nodeStore.Get(distElem.Point.Id())
+		if err != nil {
+			return searchSet, visitedSet, fmt.Errorf("failed to get node for neighbours: %w", err)
+		}
+		node := nodes[0]
 		// We have to lock the point here because while we are calculating the
 		// distance of its neighbours (edges in the graph) we can't have another
 		// goroutine changing them. The case we aren't covering is after we have
 		// calculated, they may change the search we are doing is not
 		// deterministic. With approximate search this is not a major problem.
-		node, err := v.nodeStore.Get(distElem.Id)
-		if err != nil {
-			return searchSet, visitedSet, fmt.Errorf("failed to get node for neighbours: %w", err)
+		if err := node.LoadNeighbours(v.vecStore); err != nil {
+			return searchSet, visitedSet, fmt.Errorf("failed to load node neighbours: %w", err)
 		}
 		node.edgesMu.RLock()
-		searchSet.AddWithLimit(node.edges...)
+		searchSet.AddWithLimit(node.neighbours...)
 		node.edgesMu.RUnlock()
 		// ---------------------------
 		i = 0
@@ -72,23 +77,23 @@ func (iv *IndexVamana) robustPrune(node *graphNode, candidateSet DistSet) {
 		closestElem := candidateSet.items[i]
 		// Exclude the point itself, this might happen in case we are updating.
 		// It is worth checking if this is the case.
-		if closestElem.pruneRemoved || closestElem.Id == node.Id {
+		if closestElem.pruneRemoved || closestElem.Point.Id() == node.Id {
 			continue
 		}
-		edgeCount := node.AddNeighbour(closestElem.Id)
+		edgeCount := node.AddNeighbour(closestElem.Point)
 		if edgeCount >= iv.parameters.DegreeBound {
 			break
 		}
 		// ---------------------------
 		// Prune optimistically
-		distFn := iv.vecStore.DistanceFromPoint(closestElem.Id)
+		distFn := iv.vecStore.DistanceFromPoint(closestElem.Point)
 		for j := i + 1; j < len(candidateSet.items); j++ {
 			nextElem := candidateSet.items[j]
 			if nextElem.pruneRemoved {
 				continue
 			}
 			// ---------------------------
-			if iv.parameters.Alpha*distFn(nextElem.Id) < nextElem.distance {
+			if iv.parameters.Alpha*distFn(nextElem.Point) < nextElem.distance {
 				candidateSet.items[j].pruneRemoved = true
 			}
 		}

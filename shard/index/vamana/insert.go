@@ -14,7 +14,8 @@ func (v *IndexVamana) insertWorker(ctx context.Context, jobQueue <-chan IndexVec
 }
 
 func (v *IndexVamana) insertSinglePoint(change IndexVectorChange) error {
-	if err := v.vecStore.Set(change.Id, change.Vector); err != nil {
+	vecA, err := v.vecStore.Set(change.Id, change.Vector)
+	if err != nil {
 		return fmt.Errorf("could not set point: %w", err)
 	}
 	// ---------------------------
@@ -32,16 +33,16 @@ func (v *IndexVamana) insertSinglePoint(change IndexVectorChange) error {
 	}
 	// ---------------------------
 	// Add the bi-directional edges, suppose A is being added and has A -> B and
-	// A -> C. Then we attempt to add edges from B and C back to A. point.Edges
-	// is A -> B and A -> C.
+	// A -> C. Then we attempt to add edges from B and C back to A.
 	nodeA.edgesMu.RLock()
 	defer nodeA.edgesMu.RUnlock()
-	for _, nB := range nodeA.edges {
+	for _, nB := range nodeA.neighbours {
 		// So here n = B or C as the example goes
-		nodeB, err := v.nodeStore.Get(nB)
+		nodeBs, err := v.nodeStore.Get(nB.Id())
 		if err != nil {
 			return fmt.Errorf("could not get neighbour point: %w", err)
 		}
+		nodeB := nodeBs[0]
 		// ---------------------------
 		// While we are adding the bi-directional edges, we need exclusive
 		// access to ensure other goroutines don't modify the edges while we
@@ -49,16 +50,20 @@ func (v *IndexVamana) insertSinglePoint(change IndexVectorChange) error {
 		nodeB.edgesMu.Lock()
 		if len(nodeB.edges)+1 > v.parameters.DegreeBound {
 			// We need to prune the neighbour as well to keep the degree bound
-			distFn := v.vecStore.DistanceFromPoint(nodeB.Id)
+			distFn := v.vecStore.DistanceFromPoint(nB)
 			candidateSet := NewDistSet(len(nodeB.edges)+1, 0, distFn)
-			candidateSet.Add(nodeB.edges...)
-			candidateSet.Add(nodeA.Id) // Here we are asking B or C to add A
+			if err := nodeB.LoadNeighbours(v.vecStore); err != nil {
+				nodeB.edgesMu.Unlock()
+				return fmt.Errorf("could not load nodeB neighbours adding bi-directional edges: %w", err)
+			}
+			candidateSet.Add(nodeB.neighbours...)
+			candidateSet.Add(vecA) // Here we are asking B or C to add A
 			candidateSet.Sort()
 			v.robustPrune(nodeB, candidateSet)
 		} else {
 			// ---------------------------
 			// Add the edge
-			nodeB.AddNeighbour(nodeA.Id)
+			nodeB.AddNeighbour(vecA)
 		}
 		nodeB.edgesMu.Unlock()
 	}

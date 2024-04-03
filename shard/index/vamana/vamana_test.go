@@ -36,8 +36,9 @@ func checkConnectivity(t *testing.T, nodeStore *cache.ItemCache[*graphNode], exp
 			continue
 		}
 		visited[nodeId] = struct{}{}
-		node, err := nodeStore.Get(nodeId)
+		nodes, err := nodeStore.Get(nodeId)
 		require.NoError(t, err)
+		node := nodes[0]
 		queue = append(queue, node.edges...)
 	}
 	// -1 for the start node

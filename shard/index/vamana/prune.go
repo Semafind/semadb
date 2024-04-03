@@ -3,16 +3,13 @@ package vamana
 import (
 	"fmt"
 	"time"
+
+	"github.com/semafind/semadb/shard/vectorstore"
 )
 
 // This point has a neighbour that is being deleted. We need to pool together
 // the deleted neighbour neighbours and prune the point.
-func (iv *IndexVamana) pruneDeleteNeighbour(id uint64, deleteSet map[uint64]struct{}) error {
-	// ---------------------------
-	nodeA, err := iv.nodeStore.Get(id)
-	if err != nil {
-		return fmt.Errorf("could not get point: %w", err)
-	}
+func (iv *IndexVamana) pruneDeleteNeighbour(pointA vectorstore.VectorStorePoint, nodeA *graphNode, deleteSet map[uint64]struct{}) error {
 	// ---------------------------
 	/* We are going to build a new candidate list of neighbours and then robust
 	 * prune it. What is happening here is A -> B -> C, and B is being deleted.
@@ -20,34 +17,50 @@ func (iv *IndexVamana) pruneDeleteNeighbour(id uint64, deleteSet map[uint64]stru
 	 * deleted, we refrain from recursing because we don't know how deep we will
 	 * go. We instead use a saving mechanism to reconnect any potential left
 	 * behind nodes in removeInBoundEdges. */
-	deletedNothing := true
 	// ---------------------------
 	nodeA.edgesMu.Lock()
 	defer nodeA.edgesMu.Unlock()
-	// Potential new candidates for A
-	candidateSet := NewDistSet(len(nodeA.edges)*2, 0, iv.vecStore.DistanceFromPoint(nodeA.Id))
+	validCandidateIds := make([]uint64, 0, len(nodeA.edges))
+	toExpandIds := make([]uint64, 0, len(nodeA.edges)/2)
 	for _, nB := range nodeA.edges {
 		// Is B deleted?
 		if _, ok := deleteSet[nB]; ok {
-			// Pull the neighbours of the deleted neighbour (B), and add them to the candidate set
-			nodeB, err := iv.nodeStore.Get(nB)
-			if err != nil {
-				return fmt.Errorf("could not get neighbour point for prune deletion: %w", err)
-			}
-			nodeB.edgesMu.RLock()
-			for _, nC := range nodeB.edges {
-				// Is C a valid candidate or is it deleted too?
-				if _, ok := deleteSet[nC]; !ok {
-					candidateSet.Add(nC)
-				}
-			}
-			nodeB.edgesMu.RUnlock()
-			deletedNothing = false
+			// Yes, we need to expand its neighbours
+			toExpandIds = append(toExpandIds, nB)
 		} else {
-			// B seems to be in tact, add it to the candidate set
-			candidateSet.Add(nB)
+			// Nope it is a valid candidate
+			validCandidateIds = append(validCandidateIds, nB)
 		}
 	}
+	// ---------------------------
+	if len(toExpandIds) == 0 {
+		// No neighbours are to be deleted, something's up
+		return fmt.Errorf("no neighbours to be deleted for point: %d", pointA.Id())
+	}
+	// ---------------------------
+	expandedNodes, err := iv.nodeStore.Get(toExpandIds...)
+	if err != nil {
+		return fmt.Errorf("could not get neighbour points for prune deletion: %w", err)
+	}
+	// Now pull the neighbours of B and add them to the candidate set
+	for _, nodeB := range expandedNodes {
+		nodeB.edgesMu.RLock()
+		for _, nC := range nodeB.edges {
+			// Is C a valid candidate or is it deleted too?
+			if _, ok := deleteSet[nC]; !ok {
+				validCandidateIds = append(validCandidateIds, nC)
+			}
+		}
+		nodeB.edgesMu.RUnlock()
+	}
+	// ---------------------------
+	// Potential new candidates for A
+	candidateSet := NewDistSet(len(nodeA.edges)*2, 0, iv.vecStore.DistanceFromPoint(pointA))
+	vecs, err := iv.vecStore.Get(validCandidateIds...)
+	if err != nil {
+		return fmt.Errorf("could not get valid candidate points for prune deletion: %w", err)
+	}
+	candidateSet.Add(vecs...)
 	candidateSet.Sort()
 	// ---------------------------
 	if candidateSet.Len() > iv.parameters.DegreeBound {
@@ -57,19 +70,14 @@ func (iv *IndexVamana) pruneDeleteNeighbour(id uint64, deleteSet map[uint64]stru
 		// There is enough space for the candidate neighbours
 		nodeA.ClearNeighbours()
 		for _, dse := range candidateSet.items {
-			if dse.Id == nodeA.Id {
+			if dse.Point.Id() == nodeA.Id {
 				// We don't want to add the point to itself, it may be here
 				// if a deleted node was pointing back to us. Recall that we
 				// add bi-directional edges.
 				continue
 			}
-			nodeA.AddNeighbour(dse.Id)
+			nodeA.AddNeighbour(dse.Point)
 		}
-	}
-	// ---------------------------
-	if deletedNothing {
-		// No neighbours are to be deleted, something's up
-		return fmt.Errorf("no neighbours to be deleted for point: %d", id)
 	}
 	// ---------------------------
 	return nil
@@ -89,8 +97,16 @@ func (v *IndexVamana) removeInboundEdges(deleteSet map[uint64]struct{}) error {
 	v.logger.Debug().Int("deleteSetSize", len(deleteSet)).Int("toPruneSize", len(toPrune)).Int("toSaveSize", len(toSave)).Str("duration", time.Since(startTime).String()).Msg("EdgeScan")
 	// ---------------------------
 	startTime = time.Now()
-	for _, pointId := range toPrune {
-		if err := v.pruneDeleteNeighbour(pointId, deleteSet); err != nil {
+	toPrunePoints, err := v.vecStore.Get(toPrune...)
+	if err != nil {
+		return fmt.Errorf("could not get points to prune: %w", err)
+	}
+	toPruneNodes, err := v.nodeStore.Get(toPrune...)
+	if err != nil {
+		return fmt.Errorf("could not get nodes to prune: %w", err)
+	}
+	for i, point := range toPrunePoints {
+		if err := v.pruneDeleteNeighbour(point, toPruneNodes[i], deleteSet); err != nil {
 			return fmt.Errorf("could not prune delete neighbour: %w", err)
 		}
 	}
@@ -114,19 +130,24 @@ func (v *IndexVamana) removeInboundEdges(deleteSet map[uint64]struct{}) error {
 	 * huge computation. Instead we are taking the simple option of putting
 	 * these few stragglers back to the start node. */
 	if len(toSave) > 0 {
-		startNode, err := v.nodeStore.Get(STARTID)
+		startNodes, err := v.nodeStore.Get(STARTID)
+		startNode := startNodes[0]
 		if err != nil {
 			return fmt.Errorf("could not get start node for saving: %w", err)
 		}
-		for _, pointId := range toSave {
-			if pointId == STARTID {
+		toSavePoints, err := v.vecStore.Get(toSave...)
+		if err != nil {
+			return fmt.Errorf("could not get points to save: %w", err)
+		}
+		for _, point := range toSavePoints {
+			if point.Id() == STARTID {
 				// We don't want to add the start node to itself, start node
 				// never needs saving but may be in the list if no other node is
 				// pointing to it.
 				continue
 			}
 			// You have been saved
-			startNode.AddNeighbourIfNotExists(pointId)
+			startNode.AddNeighbourIfNotExists(point)
 		}
 	}
 	// ---------------------------

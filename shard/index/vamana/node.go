@@ -3,10 +3,12 @@ package vamana
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/shard/cache"
+	"github.com/semafind/semadb/shard/vectorstore"
 )
 
 type graphNode struct {
@@ -14,6 +16,13 @@ type graphNode struct {
 	edges   []uint64
 	isDirty bool
 	edgesMu sync.RWMutex
+	// ---------------------------
+	// We keep a cache of the neighbours to avoid repeated lookups. This speeds
+	// up performance significantly if items are cached and accessed multiple
+	// times, e.g. during insert or repeated searches.
+	neighbours    []vectorstore.VectorStorePoint
+	neighLoadMu   sync.Mutex
+	isNeighLoaded atomic.Bool
 }
 
 // ---------------------------
@@ -25,20 +34,42 @@ type graphNode struct {
  * concurrent tests that simulate parallel access.
  */
 
+func (g *graphNode) LoadNeighbours(vstore vectorstore.VectorStore) error {
+	if g.isNeighLoaded.Load() {
+		return nil
+	}
+	g.neighLoadMu.Lock()
+	defer g.neighLoadMu.Unlock()
+	// We have this check again in case whilst waiting for a lock, another
+	// goroutine has loaded the neighbours.
+	if g.isNeighLoaded.Load() {
+		return nil
+	}
+	ns, err := vstore.Get(g.edges...)
+	if err != nil {
+		return fmt.Errorf("could not load node neighbours: %w", err)
+	}
+	g.neighbours = ns
+	g.isNeighLoaded.Store(true)
+	return nil
+}
+
 func (g *graphNode) ClearNeighbours() {
 	g.edges = g.edges[:0]
+	g.neighbours = g.neighbours[:0]
 	g.isDirty = true
 }
 
-func (g *graphNode) AddNeighbour(neighbour uint64) int {
-	g.edges = append(g.edges, neighbour)
+func (g *graphNode) AddNeighbour(neighbour vectorstore.VectorStorePoint) int {
+	g.edges = append(g.edges, neighbour.Id())
+	g.neighbours = append(g.neighbours, neighbour)
 	g.isDirty = true
 	return len(g.edges)
 }
 
-func (g *graphNode) AddNeighbourIfNotExists(neighbour uint64) int {
+func (g *graphNode) AddNeighbourIfNotExists(neighbour vectorstore.VectorStorePoint) int {
 	for _, n := range g.edges {
-		if n == neighbour {
+		if n == neighbour.Id() {
 			return len(g.edges)
 		}
 	}
@@ -161,5 +192,5 @@ func (v *IndexVamana) EdgeScan(deleteSet map[uint64]struct{}) (toPrune, toSave [
 		}
 	}
 	// ---------------------------
-	return toPrune, toSave, nil
+	return
 }
