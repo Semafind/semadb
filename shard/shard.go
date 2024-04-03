@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,14 +23,6 @@ type Shard struct {
 	dbFile     string
 	db         diskstore.DiskStore
 	collection models.Collection
-	// Maximum node id used in the shard. This is actually used for visit sets
-	// to determine the size of the bitset or fallback to a map. It is not the
-	// counter from which new Ids are generated. That is handled by the id
-	// counter. We store this here to avoid having to read the id counter
-	// potentially from disk every time we need to create a new visit set. It
-	// doesn't need to be exact either, bitsets can resize if we get it wrong
-	// but we keep it in sync anyway.
-	maxNodeId atomic.Uint64
 	// ---------------------------
 	cacheManager *cache.Manager
 	logger       zerolog.Logger
@@ -73,27 +64,6 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 		cacheManager = cache.NewManager(0)
 	}
 	// ---------------------------
-	var maxNodeId uint64
-	err = db.Write(func(bm diskstore.BucketManager) error {
-		// ---------------------------
-		// Setup buckets
-		bInternal, err := bm.Get(INTERNALBUCKETKEY)
-		if err != nil {
-			return fmt.Errorf("could not write internal bucket: %w", err)
-		}
-		// ---------------------------
-		nodeCounter, err := NewIdCounter(bInternal, FREENODEIDSKEY, NEXTFREENODEIDKEY)
-		if err != nil {
-			return fmt.Errorf("could not create id counter: %w", err)
-		}
-		maxNodeId = nodeCounter.MaxId()
-		// ---------------------------
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("could not initialise shard: %w", err)
-	}
-	// ---------------------------
 	shard := &Shard{
 		dbFile:       dbFile, // An alternative could be db.Path()
 		db:           db,
@@ -101,7 +71,6 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 		cacheManager: cacheManager,
 		logger:       log.With().Str("component", "shard").Str("name", dbFile).Logger(),
 	}
-	shard.maxNodeId.Store(maxNodeId)
 	return shard, nil
 }
 
@@ -236,7 +205,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 			ipc.NewData = point.Data
 			return
 		})
-		im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
+		im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema)
 		dispatchErrC := im.Dispatch(ctx, indexQ)
 		// ---------------------------
 		mergedErrC := utils.MergeErrorsWithContext(ctx, indexQErrC, dispatchErrC)
@@ -253,7 +222,6 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		if err := nodeCounter.Flush(); err != nil {
 			return fmt.Errorf("could not flush id counter: %w", err)
 		}
-		s.maxNodeId.Store(nodeCounter.MaxId())
 		txTime = time.Now()
 		return nil
 	})
@@ -346,7 +314,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 			// ---------------------------
 			return
 		})
-		im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
+		im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema)
 		dispatchErrC := im.Dispatch(ctx, indexQ)
 		// ---------------------------
 		mergedErrC := utils.MergeErrorsWithContext(ctx, indexQErrC, dispatchErrC)
@@ -383,7 +351,7 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 			return fmt.Errorf("could not get points bucket: %w", err)
 		}
 		// ---------------------------
-		im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
+		im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema)
 		rSet, results, err := im.Search(context.Background(), searchRequest.Query)
 		if err != nil {
 			return fmt.Errorf("could not perform search: %w", err)
@@ -542,7 +510,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 			ipc.PreviousData = sp.Data
 			return
 		})
-		im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema, s.maxNodeId.Load())
+		im := index.NewIndexManager(bm, cacheTx, s.dbFile, s.collection.IndexSchema)
 		dispatchErrC := im.Dispatch(ctx, indexQ)
 		// ---------------------------
 		mergedErrC := utils.MergeErrorsWithContext(ctx, indexQErrC, dispatchErrC)

@@ -69,7 +69,7 @@ func getVectorCount(shard *Shard) (count int) {
 func getPointEdgeCount(shard *Shard, nodeId uint64) (count int) {
 	shard.db.Read(func(bm diskstore.BucketManager) error {
 		b, _ := bm.Get(GRAPHINDEXBUCKETKEY)
-		n := b.Get(cache.NodeKey(nodeId, 'e'))
+		n := b.Get(conversion.NodeKey(nodeId, 'e'))
 		count = len(n) / 8
 		return nil
 	})
@@ -81,34 +81,23 @@ func checkConnectivity(t *testing.T, shard *Shard, expectedCount int) {
 	visited := make(map[uint64]struct{})
 	queue := make([]uint64, 0)
 	queue = append(queue, vamana.STARTID)
-	cm := cache.NewManager(-1)
-	tx := cm.NewTransaction()
 	err := shard.db.Read(func(bm diskstore.BucketManager) error {
 		graphBucket, err := bm.Get(GRAPHINDEXBUCKETKEY)
 		require.NoError(t, err)
-		err = tx.WithReadOnly("checkConnectivity", graphBucket, func(pc cache.SharedPointCache) error {
-			for len(queue) > 0 {
-				pointId := queue[0]
-				queue = queue[1:]
-				if _, ok := visited[pointId]; ok {
-					continue
-				}
-				visited[pointId] = struct{}{}
-				point, err := pc.GetPoint(pointId)
-				if err != nil {
-					return err
-				}
-				err = pc.WithPointNeighbours(point, true, func(neighbours []*cache.CachePoint) error {
-					for _, neighbour := range neighbours {
-						queue = append(queue, neighbour.NodeId)
-					}
-					return nil
-				})
-				require.NoError(t, err)
+		// ---------------------------
+		for len(queue) > 0 {
+			nodeId := queue[0]
+			queue = queue[1:]
+			if _, ok := visited[nodeId]; ok {
+				continue
 			}
-			return nil
-		})
-		return err
+			visited[nodeId] = struct{}{}
+			edgeBytes := graphBucket.Get(conversion.NodeKey(nodeId, 'e'))
+			require.NotNil(t, edgeBytes)
+			edges := conversion.BytesToEdgeList(edgeBytes)
+			queue = append(queue, edges...)
+		}
+		return nil
 	})
 	require.NoError(t, err)
 	// We subtract one because the start point is not in the database but is an
@@ -133,7 +122,7 @@ func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
 			if k[0] == 'p' && k[len(k)-1] == 'i' {
 				pointId := uuid.UUID(k[1 : len(k)-1])
 				nodeId := conversion.BytesToUint64(v)
-				reverseId := b.Get(cache.NodeKey(nodeId, 'i'))
+				reverseId := b.Get(conversion.NodeKey(nodeId, 'i'))
 				require.Equal(t, pointId, uuid.UUID(reverseId))
 				pointCount++
 			}
@@ -170,12 +159,12 @@ func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 		// Check all remaining points have valid edges
 		graphBucket.ForEach(func(k, v []byte) error {
 			if k[len(k)-1] == 'e' {
-				nodeId := cache.NodeIdFromKey(k)
+				nodeId, _ := conversion.NodeIdFromKey(k, 'e')
 				edges := conversion.BytesToEdgeList(v)
 				// Cannot have self edges
 				require.NotContains(t, edges, nodeId)
 				for _, edge := range edges {
-					nodeVal := graphBucket.Get(cache.NodeKey(edge, 'v'))
+					nodeVal := graphBucket.Get(conversion.NodeKey(edge, 'v'))
 					require.NotNil(t, nodeVal)
 				}
 			}
@@ -191,11 +180,9 @@ func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
 		b, err := bm.Get(POINTSBUCKETKEY)
 		require.NoError(t, err)
 		b.ForEach(func(k, v []byte) error {
-			if k[0] == 'n' && k[len(k)-1] == 'i' {
-				nodeId := cache.NodeIdFromKey(k)
-				if nodeId > maxId {
-					maxId = nodeId
-				}
+			nodeId, ok := conversion.NodeIdFromKey(k, 'i')
+			if ok && nodeId > maxId {
+				maxId = nodeId
 			}
 			return nil
 		})
@@ -205,9 +192,6 @@ func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
 	// we are expecting the maxId to be 3 (points), then the maximum Id will be
 	// 4.
 	require.LessOrEqual(t, maxId, uint64(expected+1))
-	if expected != 0 {
-		require.Equal(t, uint64(expected+1), shard.maxNodeId.Load())
-	}
 }
 
 /*func dumpEdgesToCSV(t *testing.T, shard *Shard, fpath string) {
@@ -346,6 +330,46 @@ func TestShard_BasicSearch(t *testing.T) {
 	shard := tempShard(t)
 	points := randPoints(2)
 	shard.InsertPoints(points)
+	res, err := shard.SearchPoints(searchRequest(points[0], 1))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(res))
+	require.Equal(t, points[0].Id, res[0].Point.Id)
+	require.Equal(t, getVector(points[0]), getVector(res[0].Point))
+	require.Equal(t, points[0].Data, res[0].Point.Data)
+	require.EqualValues(t, 0, *res[0].Distance)
+	require.NoError(t, shard.Close())
+}
+
+func TestShard_CacheReuse(t *testing.T) {
+	cm := cache.NewManager(-1)
+	shard, _ := NewShard("", sampleCol, cm)
+	points := randPoints(7)
+	err := shard.InsertPoints(points)
+	require.NoError(t, err)
+	// Purge the disk storage layer
+	err = shard.db.Write(func(bm diskstore.BucketManager) error {
+		return bm.Delete(GRAPHINDEXBUCKETKEY)
+	})
+	require.NoError(t, err)
+	// The shared cache should allow us to search
+	res, err := shard.SearchPoints(searchRequest(points[0], 1))
+	require.NoError(t, err)
+	require.Equal(t, 1, len(res))
+	require.Equal(t, points[0].Id, res[0].Point.Id)
+	require.Equal(t, getVector(points[0]), getVector(res[0].Point))
+	require.Equal(t, points[0].Data, res[0].Point.Data)
+	require.EqualValues(t, 0, *res[0].Distance)
+	require.NoError(t, shard.Close())
+}
+
+func TestShard_BucketSearch(t *testing.T) {
+	shard := tempShard(t)
+	points := randPoints(2)
+	require.NoError(t, shard.InsertPoints(points))
+	// Clear the cache
+	shard.cacheManager.Release(shard.dbFile + "/index/vectorVamana/vector")
+	require.NoError(t, shard.InsertPoints(points))
+	// Search from the bucket directly
 	res, err := shard.SearchPoints(searchRequest(points[0], 1))
 	require.NoError(t, err)
 	require.Equal(t, 1, len(res))
