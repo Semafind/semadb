@@ -22,6 +22,10 @@ func (d dummyStorable) CheckAndClearDirty() bool {
 	return false
 }
 
+func (d dummyStorable) SizeInMemory() int64 {
+	return 16
+}
+
 func (d dummyStorable) ReadFrom(id uint64, bucket diskstore.Bucket) (dummy dummyStorable, err error) {
 	valueBytes := bucket.Get(conversion.Uint64ToBytes(id))
 	if valueBytes == nil {

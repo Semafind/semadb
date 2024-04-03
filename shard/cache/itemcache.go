@@ -12,6 +12,7 @@ var ErrNotFound = errors.New("not found")
 
 /* Represents an item that store itself to a bucket. */
 type Storable[T any] interface {
+	Cachable
 	// Extract the id from the key, returns false if the key is not valid
 	IdFromKey(key []byte) (uint64, bool)
 	// Check if the item is dirty and clear the dirty flag, allows the Storable
@@ -48,6 +49,24 @@ func NewItemCache[T Storable[T]](bucket diskstore.Bucket) *ItemCache[T] {
 		bucket: bucket,
 	}
 	return ic
+}
+
+// Approximate size in memory based on len(items) * size(item)
+func (ic *ItemCache[T]) SizeInMemory() int64 {
+	ic.itemsMu.Lock()
+	defer ic.itemsMu.Unlock()
+	for _, item := range ic.items {
+		return int64(len(ic.items)) * item.value.SizeInMemory()
+	}
+	return 0
+}
+
+// Update the bucket of the cache, this is useful if this cache is shared across
+// multiple transactions with different bucket handlers. For example, first
+// transaction creates elements, second transaction uses the same bucket name
+// but gets a different handler.
+func (ic *ItemCache[T]) UpdateBucket(bucket diskstore.Bucket) {
+	ic.bucket = bucket
 }
 
 func (ic *ItemCache[T]) read(id uint64) (T, error) {
