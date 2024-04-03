@@ -87,6 +87,15 @@ func (pq *productQuantizer) Exists(id uint64) bool {
 	return err == nil
 }
 
+func (pq *productQuantizer) SizeInMemory() int64 {
+	return pq.items.SizeInMemory() + int64(len(pq.flatCentroids)*4) + int64(len(pq.centroidDists)*4)
+}
+
+func (pq *productQuantizer) UpdateBucket(bucket diskstore.Bucket) {
+	pq.items.UpdateBucket(bucket)
+	pq.bucket = bucket
+}
+
 func (pq productQuantizer) encode(vector []float32) []uint8 {
 	if len(pq.flatCentroids) == 0 {
 		return nil
@@ -296,6 +305,10 @@ type productQuantizedPoint struct {
 
 func (p *productQuantizedPoint) IdFromKey(key []byte) (uint64, bool) {
 	return conversion.NodeIdFromKey(key, 'v')
+}
+
+func (p *productQuantizedPoint) SizeInMemory() int64 {
+	return int64(8 + 4*len(p.Vector) + len(p.CentroidIds))
 }
 
 func (p *productQuantizedPoint) CheckAndClearDirty() bool {

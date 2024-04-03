@@ -55,6 +55,15 @@ func (bq *binaryQuantizer) Exists(id uint64) bool {
 	return err == nil
 }
 
+func (bq *binaryQuantizer) SizeInMemory() int64 {
+	return bq.items.SizeInMemory()
+}
+
+func (bq *binaryQuantizer) UpdateBucket(bucket diskstore.Bucket) {
+	bq.items.UpdateBucket(bucket)
+	bq.bucket = bucket
+}
+
 func (bq *binaryQuantizer) encode(vector []float32) []uint64 {
 	if bq.threshold == nil {
 		return nil
@@ -202,6 +211,10 @@ type binaryQuantizedPoint struct {
 
 func (bqp *binaryQuantizedPoint) IdFromKey(key []byte) (uint64, bool) {
 	return conversion.NodeIdFromKey(key, 'v')
+}
+
+func (bqp *binaryQuantizedPoint) SizeInMemory() int64 {
+	return int64(len(bqp.Vector)*4 + len(bqp.BinaryVector)*8)
 }
 
 func (bqp *binaryQuantizedPoint) CheckAndClearDirty() bool {

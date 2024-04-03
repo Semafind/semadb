@@ -23,6 +23,14 @@ func (ps plainStore) Exists(id uint64) bool {
 	return err == nil
 }
 
+func (ps plainStore) SizeInMemory() int64 {
+	return ps.items.SizeInMemory()
+}
+
+func (ps plainStore) UpdateBucket(bucket diskstore.Bucket) {
+	ps.items.UpdateBucket(bucket)
+}
+
 func (ps plainStore) Set(id uint64, vector []float32) error {
 	return ps.items.Put(id, plainPoint{
 		Id:     id,
@@ -73,6 +81,10 @@ type plainPoint struct {
 
 func (pp plainPoint) IdFromKey(key []byte) (uint64, bool) {
 	return conversion.NodeIdFromKey(key, 'v')
+}
+
+func (pp plainPoint) SizeInMemory() int64 {
+	return int64(8 + 4*len(pp.Vector))
 }
 
 // Always returns false as we don't track dirty state.

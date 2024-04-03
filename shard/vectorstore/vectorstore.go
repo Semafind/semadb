@@ -20,6 +20,12 @@ type VectorStore interface {
 	Exists(id uint64) bool
 	Set(id uint64, vector []float32) error
 	Delete(id uint64) error
+	cache.Cachable
+	// Update bucket can be used to swap out the underlying disk storage. This
+	// is useful for cached items for which the underlying storage has changed.
+	// For example, we read and cache items, but the bucket is no longer valid.
+	// During a new request we want to reuse the cache with the new bucket.
+	UpdateBucket(bucket diskstore.Bucket)
 	// Update vector store parameters based on the data it has seen so far. The
 	// vector store may ignore this call for example if it has already been
 	// optimised.
