@@ -50,6 +50,12 @@ func initShard(dataset *C.char, metric *C.char, vectorSize int) {
 					SearchSize:     75,
 					DegreeBound:    64,
 					Alpha:          1.2,
+					// Quantizer: &models.Quantizer{
+					// 	Type: models.QuantizerBinary,
+					// 	Binary: &models.BinaryQuantizerParamaters{
+					// 		TriggerThreshold: 10000,
+					// 	},
+					// },
 				},
 			},
 		},
