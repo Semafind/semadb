@@ -58,8 +58,9 @@ func TestItemCache_Get(t *testing.T) {
 	dummy := dummyStorable{42, 42}
 	dummy.WriteTo(bucket)
 	c := cache.NewItemCache[dummyStorable](bucket)
-	d, err := c.Get(42)
+	ds, err := c.Get(42)
 	require.NoError(t, err)
+	d := ds[0]
 	require.EqualValues(t, 42, d.id)
 	require.EqualValues(t, 42, d.value)
 	_, err = c.Get(43)
@@ -73,7 +74,7 @@ func TestItemCache_Put(t *testing.T) {
 	require.NoError(t, err)
 	d2, err := c.Get(43)
 	require.NoError(t, err)
-	require.EqualValues(t, d, d2)
+	require.EqualValues(t, d, d2[0])
 	require.Equal(t, 1, c.Count())
 }
 

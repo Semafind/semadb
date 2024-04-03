@@ -88,16 +88,25 @@ func (ic *ItemCache[T]) read(id uint64) (T, error) {
 
 // Get an item from the cache, if it's not in the cache, it will be read from the
 // bucket. Check for ErrNotFound to see if the item is not in the bucket.
-func (ic *ItemCache[T]) Get(id uint64) (T, error) {
+func (ic *ItemCache[T]) Get(ids ...uint64) ([]T, error) {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
-	if item, ok := ic.items[id]; ok {
-		if item.IsDeleted {
-			return item.value, ErrNotFound
+	values := make([]T, len(ids))
+	for i, id := range ids {
+		if item, ok := ic.items[id]; ok {
+			if item.IsDeleted {
+				return nil, ErrNotFound
+			}
+			values[i] = item.value
+			continue
 		}
-		return item.value, nil
+		if item, err := ic.read(id); err != nil {
+			return nil, err
+		} else {
+			values[i] = item
+		}
 	}
-	return ic.read(id)
+	return values, nil
 }
 
 func (ic *ItemCache[T]) Count() int {
@@ -139,21 +148,23 @@ func (ic *ItemCache[T]) Put(id uint64, item T) error {
 
 // Delete an item from the cache, it will be marked as deleted and written to the
 // bucket on the next Flush.
-func (ic *ItemCache[T]) Delete(id uint64) error {
+func (ic *ItemCache[T]) Delete(ids ...uint64) error {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
-	if elem, ok := ic.items[id]; ok {
-		elem.IsDeleted = true
-		return nil
+	for _, id := range ids {
+		if elem, ok := ic.items[id]; ok {
+			elem.IsDeleted = true
+			continue
+		}
+		_, err := ic.read(id)
+		if err == ErrNotFound {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		ic.items[id].IsDeleted = true
 	}
-	_, err := ic.read(id)
-	if err == ErrNotFound {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	ic.items[id].IsDeleted = true
 	return nil
 }
 
