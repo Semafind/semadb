@@ -118,7 +118,7 @@ func (vb *VisitedBitSet) Release() {
 // ---------------------------
 
 type DistSetElem struct {
-	Id           uint64
+	Point        vectorstore.VectorStorePoint
 	distance     float32
 	visited      bool
 	pruneRemoved bool
@@ -163,20 +163,20 @@ func (ds *DistSet) Len() int {
 // ---------------------------
 
 // Add points while respecting the capacity of the array, used in greedy search
-func (ds *DistSet) AddWithLimit(ids ...uint64) {
-	for _, id := range ids {
+func (ds *DistSet) AddWithLimit(points ...vectorstore.VectorStorePoint) {
+	for _, p := range points {
 		// ---------------------------
 		// First check if we've seen this point before. We we have than it has
 		// been considered and we can skip it. We are casting to uint because
 		// we don't expect the shards to grow above couple million points. In
 		// the future we can look to address this with bitsets that use
 		// compression such as roaring.
-		if ds.set.CheckAndVisit(id) {
+		if ds.set.CheckAndVisit(p.Id()) {
 			continue
 		}
 		// ---------------------------
 		// If we haven't seen it before, compute the distance
-		distance := ds.distFn(id)
+		distance := ds.distFn(p)
 		// Is it worth adding? Greedy search is only interested in the k closest
 		// points. If we have already seen k points and this point is further
 		// away than the kth point, then we can skip it.
@@ -185,7 +185,7 @@ func (ds *DistSet) AddWithLimit(ids ...uint64) {
 			continue
 		}
 		// We are going to add it, so create the new element
-		newElem := DistSetElem{Id: id, distance: distance}
+		newElem := DistSetElem{Point: p, distance: distance}
 		if len(ds.items) < limit {
 			ds.items = append(ds.items, newElem)
 			ds.sortedUntil++
@@ -200,13 +200,13 @@ func (ds *DistSet) AddWithLimit(ids ...uint64) {
 }
 
 // Add entries and only computes distance if the point is never seen before
-func (ds *DistSet) Add(ids ...uint64) {
-	for _, id := range ids {
-		if ds.set.CheckAndVisit(id) {
+func (ds *DistSet) Add(points ...vectorstore.VectorStorePoint) {
+	for _, p := range points {
+		if ds.set.CheckAndVisit(p.Id()) {
 			continue
 		}
-		distance := ds.distFn(id)
-		ds.items = append(ds.items, DistSetElem{Id: id, distance: distance})
+		distance := ds.distFn(p)
+		ds.items = append(ds.items, DistSetElem{Point: p, distance: distance})
 	}
 }
 
