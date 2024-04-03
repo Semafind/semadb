@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"runtime"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -38,7 +39,14 @@ type IndexVamana struct {
 	// ---------------------------
 	vecStore  vectorstore.VectorStore
 	nodeStore *cache.ItemCache[*graphNode]
-	maxNodeId uint64
+	/* Maximum node id used in the index. This is actually used for visit sets to
+	 * determine the size of the bitset or fallback to a map. It is not the
+	 * counter from which new Ids are generated. That is handled by the id
+	 * counter in the shard. We store this here to avoid having to read from disk
+	 * every time we need to create a new visit set. It doesn't need to be exact
+	 * either, bitsets can resize if we get it wrong but we try to keep it in
+	 * sync anyway. */
+	maxNodeId atomic.Uint64
 	// ---------------------------
 	bucket diskstore.Bucket
 	logger zerolog.Logger
@@ -70,20 +78,21 @@ func NewIndexVamana(name string, params models.IndexVectorVamanaParameters, buck
 	// ---------------------------
 	// Max node id from bucket
 	if maxNodeIdVal := bucket.Get([]byte(MAXNODEIDKEY)); maxNodeIdVal != nil {
-		index.maxNodeId = conversion.BytesToUint64(maxNodeIdVal)
+		index.maxNodeId.Store(conversion.BytesToUint64(maxNodeIdVal))
 	}
-	logger.Debug().Uint64("maxNodeId", index.maxNodeId).Msg("IndexVamana- New")
+	logger.Debug().Uint64("maxNodeId", index.maxNodeId.Load()).Msg("IndexVamana- New")
 	// ---------------------------
 	return index, nil
 }
 
 func (v *IndexVamana) SizeInMemory() int64 {
-	// TODO: Size based on vecstore and nodestore
-	return 0
+	return v.vecStore.SizeInMemory() + v.nodeStore.SizeInMemory()
 }
 
 func (v *IndexVamana) UpdateBucket(bucket diskstore.Bucket) {
 	v.bucket = bucket
+	v.vecStore.UpdateBucket(bucket)
+	v.nodeStore.UpdateBucket(bucket)
 }
 
 func (v *IndexVamana) setupStartNode() error {
@@ -154,8 +163,8 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pointQueue <-chan 
 		switch {
 		case !exists && point.Vector != nil:
 			// Insert
-			if point.Id > v.maxNodeId {
-				v.maxNodeId = point.Id
+			if point.Id > v.maxNodeId.Load() {
+				v.maxNodeId.Store(point.Id)
 			}
 			skip = false
 			out = point
@@ -211,8 +220,10 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pointQueue <-chan 
 	 * implement 3 by keeping track of the number of deleted points and only
 	 * doing a full prune when it reaches a certain threshold.
 	 */
-	if err := v.removeInboundEdges(toRemoveInBoundNodeIds); err != nil {
-		return fmt.Errorf("could not remove inbound edges: %w", err)
+	if len(toRemoveInBoundNodeIds) > 0 {
+		if err := v.removeInboundEdges(toRemoveInBoundNodeIds); err != nil {
+			return fmt.Errorf("could not remove inbound edges: %w", err)
+		}
 	}
 	for _, id := range deletedPointsIds {
 		/* Mark as deleted. We do this here after the inbound edges have been
@@ -256,7 +267,7 @@ func (v *IndexVamana) flush() error {
 	if err := v.nodeStore.Flush(); err != nil {
 		return fmt.Errorf("could not flush node store: %w", err)
 	}
-	if err := v.bucket.Put([]byte(MAXNODEIDKEY), conversion.Uint64ToBytes(v.maxNodeId)); err != nil {
+	if err := v.bucket.Put([]byte(MAXNODEIDKEY), conversion.Uint64ToBytes(v.maxNodeId.Load())); err != nil {
 		return fmt.Errorf("could not set max node id: %w", err)
 	}
 	return nil

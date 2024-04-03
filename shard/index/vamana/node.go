@@ -63,6 +63,10 @@ func (g *graphNode) IdFromKey(key []byte) (uint64, bool) {
 	return conversion.NodeIdFromKey(key, 'e')
 }
 
+func (g *graphNode) SizeInMemory() int64 {
+	return int64(len(g.edges)*8) + 16
+}
+
 func (g *graphNode) CheckAndClearDirty() bool {
 	if g.isDirty {
 		g.isDirty = false

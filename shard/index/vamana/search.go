@@ -8,7 +8,7 @@ func (v *IndexVamana) greedySearch(query []float32, k int, searchSize int) (Dist
 	// ---------------------------
 	distFn := v.vecStore.DistanceFromFloat(query)
 	// Initialise distance set
-	searchSet := NewDistSet(searchSize, v.maxNodeId, distFn)
+	searchSet := NewDistSet(searchSize, v.maxNodeId.Load(), distFn)
 	// The faster visited set is only used for the search and we release it
 	// after we're done. This does not affect the items stored in the search
 	// set.
