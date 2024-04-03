@@ -114,6 +114,15 @@ func (bm *bboltBucketManager) Get(bucketName string) (Bucket, error) {
 	return bboltBucket{bb: bucket}, nil
 }
 
+func (bm *bboltBucketManager) Delete(bucketName string) error {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	if bm.isReadOnly {
+		return fmt.Errorf("cannot delete bucket %s in read-only transaction", bucketName)
+	}
+	return bm.tx.DeleteBucket([]byte(bucketName))
+}
+
 // ---------------------------
 
 type bboltDiskStore struct {

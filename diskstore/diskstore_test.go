@@ -68,6 +68,35 @@ func Test_BucketRecreation(t *testing.T) {
 	}
 }
 
+func Test_BucketDelete(t *testing.T) {
+	for _, inMemory := range []bool{true, false} {
+		t.Run(fmt.Sprintf("inMemory=%v", inMemory), func(t *testing.T) {
+			ds := tempDiskStore(t, "", inMemory)
+			bname := "bucket"
+			err := ds.Write(func(bm diskstore.BucketManager) error {
+				b, err := bm.Get(bname)
+				require.NoError(t, err)
+				return b.Put([]byte("wizard"), []byte("gandalf"))
+			})
+			require.NoError(t, err)
+			err = ds.Write(func(bm diskstore.BucketManager) error {
+				return bm.Delete(bname)
+			})
+			require.NoError(t, err)
+			err = ds.Read(func(bm diskstore.BucketManager) error {
+				b, err := bm.Get(bname)
+				require.NoError(t, err)
+				require.Nil(t, b.Get([]byte("wizard")))
+				err = bm.Delete(bname)
+				require.Error(t, err)
+				return nil
+			})
+			require.NoError(t, err)
+			require.NoError(t, ds.Close())
+		})
+	}
+}
+
 func Test_ReadWriteRead(t *testing.T) {
 	for _, inMemory := range []bool{true, false} {
 		t.Run(fmt.Sprintf("inMemory=%v", inMemory), func(t *testing.T) {

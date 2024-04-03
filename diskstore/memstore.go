@@ -131,6 +131,16 @@ func (bm *memBucketManager) Get(bucketName string) (Bucket, error) {
 	return mb, nil
 }
 
+func (bm *memBucketManager) Delete(bucketName string) error {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	if bm.isReadOnly {
+		return fmt.Errorf("cannot delete %s in a read-only memory bucket manager", bucketName)
+	}
+	delete(bm.buckets, bucketName)
+	return nil
+}
+
 type memDiskStore struct {
 	buckets map[string]map[string][]byte
 	// This lock is used to give a consistent view of the store such that Write

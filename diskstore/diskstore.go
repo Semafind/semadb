@@ -66,6 +66,7 @@ type Bucket interface {
 
 type BucketManager interface {
 	Get(bucketName string) (Bucket, error)
+	Delete(bucketName string) error
 }
 
 // A disk storage layer abstracts multiple buckets.
