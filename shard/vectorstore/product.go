@@ -87,6 +87,18 @@ func (pq *productQuantizer) Exists(id uint64) bool {
 	return err == nil
 }
 
+func (pq *productQuantizer) Get(ids ...uint64) ([]VectorStorePoint, error) {
+	points, err := pq.items.Get(ids...)
+	if err != nil {
+		return nil, err
+	}
+	ret := make([]VectorStorePoint, len(points))
+	for i, p := range points {
+		ret[i] = p
+	}
+	return ret, nil
+}
+
 func (pq *productQuantizer) SizeInMemory() int64 {
 	return pq.items.SizeInMemory() + int64(len(pq.flatCentroids)*4) + int64(len(pq.centroidDists)*4)
 }
@@ -121,17 +133,17 @@ func (pq productQuantizer) encode(vector []float32) []uint8 {
 	return encoded
 }
 
-func (pq *productQuantizer) Set(id uint64, vector []float32) error {
+func (pq *productQuantizer) Set(id uint64, vector []float32) (VectorStorePoint, error) {
 	point := &productQuantizedPoint{
-		Id:          id,
+		id:          id,
 		Vector:      vector,
 		CentroidIds: pq.encode(vector),
 	}
-	return pq.items.Put(id, point)
+	return point, pq.items.Put(id, point)
 }
 
-func (pq *productQuantizer) Delete(id uint64) error {
-	return pq.items.Delete(id)
+func (pq *productQuantizer) Delete(ids ...uint64) error {
+	return pq.items.Delete(ids...)
 }
 
 func (pq *productQuantizer) Fit() error {
@@ -200,13 +212,13 @@ func (pq *productQuantizer) Fit() error {
 func (pq *productQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 	if len(pq.flatCentroids) == 0 {
 		// We haven't fitted the quantizer yet
-		return func(id uint64) float32 {
-			point, err := pq.items.Get(id)
-			if err != nil {
-				log.Warn().Err(err).Uint64("id", id).Msg("could not find point pq distance calculation")
+		return func(y VectorStorePoint) float32 {
+			pointY, ok := y.(*productQuantizedPoint)
+			if !ok {
+				log.Warn().Uint64("id", y.Id()).Msg("point not found for pq distance calculation")
 				return math.MaxFloat32
 			}
-			return pq.distFn(x, point.Vector)
+			return pq.distFn(x, pointY.Vector)
 		}
 	}
 	// ---------------------------
@@ -224,15 +236,15 @@ func (pq *productQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 		}
 	}
 	// ---------------------------
-	return func(id uint64) float32 {
-		point, err := pq.items.Get(id)
-		if err != nil {
-			log.Warn().Err(err).Uint64("id", id).Msg("could not find point pq distance calculation")
+	return func(y VectorStorePoint) float32 {
+		pointY, ok := y.(*productQuantizedPoint)
+		if !ok {
+			log.Warn().Uint64("id", y.Id()).Msg("point not found for pq distance calculation")
 			return math.MaxFloat32
 		}
 		var dist float32
 		for i := 0; i < pq.params.NumSubVectors; i++ {
-			dist += dists[i*pq.params.NumCentroids+int(point.CentroidIds[i])]
+			dist += dists[i*pq.params.NumCentroids+int(pointY.CentroidIds[i])]
 		}
 		// Add cosine correction. Recall cosine distance is 1-cosine similarity,
 		// so when we add multiple cosine distances we need adjust extra 1 minuses.
@@ -247,24 +259,24 @@ func (pq *productQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 	}
 }
 
-func (pq *productQuantizer) DistanceFromPoint(xId uint64) PointIdDistFn {
-	pointX, errX := pq.items.Get(xId)
+func (pq *productQuantizer) DistanceFromPoint(x VectorStorePoint) PointIdDistFn {
+	pointX, okX := x.(*productQuantizedPoint)
 	if len(pq.flatCentroids) == 0 {
 		// We haven't fitted the quantizer yet
-		return func(id uint64) float32 {
-			pointY, errY := pq.items.Get(id)
-			if errX != nil || errY != nil {
-				log.Warn().AnErr("errX", errX).AnErr("errY", errY).Uint64("idX", xId).Uint64("idY", id).Msg("point not found for distance calculation")
+		return func(y VectorStorePoint) float32 {
+			pointY, okY := y.(*productQuantizedPoint)
+			if !okX || !okY {
+				log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
 				return math.MaxFloat32
 			}
 			return pq.distFn(pointX.Vector, pointY.Vector)
 		}
 	}
 	// We have encoded, so we will use the centroid distances
-	return func(id uint64) float32 {
-		pointY, errY := pq.items.Get(id)
-		if errX != nil || errY != nil {
-			log.Warn().AnErr("errX", errX).AnErr("errY", errY).Uint64("idX", xId).Uint64("idY", id).Msg("point not found for distance calculation")
+	return func(y VectorStorePoint) float32 {
+		pointY, okY := y.(*productQuantizedPoint)
+		if !okX || !okY {
+			log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
 			return math.MaxFloat32
 		}
 		var dist float32
@@ -297,10 +309,14 @@ func (pq *productQuantizer) Flush() error {
 // ---------------------------
 
 type productQuantizedPoint struct {
-	Id          uint64
+	id          uint64
 	Vector      []float32
 	CentroidIds []uint8
 	isDirty     bool
+}
+
+func (p *productQuantizedPoint) Id() uint64 {
+	return p.id
 }
 
 func (p *productQuantizedPoint) IdFromKey(key []byte) (uint64, bool) {
@@ -318,7 +334,7 @@ func (p *productQuantizedPoint) CheckAndClearDirty() bool {
 }
 
 func (p *productQuantizedPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (point *productQuantizedPoint, err error) {
-	point = &productQuantizedPoint{Id: id}
+	point = &productQuantizedPoint{id: id}
 	// ---------------------------
 	centroidIdsBytes := bucket.Get(conversion.NodeKey(id, 'q'))
 	if centroidIdsBytes != nil {
@@ -341,12 +357,12 @@ func (p *productQuantizedPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (po
 
 func (p *productQuantizedPoint) WriteTo(bucket diskstore.Bucket) error {
 	if len(p.Vector) != 0 {
-		if err := bucket.Put(conversion.NodeKey(p.Id, 'v'), conversion.Float32ToBytes(p.Vector)); err != nil {
+		if err := bucket.Put(conversion.NodeKey(p.id, 'v'), conversion.Float32ToBytes(p.Vector)); err != nil {
 			return err
 		}
 	}
 	if len(p.CentroidIds) != 0 {
-		if err := bucket.Put(conversion.NodeKey(p.Id, 'q'), p.CentroidIds); err != nil {
+		if err := bucket.Put(conversion.NodeKey(p.id, 'q'), p.CentroidIds); err != nil {
 			return err
 		}
 	}
@@ -354,10 +370,10 @@ func (p *productQuantizedPoint) WriteTo(bucket diskstore.Bucket) error {
 }
 
 func (p *productQuantizedPoint) DeleteFrom(bucket diskstore.Bucket) error {
-	if err := bucket.Delete(conversion.NodeKey(p.Id, 'v')); err != nil {
+	if err := bucket.Delete(conversion.NodeKey(p.id, 'v')); err != nil {
 		return err
 	}
-	if err := bucket.Delete(conversion.NodeKey(p.Id, 'q')); err != nil {
+	if err := bucket.Delete(conversion.NodeKey(p.id, 'q')); err != nil {
 		return err
 	}
 	return nil

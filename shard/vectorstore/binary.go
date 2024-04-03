@@ -55,6 +55,19 @@ func (bq *binaryQuantizer) Exists(id uint64) bool {
 	return err == nil
 }
 
+func (bq *binaryQuantizer) Get(ids ...uint64) ([]VectorStorePoint, error) {
+	points, err := bq.items.Get(ids...)
+	if err != nil {
+		return nil, err
+	}
+	ret := make([]VectorStorePoint, len(points))
+	for i, p := range points {
+		ret[i] = p
+	}
+	return ret, nil
+
+}
+
 func (bq *binaryQuantizer) SizeInMemory() int64 {
 	return bq.items.SizeInMemory()
 }
@@ -92,17 +105,17 @@ func (bq *binaryQuantizer) encode(vector []float32) []uint64 {
 	return encoded
 }
 
-func (bq *binaryQuantizer) Set(id uint64, vector []float32) error {
+func (bq *binaryQuantizer) Set(id uint64, vector []float32) (VectorStorePoint, error) {
 	point := &binaryQuantizedPoint{
-		Id:           id,
+		id:           id,
 		Vector:       vector,
 		BinaryVector: bq.encode(vector),
 	}
-	return bq.items.Put(id, point)
+	return point, bq.items.Put(id, point)
 }
 
-func (bq *binaryQuantizer) Delete(id uint64) error {
-	return bq.items.Delete(id)
+func (bq *binaryQuantizer) Delete(ids ...uint64) error {
+	return bq.items.Delete(ids...)
 }
 
 func (bq *binaryQuantizer) Fit() error {
@@ -143,50 +156,51 @@ func (bq *binaryQuantizer) Fit() error {
 }
 
 func (bq *binaryQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
+	// It's okay to duplicate code inside the distance function here because it
+	// avoids the if statement check for each distance calculation. Recall that
+	// there are a lot of distance calculations in vector stores.
 	if bq.threshold != nil {
 		encodedX := bq.encode(x)
-		return func(id uint64) float32 {
-			point, err := bq.items.Get(id)
-			if err != nil {
-				log.Warn().Err(err).Uint64("id", id).Msg("point not found for distance calculation")
+		return func(y VectorStorePoint) float32 {
+			pointY, ok := y.(*binaryQuantizedPoint)
+			if !ok {
+				log.Warn().Uint64("id", y.Id()).Msg("point not found for distance calculation")
 				return math.MaxFloat32
 			}
-			encodedY := point.BinaryVector
-			return distance.HammingDistance(encodedX, encodedY)
+			return distance.HammingDistance(encodedX, pointY.BinaryVector)
 		}
 	}
 	/* Here we fall back to the original vector if the threshold is not set. */
-	return func(id uint64) float32 {
-		point, err := bq.items.Get(id)
-		if err != nil {
-			log.Warn().Err(err).Uint64("id", id).Msg("point not found for distance calculation")
+	return func(y VectorStorePoint) float32 {
+		pointY, ok := y.(*binaryQuantizedPoint)
+		if !ok {
+			log.Warn().Uint64("id", y.Id()).Msg("point not found for distance calculation")
 			return math.MaxFloat32
 		}
-		return bq.distFn(x, point.Vector)
+		return bq.distFn(x, pointY.Vector)
 	}
 }
 
-func (bq *binaryQuantizer) DistanceFromPoint(xId uint64) PointIdDistFn {
+func (bq *binaryQuantizer) DistanceFromPoint(x VectorStorePoint) PointIdDistFn {
+	pointX, okX := x.(*binaryQuantizedPoint)
 	if bq.threshold != nil {
-		a, errA := bq.items.Get(xId)
-		return func(id uint64) float32 {
-			b, errB := bq.items.Get(id)
-			if errA != nil || errB != nil {
-				log.Warn().AnErr("errA", errA).AnErr("errB", errB).Uint64("idA", xId).Uint64("idB", id).Msg("point not found for distance calculation")
+		return func(y VectorStorePoint) float32 {
+			pointB, okB := y.(*binaryQuantizedPoint)
+			if !okX || !okB {
+				log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
 				return math.MaxFloat32
 			}
-			return distance.HammingDistance(a.BinaryVector, b.BinaryVector)
+			return distance.HammingDistance(pointX.BinaryVector, pointB.BinaryVector)
 		}
 	}
 	// Fallback to original vector
-	a, errA := bq.items.Get(xId)
-	return func(id uint64) float32 {
-		b, errB := bq.items.Get(id)
-		if errA != nil || errB != nil {
-			log.Warn().AnErr("errA", errA).AnErr("errB", errB).Uint64("idA", xId).Uint64("idB", id).Msg("point not found for distance calculation")
+	return func(y VectorStorePoint) float32 {
+		pointB, okB := y.(*binaryQuantizedPoint)
+		if !okX || !okB {
+			log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
 			return math.MaxFloat32
 		}
-		return bq.distFn(a.Vector, b.Vector)
+		return bq.distFn(pointX.Vector, pointB.Vector)
 	}
 }
 
@@ -203,10 +217,14 @@ func (bq *binaryQuantizer) Flush() error {
 // ---------------------------
 
 type binaryQuantizedPoint struct {
-	Id           uint64
+	id           uint64
 	Vector       []float32
 	BinaryVector []uint64
 	isDirty      bool
+}
+
+func (bqp *binaryQuantizedPoint) Id() uint64 {
+	return bqp.id
 }
 
 func (bqp *binaryQuantizedPoint) IdFromKey(key []byte) (uint64, bool) {
@@ -226,7 +244,7 @@ func (bqp *binaryQuantizedPoint) CheckAndClearDirty() bool {
 }
 
 func (bqp *binaryQuantizedPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (point *binaryQuantizedPoint, err error) {
-	point = &binaryQuantizedPoint{Id: id}
+	point = &binaryQuantizedPoint{id: id}
 	// ---------------------------
 	binaryVecBytes := bucket.Get(conversion.NodeKey(id, 'q'))
 	if binaryVecBytes != nil {
@@ -248,12 +266,12 @@ func (bqp *binaryQuantizedPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (p
 
 func (bqp *binaryQuantizedPoint) WriteTo(bucket diskstore.Bucket) error {
 	if len(bqp.Vector) != 0 {
-		if err := bucket.Put(conversion.NodeKey(bqp.Id, 'v'), conversion.Float32ToBytes(bqp.Vector)); err != nil {
+		if err := bucket.Put(conversion.NodeKey(bqp.id, 'v'), conversion.Float32ToBytes(bqp.Vector)); err != nil {
 			return err
 		}
 	}
 	if len(bqp.BinaryVector) != 0 {
-		if err := bucket.Put(conversion.NodeKey(bqp.Id, 'q'), conversion.EdgeListToBytes(bqp.BinaryVector)); err != nil {
+		if err := bucket.Put(conversion.NodeKey(bqp.id, 'q'), conversion.EdgeListToBytes(bqp.BinaryVector)); err != nil {
 			return err
 		}
 	}
@@ -261,10 +279,10 @@ func (bqp *binaryQuantizedPoint) WriteTo(bucket diskstore.Bucket) error {
 }
 
 func (bqp *binaryQuantizedPoint) DeleteFrom(bucket diskstore.Bucket) error {
-	if err := bucket.Delete(conversion.NodeKey(bqp.Id, 'v')); err != nil {
+	if err := bucket.Delete(conversion.NodeKey(bqp.id, 'v')); err != nil {
 		return err
 	}
-	if err := bucket.Delete(conversion.NodeKey(bqp.Id, 'q')); err != nil {
+	if err := bucket.Delete(conversion.NodeKey(bqp.id, 'q')); err != nil {
 		return err
 	}
 	return nil

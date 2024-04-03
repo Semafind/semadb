@@ -23,6 +23,20 @@ func (ps plainStore) Exists(id uint64) bool {
 	return err == nil
 }
 
+func (ps plainStore) Get(ids ...uint64) ([]VectorStorePoint, error) {
+	points, err := ps.items.Get(ids...)
+	if err != nil {
+		return nil, err
+	}
+	// Amazing casting here, why not just return points, nil? Oh well, it's not
+	// the same type.
+	ret := make([]VectorStorePoint, len(points))
+	for i, p := range points {
+		ret[i] = p
+	}
+	return ret, nil
+}
+
 func (ps plainStore) SizeInMemory() int64 {
 	return ps.items.SizeInMemory()
 }
@@ -31,15 +45,16 @@ func (ps plainStore) UpdateBucket(bucket diskstore.Bucket) {
 	ps.items.UpdateBucket(bucket)
 }
 
-func (ps plainStore) Set(id uint64, vector []float32) error {
-	return ps.items.Put(id, plainPoint{
-		Id:     id,
+func (ps plainStore) Set(id uint64, vector []float32) (VectorStorePoint, error) {
+	point := plainPoint{
+		id:     id,
 		Vector: vector,
-	})
+	}
+	return point, ps.items.Put(id, point)
 }
 
-func (ps plainStore) Delete(id uint64) error {
-	return ps.items.Delete(id)
+func (ps plainStore) Delete(ids ...uint64) error {
+	return ps.items.Delete(ids...)
 
 }
 
@@ -48,25 +63,25 @@ func (ps plainStore) Fit() error {
 }
 
 func (ps plainStore) DistanceFromFloat(x []float32) PointIdDistFn {
-	return func(id uint64) float32 {
-		point, err := ps.items.Get(id)
-		if err != nil {
-			log.Warn().Err(err).Uint64("id", id).Msg("point not found for distance calculation")
+	return func(y VectorStorePoint) float32 {
+		point, ok := y.(plainPoint)
+		if !ok {
+			log.Warn().Uint64("id", y.Id()).Msg("point not found for distance calculation")
 			return math.MaxFloat32
 		}
 		return ps.distFn(x, point.Vector)
 	}
 }
 
-func (ps plainStore) DistanceFromPoint(xId uint64) PointIdDistFn {
-	a, errA := ps.items.Get(xId)
-	return func(id uint64) float32 {
-		b, errB := ps.items.Get(id)
-		if errA != nil || errB != nil {
-			log.Warn().AnErr("errA", errA).AnErr("errB", errB).Uint64("idA", xId).Uint64("idB", id).Msg("point not found for distance calculation")
+func (ps plainStore) DistanceFromPoint(x VectorStorePoint) PointIdDistFn {
+	pointX, okX := x.(plainPoint)
+	return func(y VectorStorePoint) float32 {
+		pointY, okY := y.(plainPoint)
+		if !okX || !okY {
+			log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
 			return math.MaxFloat32
 		}
-		return ps.distFn(a.Vector, b.Vector)
+		return ps.distFn(pointX.Vector, pointY.Vector)
 	}
 }
 
@@ -75,8 +90,12 @@ func (ps plainStore) Flush() error {
 }
 
 type plainPoint struct {
-	Id     uint64
+	id     uint64
 	Vector []float32
+}
+
+func (pp plainPoint) Id() uint64 {
+	return pp.id
 }
 
 func (pp plainPoint) IdFromKey(key []byte) (uint64, bool) {
@@ -93,7 +112,7 @@ func (pp plainPoint) CheckAndClearDirty() bool {
 }
 
 func (pp plainPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (point plainPoint, err error) {
-	point.Id = id
+	point.id = id
 	vectorBytes := bucket.Get(conversion.NodeKey(id, 'v'))
 	if vectorBytes == nil {
 		err = cache.ErrNotFound
@@ -104,13 +123,13 @@ func (pp plainPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (point plainPo
 }
 
 func (pp plainPoint) WriteTo(bucket diskstore.Bucket) error {
-	if err := bucket.Put(conversion.NodeKey(pp.Id, 'v'), conversion.Float32ToBytes(pp.Vector)); err != nil {
+	if err := bucket.Put(conversion.NodeKey(pp.id, 'v'), conversion.Float32ToBytes(pp.Vector)); err != nil {
 		return fmt.Errorf("could not write plain point vector: %w", err)
 	}
 	return nil
 }
 func (pp plainPoint) DeleteFrom(bucket diskstore.Bucket) error {
-	if err := bucket.Delete(conversion.NodeKey(pp.Id, 'v')); err != nil {
+	if err := bucket.Delete(conversion.NodeKey(pp.id, 'v')); err != nil {
 		return fmt.Errorf("could not delete plain point vector: %w", err)
 	}
 	return nil

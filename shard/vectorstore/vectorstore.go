@@ -11,15 +11,20 @@ import (
 
 // ---------------------------
 
+type VectorStorePoint interface {
+	Id() uint64
+}
+
 // This function type is used to compute distances between given point Ids. For
 // example, we setup a function that takes a vector []float32 and return this
 // type. It mainly wraps around quantised distance functions.
-type PointIdDistFn func(id uint64) float32
+type PointIdDistFn func(y VectorStorePoint) float32
 
 type VectorStore interface {
 	Exists(id uint64) bool
-	Set(id uint64, vector []float32) error
-	Delete(id uint64) error
+	Get(ids ...uint64) ([]VectorStorePoint, error)
+	Set(id uint64, vector []float32) (VectorStorePoint, error)
+	Delete(ids ...uint64) error
 	cache.Cachable
 	// Update bucket can be used to swap out the underlying disk storage. This
 	// is useful for cached items for which the underlying storage has changed.
@@ -31,7 +36,7 @@ type VectorStore interface {
 	// optimised.
 	Fit() error
 	DistanceFromFloat(x []float32) PointIdDistFn
-	DistanceFromPoint(xId uint64) PointIdDistFn
+	DistanceFromPoint(x VectorStorePoint) PointIdDistFn
 	Flush() error
 }
 
