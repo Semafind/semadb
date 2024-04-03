@@ -11,7 +11,6 @@ type indexManager struct {
 	cx          *cache.Transaction
 	cacheRoot   string
 	indexSchema models.IndexSchema
-	maxNodeId   uint64
 }
 
 func NewIndexManager(
@@ -19,13 +18,11 @@ func NewIndexManager(
 	cx *cache.Transaction,
 	cacheRoot string,
 	indexSchema models.IndexSchema,
-	maxNodeId uint64,
 ) indexManager {
 	return indexManager{
 		bm:          bm,
 		cx:          cx,
 		cacheRoot:   cacheRoot,
 		indexSchema: indexSchema,
-		maxNodeId:   maxNodeId,
 	}
 }

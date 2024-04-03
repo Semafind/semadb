@@ -51,12 +51,13 @@ func (im indexManager) Search(
 		// ---------------------------
 		cacheName := im.cacheRoot + "/" + bucketName
 		var vamanaRes []models.SearchResult
-		err := im.cx.WithReadOnly(cacheName, bucket, func(pc cache.SharedPointCache) error {
-			vIndex, err := vamana.NewIndexVamana(cacheName, pc, *iparams.VectorVamana, im.maxNodeId)
-			if err != nil {
-				return fmt.Errorf("could not create vamana index: %w", err)
-			}
-			res, err := vIndex.Search(ctx, q.VectorVamana.Vector, q.VectorVamana.Limit)
+		newVamanaFn := func() (cache.Cachable, error) {
+			return vamana.NewIndexVamana(cacheName, *iparams.VectorVamana, bucket)
+		}
+		err := im.cx.With(cacheName, true, newVamanaFn, func(cached cache.Cachable) error {
+			vamanaIndex := cached.(*vamana.IndexVamana)
+			vamanaIndex.UpdateBucket(bucket)
+			res, err := vamanaIndex.Search(ctx, q.VectorVamana.Vector, q.VectorVamana.Limit)
 			if err != nil {
 				return fmt.Errorf("could not perform vamana search %s: %w", bucketName, err)
 			}

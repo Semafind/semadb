@@ -105,15 +105,24 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 		drainFn = func(ctx context.Context, in <-chan decodedPointChange) <-chan error {
 			out, transformErrC := utils.TransformWithContext(ctx, in, preProcessVamana)
 			writeErrC := make(chan error, 1)
+			newVamanaFn := func() (cache.Cachable, error) {
+				return vamana.NewIndexVamana(cacheName, *params.VectorVamana, bucket)
+			}
 			go func() {
-				err := im.cx.With(cacheName, bucket, func(pc cache.SharedPointCache) error {
-					vamanaIndex, err := vamana.NewIndexVamana(cacheName, pc, *params.VectorVamana, im.maxNodeId)
-					if err != nil {
-						return fmt.Errorf("could not create vamana index: %w", err)
-					}
+				writeErrC <- im.cx.With(cacheName, false, newVamanaFn, func(cached cache.Cachable) error {
+					vamanaIndex := cached.(*vamana.IndexVamana)
+					/* This update bucket business shouldn't cause a discrepancy
+					 * in the index because there should be only one write
+					 * operation on the bucket and after each write operation it
+					 * should be flushed. Any subsequent requests, although start
+					 * with a new bucket, that bucket should persist the changes
+					 * of the previous one whilst sharing the cached items. For
+					 * example, two write requests would happen one after the
+					 * other and each would use their own bucket but have to wait
+					 * until the cache is available. */
+					vamanaIndex.UpdateBucket(bucket)
 					return <-vamanaIndex.InsertUpdateDelete(ctx, out)
 				})
-				writeErrC <- err
 				close(writeErrC)
 			}()
 			return utils.MergeErrorsWithContext(ctx, transformErrC, writeErrC)
@@ -154,11 +163,11 @@ func preProcessInverted[T inverted.Invertable](change decodedPointChange) (invCh
 	return
 }
 
-func preProcessVamana(change decodedPointChange) (gn cache.GraphNode, skip bool, err error) {
+func preProcessVamana(change decodedPointChange) (vc vamana.IndexVectorChange, skip bool, err error) {
 	// ---------------------------
-	gn.NodeId = change.nodeId
+	vc.Id = change.nodeId
 	if change.newData != nil {
-		gn.Vector, err = castDataToVector(change.newData)
+		vc.Vector, err = castDataToVector(change.newData)
 	}
 	return
 }
