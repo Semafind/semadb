@@ -3,20 +3,18 @@ package main
 
 import (
 	"C"
-	"log"
-
-	"encoding/binary"
 	"fmt"
+	"log"
 	"os"
-
+	"path/filepath"
 	"runtime/pprof"
-
-	"github.com/semafind/semadb/models"
-	"github.com/semafind/semadb/shard"
-	"github.com/semafind/semadb/shard/cache"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
+	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/shard"
+	"github.com/semafind/semadb/shard/cache"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 /* This module provides a C interface to the shard package. It is used by the
@@ -39,18 +37,24 @@ func initShard(dataset *C.char, metric *C.char, vectorSize int) {
 	if err := os.Remove(dpath); err != nil && !os.IsNotExist(err) {
 		log.Fatal(err)
 	}
-	s, err := shard.NewShard(
-		fmt.Sprintf("test-%s.bbolt", C.GoString(dataset)),
-		models.Collection{
-			Id:         C.GoString(dataset),
-			VectorSize: uint(vectorSize),
-			DistMetric: C.GoString(metric),
-			Replicas:   1,
-			Algorithm:  "vamana",
-			Parameters: models.DefaultVamanaParameters(),
+	collection := models.Collection{
+		Id:       C.GoString(dataset),
+		UserId:   "benchmark",
+		Replicas: 1,
+		IndexSchema: models.IndexSchema{
+			"vector": models.IndexSchemaValue{
+				Type: "vectorVamana",
+				VectorVamana: &models.IndexVectorVamanaParameters{
+					VectorSize:     uint(vectorSize),
+					DistanceMetric: C.GoString(metric),
+					SearchSize:     75,
+					DegreeBound:    64,
+					Alpha:          1.2,
+				},
+			},
 		},
-		cache.NewManager(-1),
-	)
+	}
+	s, err := shard.NewShard(fmt.Sprintf("test-%s.bbolt", C.GoString(dataset)), collection, cache.NewManager(-1))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -76,14 +80,19 @@ func fit(X []float32) {
 		fmt.Println("Fitting", i, end)
 		points := make([]models.Point, end-i)
 		for j := i; j < end; j++ {
-			var m [4]byte
-			binary.LittleEndian.PutUint32(m[:], uint32(j))
 			vector := make([]float32, globalVectorSize)
 			copy(vector, X[j*globalVectorSize:(j+1)*globalVectorSize])
+			pointData := models.PointAsMap{
+				"vector": vector,
+				"xid":    j,
+			}
+			pointDataBytes, err := msgpack.Marshal(pointData)
+			if err != nil {
+				log.Fatal(err)
+			}
 			points[j-i] = models.Point{
-				Id:       uuid.New(),
-				Vector:   vector,
-				Metadata: m[:],
+				Id:   uuid.New(),
+				Data: pointDataBytes,
 			}
 		}
 		if err := globalShard.InsertPoints(points); err != nil {
@@ -94,8 +103,14 @@ func fit(X []float32) {
 
 //export startProfile
 func startProfile() {
-	profileFile, _ := os.Create("../semadb/dump/cpu.prof")
-	fmt.Println("Starting profile")
+	relativePath := "../semadb/dump/cpu.prof"
+	// relativePath := "../../dump/cpu.prof"
+	fpath, err := filepath.Abs(relativePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	profileFile, _ := os.Create(fpath)
+	fmt.Println("Starting profile - ", fpath)
 	pprof.StartCPUProfile(profileFile)
 }
 
@@ -111,7 +126,17 @@ func stopProfile() {
 
 //export query
 func query(x []float32, k int, out []uint32) {
-	res, err := globalShard.SearchPoints(x, k)
+	sr := models.SearchRequest{
+		Query: models.Query{
+			Property: "vector",
+			VectorVamana: &models.SearchVectorVamanaOptions{
+				Vector: x,
+				Limit:  k,
+			},
+		},
+		Select: []string{"xid"},
+	}
+	res, err := globalShard.SearchPoints(sr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -119,9 +144,39 @@ func query(x []float32, k int, out []uint32) {
 	if len(out) < len(res) {
 		log.Fatal("Output array too small")
 	}
+	var m models.PointAsMap
 	for i, r := range res {
-		out[i] = binary.LittleEndian.Uint32(r.Point.Metadata)
+		err := msgpack.Unmarshal(r.Data, &m)
+		if err != nil {
+			log.Fatal(err)
+		}
+		out[i] = convertToUint32(m["xid"])
 	}
+}
+
+func convertToUint32(in any) uint32 {
+	switch v := in.(type) {
+	case int:
+		return uint32(v)
+	case int8:
+		return uint32(v)
+	case int16:
+		return uint32(v)
+	case int32:
+		return uint32(v)
+	case int64:
+		return uint32(v)
+	case uint:
+		return uint32(v)
+	case uint8:
+		return uint32(v)
+	case uint16:
+		return uint32(v)
+	case uint32:
+		return v
+	}
+	log.Fatal("Invalid type", in)
+	return 0
 }
 
 // The main function is required for the build process
