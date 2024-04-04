@@ -355,25 +355,25 @@ func (p *productQuantizedPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (po
 	return
 }
 
-func (p *productQuantizedPoint) WriteTo(bucket diskstore.Bucket) error {
+func (p *productQuantizedPoint) WriteTo(id uint64, bucket diskstore.Bucket) error {
 	if len(p.Vector) != 0 {
-		if err := bucket.Put(conversion.NodeKey(p.id, 'v'), conversion.Float32ToBytes(p.Vector)); err != nil {
+		if err := bucket.Put(conversion.NodeKey(id, 'v'), conversion.Float32ToBytes(p.Vector)); err != nil {
 			return err
 		}
 	}
 	if len(p.CentroidIds) != 0 {
-		if err := bucket.Put(conversion.NodeKey(p.id, 'q'), p.CentroidIds); err != nil {
+		if err := bucket.Put(conversion.NodeKey(id, 'q'), p.CentroidIds); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (p *productQuantizedPoint) DeleteFrom(bucket diskstore.Bucket) error {
-	if err := bucket.Delete(conversion.NodeKey(p.id, 'v')); err != nil {
+func (p *productQuantizedPoint) DeleteFrom(id uint64, bucket diskstore.Bucket) error {
+	if err := bucket.Delete(conversion.NodeKey(id, 'v')); err != nil {
 		return err
 	}
-	if err := bucket.Delete(conversion.NodeKey(p.id, 'q')); err != nil {
+	if err := bucket.Delete(conversion.NodeKey(id, 'q')); err != nil {
 		return err
 	}
 	return nil

@@ -22,9 +22,9 @@ type Storable[K comparable, T any] interface {
 	// cache, return a cache.ErrNotFound if the item is not found
 	ReadFrom(id K, bucket diskstore.Bucket) (T, error)
 	// Write the item to the bucket
-	WriteTo(bucket diskstore.Bucket) error
+	WriteTo(id K, bucket diskstore.Bucket) error
 	// Delete the item from the bucket
-	DeleteFrom(bucket diskstore.Bucket) error
+	DeleteFrom(id K, bucket diskstore.Bucket) error
 }
 
 type itemCacheElem[K comparable, V Storable[K, V]] struct {
@@ -232,14 +232,14 @@ func (ic *ItemCache[K, T]) Flush() error {
 	defer ic.itemsMu.Unlock()
 	for id, item := range ic.items {
 		if item.IsDeleted {
-			if err := item.value.DeleteFrom(ic.bucket); err != nil {
+			if err := item.value.DeleteFrom(id, ic.bucket); err != nil {
 				return err
 			}
 			delete(ic.items, id)
 			continue
 		}
 		if item.IsDirty || item.value.CheckAndClearDirty() {
-			if err := item.value.WriteTo(ic.bucket); err != nil {
+			if err := item.value.WriteTo(id, ic.bucket); err != nil {
 				return err
 			}
 			item.IsDirty = false

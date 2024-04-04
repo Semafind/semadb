@@ -264,25 +264,25 @@ func (bqp *binaryQuantizedPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (p
 	return
 }
 
-func (bqp *binaryQuantizedPoint) WriteTo(bucket diskstore.Bucket) error {
+func (bqp *binaryQuantizedPoint) WriteTo(id uint64, bucket diskstore.Bucket) error {
 	if len(bqp.Vector) != 0 {
-		if err := bucket.Put(conversion.NodeKey(bqp.id, 'v'), conversion.Float32ToBytes(bqp.Vector)); err != nil {
+		if err := bucket.Put(conversion.NodeKey(id, 'v'), conversion.Float32ToBytes(bqp.Vector)); err != nil {
 			return err
 		}
 	}
 	if len(bqp.BinaryVector) != 0 {
-		if err := bucket.Put(conversion.NodeKey(bqp.id, 'q'), conversion.EdgeListToBytes(bqp.BinaryVector)); err != nil {
+		if err := bucket.Put(conversion.NodeKey(id, 'q'), conversion.EdgeListToBytes(bqp.BinaryVector)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (bqp *binaryQuantizedPoint) DeleteFrom(bucket diskstore.Bucket) error {
-	if err := bucket.Delete(conversion.NodeKey(bqp.id, 'v')); err != nil {
+func (bqp *binaryQuantizedPoint) DeleteFrom(id uint64, bucket diskstore.Bucket) error {
+	if err := bucket.Delete(conversion.NodeKey(id, 'v')); err != nil {
 		return err
 	}
-	if err := bucket.Delete(conversion.NodeKey(bqp.id, 'q')); err != nil {
+	if err := bucket.Delete(conversion.NodeKey(id, 'q')); err != nil {
 		return err
 	}
 	return nil

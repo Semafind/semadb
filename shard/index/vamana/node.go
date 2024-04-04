@@ -119,16 +119,16 @@ func (g *graphNode) ReadFrom(id uint64, bucket diskstore.Bucket) (node *graphNod
 	}
 	return
 }
-func (g *graphNode) WriteTo(bucket diskstore.Bucket) error {
+func (g *graphNode) WriteTo(id uint64, bucket diskstore.Bucket) error {
 	edgeBytes := conversion.EdgeListToBytes(g.edges)
-	if err := bucket.Put(conversion.NodeKey(g.Id, 'e'), edgeBytes); err != nil {
+	if err := bucket.Put(conversion.NodeKey(id, 'e'), edgeBytes); err != nil {
 		return fmt.Errorf("could not write edges: %w", err)
 	}
 	return nil
 }
 
-func (g *graphNode) DeleteFrom(bucket diskstore.Bucket) error {
-	if err := bucket.Delete(conversion.NodeKey(g.Id, 'e')); err != nil {
+func (g *graphNode) DeleteFrom(id uint64, bucket diskstore.Bucket) error {
+	if err := bucket.Delete(conversion.NodeKey(id, 'e')); err != nil {
 		return fmt.Errorf("could not delete vector: %w", err)
 	}
 	return nil

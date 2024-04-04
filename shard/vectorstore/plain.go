@@ -122,14 +122,14 @@ func (pp plainPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (point plainPo
 	return
 }
 
-func (pp plainPoint) WriteTo(bucket diskstore.Bucket) error {
-	if err := bucket.Put(conversion.NodeKey(pp.id, 'v'), conversion.Float32ToBytes(pp.Vector)); err != nil {
+func (pp plainPoint) WriteTo(id uint64, bucket diskstore.Bucket) error {
+	if err := bucket.Put(conversion.NodeKey(id, 'v'), conversion.Float32ToBytes(pp.Vector)); err != nil {
 		return fmt.Errorf("could not write plain point vector: %w", err)
 	}
 	return nil
 }
-func (pp plainPoint) DeleteFrom(bucket diskstore.Bucket) error {
-	if err := bucket.Delete(conversion.NodeKey(pp.id, 'v')); err != nil {
+func (pp plainPoint) DeleteFrom(id uint64, bucket diskstore.Bucket) error {
+	if err := bucket.Delete(conversion.NodeKey(id, 'v')); err != nil {
 		return fmt.Errorf("could not delete plain point vector: %w", err)
 	}
 	return nil

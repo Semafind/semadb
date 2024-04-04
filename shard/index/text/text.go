@@ -196,7 +196,6 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 			setItem.isDirty = setItem.set.CheckedAdd(ad.Id) || setItem.isDirty
 		}
 		newDoc := docCacheItem{
-			id:     ad.Id,
 			Terms:  terms,
 			Length: ad.Length,
 		}
@@ -387,7 +386,6 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 // setCacheItem is used to store the roaring set and a flag to indicate if the
 // set has been modified.
 type setCacheItem struct {
-	term    string
 	set     *roaring64.Bitmap
 	isDirty bool
 }
@@ -428,15 +426,14 @@ func (si *setCacheItem) ReadFrom(term string, bucket diskstore.Bucket) (*setCach
 		}
 	}
 	item := &setCacheItem{
-		term: term,
-		set:  rSet,
+		set: rSet,
 	}
 	return item, nil
 }
 
-func (si *setCacheItem) WriteTo(bucket diskstore.Bucket) error {
+func (si *setCacheItem) WriteTo(term string, bucket diskstore.Bucket) error {
 	if si.set.IsEmpty() {
-		if err := bucket.Delete(termKey(si.term)); err != nil {
+		if err := bucket.Delete(termKey(term)); err != nil {
 			return fmt.Errorf("error deleting term set from bucket: %w", err)
 		}
 		return nil
@@ -446,14 +443,14 @@ func (si *setCacheItem) WriteTo(bucket diskstore.Bucket) error {
 	if err != nil {
 		return fmt.Errorf("error converting term set to bytes: %w", err)
 	}
-	if err := bucket.Put(termKey(si.term), setBytes); err != nil {
+	if err := bucket.Put(termKey(term), setBytes); err != nil {
 		return fmt.Errorf("error putting term set to bucket: %w", err)
 	}
 	return nil
 }
 
-func (si *setCacheItem) DeleteFrom(bucket diskstore.Bucket) error {
-	return bucket.Delete(termKey(si.term))
+func (si *setCacheItem) DeleteFrom(term string, bucket diskstore.Bucket) error {
+	return bucket.Delete(termKey(term))
 }
 
 type Term struct {
@@ -461,7 +458,6 @@ type Term struct {
 }
 
 type docCacheItem struct {
-	id     uint64          `msgpack:"-"`
 	Terms  map[string]Term `msgpack:"terms"`
 	Length int             `msgpack:"length"`
 }
@@ -493,7 +489,6 @@ func (dc docCacheItem) CheckAndClearDirty() bool {
 }
 
 func (dc docCacheItem) ReadFrom(id uint64, bucket diskstore.Bucket) (item docCacheItem, err error) {
-	item.id = id
 	v := bucket.Get(documentKey(id))
 	if v == nil {
 		err = cache.ErrNotFound
@@ -503,9 +498,9 @@ func (dc docCacheItem) ReadFrom(id uint64, bucket diskstore.Bucket) (item docCac
 	return
 }
 
-func (dc docCacheItem) WriteTo(bucket diskstore.Bucket) error {
+func (dc docCacheItem) WriteTo(id uint64, bucket diskstore.Bucket) error {
 	if dc.Length == 0 {
-		if err := bucket.Delete(documentKey(dc.id)); err != nil {
+		if err := bucket.Delete(documentKey(id)); err != nil {
 			return fmt.Errorf("error deleting doc cache item from bucket: %w", err)
 		}
 		return nil
@@ -515,12 +510,12 @@ func (dc docCacheItem) WriteTo(bucket diskstore.Bucket) error {
 	if err != nil {
 		return fmt.Errorf("error marshalling doc cache item: %w", err)
 	}
-	if err := bucket.Put(documentKey(dc.id), val); err != nil {
+	if err := bucket.Put(documentKey(id), val); err != nil {
 		return fmt.Errorf("error putting doc cache item to bucket: %w", err)
 	}
 	return nil
 }
 
-func (dc docCacheItem) DeleteFrom(bucket diskstore.Bucket) error {
-	return bucket.Delete(documentKey(dc.id))
+func (dc docCacheItem) DeleteFrom(id uint64, bucket diskstore.Bucket) error {
+	return bucket.Delete(documentKey(id))
 }
