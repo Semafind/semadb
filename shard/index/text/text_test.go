@@ -15,6 +15,7 @@ import (
 )
 
 func checkDocCount(t *testing.T, b diskstore.Bucket, expected int) {
+	t.Helper()
 	var count int
 	err := b.ForEach(func(k, v []byte) error {
 		if k[0] == 'd' {

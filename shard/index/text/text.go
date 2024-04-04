@@ -41,6 +41,7 @@ import (
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/utils"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -48,21 +49,6 @@ import (
 // Used to store the number of documents in the index which is then used to
 // calculate the IDF for the terms in the index.
 const numDocumentsKey = "_numDocuments"
-
-// ---------------------------
-
-// For example, the term "hello" would be stored as "thellos".
-func termKey(term string) []byte {
-	return []byte("t" + term + "s")
-}
-
-// For example, the document with id 123 would be stored as "d<binary123>".
-func documentKey(id uint64) []byte {
-	key := [9]byte{}
-	key[0] = 'd'
-	binary.LittleEndian.PutUint64(key[1:], id)
-	return key[:]
-}
 
 // ---------------------------
 // Stores the term and the start and end position in the document. Usually
@@ -111,28 +97,12 @@ func (a *bleeveAnalyser) Analyse(text string) ([]Token, error) {
 
 // ---------------------------
 
-// setCacheItem is used to store the roaring set and a flag to indicate if the
-// set has been modified.
-type setCacheItem struct {
-	set     *roaring64.Bitmap
-	isDirty bool
-}
-
-type Term struct {
-	Frequency int `msgpack:"frequency"`
-}
-
-type docCacheItem struct {
-	Terms  map[string]Term `msgpack:"terms"`
-	Length int             `msgpack:"length"`
-}
-
 // indexText is the main struct for the text index. The mutex is used to protect
 // both caches.
 type indexText struct {
 	analyser analyser
-	setCache map[string]*setCacheItem
-	docCache map[uint64]*docCacheItem
+	setCache *cache.ItemCache[string, *setCacheItem]
+	docCache *cache.ItemCache[uint64, docCacheItem]
 	numDocs  uint64
 	bucket   diskstore.Bucket
 	mu       sync.Mutex
@@ -148,8 +118,8 @@ func NewIndexText(b diskstore.Bucket, params models.IndexTextParameters) (*index
 	}
 	it := &indexText{
 		analyser: analyser,
-		setCache: make(map[string]*setCacheItem),
-		docCache: make(map[uint64]*docCacheItem),
+		setCache: cache.NewItemCache[string, *setCacheItem](b),
+		docCache: cache.NewItemCache[uint64, docCacheItem](b),
 		bucket:   b,
 	}
 	// ---------------------------
@@ -165,41 +135,6 @@ func (index *indexText) initSize() uint64 {
 	}
 	vv := conversion.BytesToUint64(v)
 	return vv
-}
-
-func (index *indexText) getSetCacheItem(term string) (*setCacheItem, error) {
-	item, ok := index.setCache[term]
-	if !ok {
-		// Attempt to read from the bucket
-		v := index.bucket.Get(termKey(term))
-		rSet := roaring64.New()
-		if v != nil {
-			if _, err := rSet.ReadFrom(bytes.NewReader(v)); err != nil {
-				return nil, fmt.Errorf("error reading set from bytes: %w", err)
-			}
-		}
-		item = &setCacheItem{
-			set: rSet,
-		}
-		index.setCache[term] = item
-	}
-	return item, nil
-}
-
-func (index *indexText) getDocCacheItem(id uint64) (*docCacheItem, error) {
-	item, ok := index.docCache[id]
-	if !ok {
-		v := index.bucket.Get(documentKey(id))
-		if v == nil {
-			return nil, nil
-		}
-		item = &docCacheItem{}
-		if err := msgpack.Unmarshal(v, item); err != nil {
-			return nil, fmt.Errorf("error unmarshalling doc cache item: %w", err)
-		}
-		index.docCache[id] = item
-	}
-	return item, nil
 }
 
 type Document struct {
@@ -240,55 +175,63 @@ func (index *indexText) InsertUpdateDelete(ctx context.Context, in <-chan Docume
 // Updates the index with the analysed document. The document is either inserted,
 // updated or deleted based on the length of the document.
 func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
-	docItem, err := index.getDocCacheItem(ad.Id)
-	if err != nil {
+	docItems, err := index.docCache.Get(ad.Id)
+	if err != cache.ErrNotFound && err != nil {
 		return fmt.Errorf("error getting doc cache item: %w", err)
 	}
+	exists := err != cache.ErrNotFound
 	switch {
 	// ---------------------------
-	case docItem == nil && ad.Length > 0:
+	case !exists && ad.Length > 0:
 		// Insert
 		terms := make(map[string]Term)
 		for term, frequency := range ad.Frequencies {
 			terms[term] = Term{
 				Frequency: frequency,
 			}
-			setItem, err := index.getSetCacheItem(term)
+			setItems, err := index.setCache.Get(term)
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
+			setItem := setItems[0]
 			setItem.isDirty = setItem.set.CheckedAdd(ad.Id) || setItem.isDirty
 		}
-		index.docCache[ad.Id] = &docCacheItem{
+		newDoc := docCacheItem{
+			id:     ad.Id,
 			Terms:  terms,
 			Length: ad.Length,
 		}
+		index.docCache.Put(ad.Id, newDoc)
 		index.numDocs++
 	// ---------------------------
-	case docItem != nil && ad.Length == 0:
+	case exists && ad.Length == 0:
 		// Delete
+		docItem := docItems[0]
 		for term := range docItem.Terms {
-			setItem, err := index.getSetCacheItem(term)
+			setItems, err := index.setCache.Get(term)
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
+			setItem := setItems[0]
 			setItem.isDirty = setItem.set.CheckedRemove(ad.Id) || setItem.isDirty
 		}
-		index.docCache[ad.Id] = nil
+		index.docCache.Delete(ad.Id)
 		index.numDocs--
 	// ---------------------------
-	case docItem != nil && ad.Length > 0:
+	case exists && ad.Length > 0:
 		// Update
 		// We need to remove the old terms from the set that are not in the new
 		// document and add the new terms to the set that are not in the old
+		docItem := docItems[0]
 		for term := range docItem.Terms {
 			if _, ok := ad.Frequencies[term]; ok {
 				continue
 			}
-			setItem, err := index.getSetCacheItem(term)
+			setItems, err := index.setCache.Get(term)
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
+			setItem := setItems[0]
 			setItem.isDirty = setItem.set.CheckedRemove(ad.Id) || setItem.isDirty
 		}
 		terms := make(map[string]Term)
@@ -299,17 +242,19 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 			if _, ok := docItem.Terms[term]; ok {
 				continue
 			}
-			setItem, err := index.getSetCacheItem(term)
+			setItems, err := index.setCache.Get(term)
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
+			setItem := setItems[0]
 			setItem.isDirty = setItem.set.CheckedAdd(ad.Id) || setItem.isDirty
 		}
 		docItem.Terms = terms
 		docItem.Length = ad.Length
+		index.docCache.Put(ad.Id, docItem)
 	// ---------------------------
 	default:
-		return fmt.Errorf("unexpected state: docItem: %v, ad.Frequencies: %v", docItem, ad.Frequencies)
+		return fmt.Errorf("unexpected state: exists: %v, ad.Frequencies: %v", exists, ad.Frequencies)
 	}
 	return nil
 }
@@ -349,42 +294,11 @@ func (index *indexText) flush() error {
 		return fmt.Errorf("error putting num documents to bucket: %w", err)
 	}
 	// ---------------------------
-	for term, item := range index.setCache {
-		if !item.isDirty {
-			continue
-		}
-		// ---------------------------
-		if item.set.IsEmpty() {
-			if err := index.bucket.Delete(termKey(term)); err != nil {
-				return fmt.Errorf("error deleting term set from bucket: %w", err)
-			}
-			continue
-		}
-		// ---------------------------
-		setBytes, err := item.set.ToBytes()
-		if err != nil {
-			return fmt.Errorf("error converting term set to bytes: %w", err)
-		}
-		if err := index.bucket.Put(termKey(term), setBytes); err != nil {
-			return fmt.Errorf("error putting term set to bucket: %w", err)
-		}
+	if err := index.setCache.Flush(); err != nil {
+		return fmt.Errorf("error flushing set cache: %w", err)
 	}
-	// ---------------------------
-	for id, item := range index.docCache {
-		if item == nil || item.Length == 0 {
-			if err := index.bucket.Delete(documentKey(id)); err != nil {
-				return fmt.Errorf("error deleting doc cache item from bucket: %w", err)
-			}
-			continue
-		}
-		val, err := msgpack.Marshal(item)
-		// ---------------------------
-		if err != nil {
-			return fmt.Errorf("error marshalling doc cache item: %w", err)
-		}
-		if err := index.bucket.Put(documentKey(id), val); err != nil {
-			return fmt.Errorf("error putting doc cache item to bucket: %w", err)
-		}
+	if err := index.docCache.Flush(); err != nil {
+		return fmt.Errorf("error flushing doc cache: %w", err)
 	}
 	// ---------------------------
 	return nil
@@ -406,11 +320,11 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 	// ---------------------------
 	sets := make([]*roaring64.Bitmap, 0, len(queryTerms))
 	for term := range queryTerms {
-		item, err := index.getSetCacheItem(term)
+		items, err := index.setCache.Get(term)
 		if err != nil {
 			return nil, fmt.Errorf("error getting set cache item: %w", err)
 		}
-		sets = append(sets, item.set)
+		sets = append(sets, items[0].set)
 	}
 	var finalSet *roaring64.Bitmap
 	if options.Operator == models.OperatorContainsAll {
@@ -424,13 +338,11 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 	it := finalSet.Iterator()
 	for it.HasNext() {
 		docId := it.Next()
-		docItem, err := index.getDocCacheItem(docId)
+		docItems, err := index.docCache.Get(docId)
 		if err != nil {
 			return nil, fmt.Errorf("error getting doc cache item: %w", err)
 		}
-		if docItem == nil {
-			return nil, fmt.Errorf("doc cache item not found for id: %d", docId)
-		}
+		docItem := docItems[0]
 		// ---------------------------
 		// TF-IDF scoring
 		// https://en.wikipedia.org/wiki/Tf%E2%80%93idf
@@ -447,7 +359,8 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 			// term frequency tf = how often does the term occur in the document
 			// with respect to the length of the document
 			tf := float32(freq) / float32(docItem.Length)
-			termSetItem, _ := index.getSetCacheItem(term)
+			termSetItems, _ := index.setCache.Get(term)
+			termSetItem := termSetItems[0]
 			// inverse document frequency idf = how rare is the term in the
 			// index
 			idf := math.Log10(float64(index.numDocs) / float64(termSetItem.set.GetCardinality()+1))
@@ -475,4 +388,147 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 	}
 	// ---------------------------
 	return results, nil
+}
+
+// ---------------------------
+
+// setCacheItem is used to store the roaring set and a flag to indicate if the
+// set has been modified.
+type setCacheItem struct {
+	term    string
+	set     *roaring64.Bitmap
+	isDirty bool
+}
+
+// For example, the term "hello" would be stored as "thellos".
+func termKey(term string) []byte {
+	return []byte("t" + term + "s")
+}
+
+func (si *setCacheItem) IdFromKey(key []byte) (string, bool) {
+	if len(key) < 2 || key[0] != 't' || key[len(key)-1] != 's' {
+		return "", false
+	}
+	return string(key[1 : len(key)-1]), true
+}
+
+func (si *setCacheItem) SizeInMemory() int64 {
+	return int64(si.set.GetSizeInBytes())
+}
+
+func (si *setCacheItem) CheckAndClearDirty() bool {
+	if si.isDirty {
+		si.isDirty = false
+		return true
+	}
+	return false
+}
+
+func (si *setCacheItem) ReadFrom(term string, bucket diskstore.Bucket) (*setCacheItem, error) {
+	// Attempt to read from the bucket, note that we always return a setCacheItem
+	// even if the term is not found. This just means that the term is not in the
+	// index and has an empty document id set.
+	v := bucket.Get(termKey(term))
+	rSet := roaring64.New()
+	if v != nil {
+		if _, err := rSet.ReadFrom(bytes.NewReader(v)); err != nil {
+			return nil, fmt.Errorf("error reading set from bytes: %w", err)
+		}
+	}
+	item := &setCacheItem{
+		term: term,
+		set:  rSet,
+	}
+	return item, nil
+}
+
+func (si *setCacheItem) WriteTo(bucket diskstore.Bucket) error {
+	if si.set.IsEmpty() {
+		if err := bucket.Delete(termKey(si.term)); err != nil {
+			return fmt.Errorf("error deleting term set from bucket: %w", err)
+		}
+		return nil
+	}
+	// ---------------------------
+	setBytes, err := si.set.ToBytes()
+	if err != nil {
+		return fmt.Errorf("error converting term set to bytes: %w", err)
+	}
+	if err := bucket.Put(termKey(si.term), setBytes); err != nil {
+		return fmt.Errorf("error putting term set to bucket: %w", err)
+	}
+	return nil
+}
+
+func (si *setCacheItem) DeleteFrom(bucket diskstore.Bucket) error {
+	return bucket.Delete(termKey(si.term))
+}
+
+type Term struct {
+	Frequency int `msgpack:"frequency"`
+}
+
+type docCacheItem struct {
+	id     uint64          `msgpack:"-"`
+	Terms  map[string]Term `msgpack:"terms"`
+	Length int             `msgpack:"length"`
+}
+
+// For example, the document with id 123 would be stored as "d<binary123>".
+func documentKey(id uint64) []byte {
+	key := [9]byte{}
+	key[0] = 'd'
+	binary.LittleEndian.PutUint64(key[1:], id)
+	return key[:]
+}
+
+// ---------------------------
+
+func (dc docCacheItem) IdFromKey(key []byte) (uint64, bool) {
+	if len(key) != 9 || key[0] != 'd' {
+		return 0, false
+	}
+	return binary.LittleEndian.Uint64(key[1:]), true
+}
+
+func (dc docCacheItem) SizeInMemory() int64 {
+	// Just counting terms and their frequencies
+	return int64(len(dc.Terms) * 4)
+}
+
+func (dc docCacheItem) CheckAndClearDirty() bool {
+	return false
+}
+
+func (dc docCacheItem) ReadFrom(id uint64, bucket diskstore.Bucket) (item docCacheItem, err error) {
+	item.id = id
+	v := bucket.Get(documentKey(id))
+	if v == nil {
+		err = cache.ErrNotFound
+		return
+	}
+	err = msgpack.Unmarshal(v, &item)
+	return
+}
+
+func (dc docCacheItem) WriteTo(bucket diskstore.Bucket) error {
+	if dc.Length == 0 {
+		if err := bucket.Delete(documentKey(dc.id)); err != nil {
+			return fmt.Errorf("error deleting doc cache item from bucket: %w", err)
+		}
+		return nil
+	}
+	val, err := msgpack.Marshal(dc)
+	// ---------------------------
+	if err != nil {
+		return fmt.Errorf("error marshalling doc cache item: %w", err)
+	}
+	if err := bucket.Put(documentKey(dc.id), val); err != nil {
+		return fmt.Errorf("error putting doc cache item to bucket: %w", err)
+	}
+	return nil
+}
+
+func (dc docCacheItem) DeleteFrom(bucket diskstore.Bucket) error {
+	return bucket.Delete(documentKey(dc.id))
 }
