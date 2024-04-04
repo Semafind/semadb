@@ -38,11 +38,10 @@ func (v *IndexVamana) insertSinglePoint(change IndexVectorChange) error {
 	defer nodeA.edgesMu.RUnlock()
 	for _, nB := range nodeA.neighbours {
 		// So here n = B or C as the example goes
-		nodeBs, err := v.nodeStore.Get(nB.Id())
+		nodeB, err := v.nodeStore.Get(nB.Id())
 		if err != nil {
 			return fmt.Errorf("could not get neighbour point: %w", err)
 		}
-		nodeB := nodeBs[0]
 		// ---------------------------
 		// While we are adding the bi-directional edges, we need exclusive
 		// access to ensure other goroutines don't modify the edges while we

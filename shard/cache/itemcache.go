@@ -88,10 +88,24 @@ func (ic *ItemCache[K, T]) read(id K) (T, error) {
 
 // Get an item from the cache, if it's not in the cache, it will be read from the
 // bucket. Check for ErrNotFound to see if the item is not in the bucket.
-func (ic *ItemCache[K, T]) Get(ids ...K) ([]T, error) {
+func (ic *ItemCache[K, V]) Get(id K) (value V, err error) {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
-	values := make([]T, len(ids))
+	if item, ok := ic.items[id]; ok {
+		if item.IsDeleted {
+			err = ErrNotFound
+			return
+		}
+		return item.value, nil
+	}
+	value, err = ic.read(id)
+	return
+}
+
+func (ic *ItemCache[K, V]) GetMany(ids ...K) ([]V, error) {
+	ic.itemsMu.Lock()
+	defer ic.itemsMu.Unlock()
+	values := make([]V, len(ids))
 	for i, id := range ids {
 		if item, ok := ic.items[id]; ok {
 			if item.IsDeleted {

@@ -38,7 +38,7 @@ func (iv *IndexVamana) pruneDeleteNeighbour(pointA vectorstore.VectorStorePoint,
 		return fmt.Errorf("no neighbours to be deleted for point: %d", pointA.Id())
 	}
 	// ---------------------------
-	expandedNodes, err := iv.nodeStore.Get(toExpandIds...)
+	expandedNodes, err := iv.nodeStore.GetMany(toExpandIds...)
 	if err != nil {
 		return fmt.Errorf("could not get neighbour points for prune deletion: %w", err)
 	}
@@ -101,7 +101,7 @@ func (v *IndexVamana) removeInboundEdges(deleteSet map[uint64]struct{}) error {
 	if err != nil {
 		return fmt.Errorf("could not get points to prune: %w", err)
 	}
-	toPruneNodes, err := v.nodeStore.Get(toPrune...)
+	toPruneNodes, err := v.nodeStore.GetMany(toPrune...)
 	if err != nil {
 		return fmt.Errorf("could not get nodes to prune: %w", err)
 	}
@@ -130,8 +130,7 @@ func (v *IndexVamana) removeInboundEdges(deleteSet map[uint64]struct{}) error {
 	 * huge computation. Instead we are taking the simple option of putting
 	 * these few stragglers back to the start node. */
 	if len(toSave) > 0 {
-		startNodes, err := v.nodeStore.Get(STARTID)
-		startNode := startNodes[0]
+		startNode, err := v.nodeStore.Get(STARTID)
 		if err != nil {
 			return fmt.Errorf("could not get start node for saving: %w", err)
 		}

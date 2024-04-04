@@ -58,7 +58,21 @@ func TestItemCache_Get(t *testing.T) {
 	dummy := dummyStorable{42, 42}
 	dummy.WriteTo(bucket)
 	c := cache.NewItemCache[uint64, dummyStorable](bucket)
-	ds, err := c.Get(42)
+	d, err := c.Get(42)
+	require.NoError(t, err)
+	require.EqualValues(t, 42, d.id)
+	require.EqualValues(t, 42, d.value)
+	_, err = c.Get(43)
+	require.ErrorIs(t, err, cache.ErrNotFound)
+}
+
+func TestItemCache_GetMany(t *testing.T) {
+	// Empty cache triggers a read from the disk
+	bucket := diskstore.NewMemBucket(false)
+	dummy := dummyStorable{42, 42}
+	dummy.WriteTo(bucket)
+	c := cache.NewItemCache[uint64, dummyStorable](bucket)
+	ds, err := c.GetMany(42)
 	require.NoError(t, err)
 	d := ds[0]
 	require.EqualValues(t, 42, d.id)
@@ -74,7 +88,7 @@ func TestItemCache_Put(t *testing.T) {
 	require.NoError(t, err)
 	d2, err := c.Get(43)
 	require.NoError(t, err)
-	require.EqualValues(t, d, d2[0])
+	require.EqualValues(t, d, d2)
 	require.Equal(t, 1, c.Count())
 }
 

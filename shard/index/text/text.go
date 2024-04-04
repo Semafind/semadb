@@ -175,7 +175,7 @@ func (index *indexText) InsertUpdateDelete(ctx context.Context, in <-chan Docume
 // Updates the index with the analysed document. The document is either inserted,
 // updated or deleted based on the length of the document.
 func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
-	docItems, err := index.docCache.Get(ad.Id)
+	docItem, err := index.docCache.Get(ad.Id)
 	if err != cache.ErrNotFound && err != nil {
 		return fmt.Errorf("error getting doc cache item: %w", err)
 	}
@@ -189,11 +189,10 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 			terms[term] = Term{
 				Frequency: frequency,
 			}
-			setItems, err := index.setCache.Get(term)
+			setItem, err := index.setCache.Get(term)
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
-			setItem := setItems[0]
 			setItem.isDirty = setItem.set.CheckedAdd(ad.Id) || setItem.isDirty
 		}
 		newDoc := docCacheItem{
@@ -206,13 +205,11 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 	// ---------------------------
 	case exists && ad.Length == 0:
 		// Delete
-		docItem := docItems[0]
 		for term := range docItem.Terms {
-			setItems, err := index.setCache.Get(term)
+			setItem, err := index.setCache.Get(term)
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
-			setItem := setItems[0]
 			setItem.isDirty = setItem.set.CheckedRemove(ad.Id) || setItem.isDirty
 		}
 		index.docCache.Delete(ad.Id)
@@ -222,16 +219,14 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 		// Update
 		// We need to remove the old terms from the set that are not in the new
 		// document and add the new terms to the set that are not in the old
-		docItem := docItems[0]
 		for term := range docItem.Terms {
 			if _, ok := ad.Frequencies[term]; ok {
 				continue
 			}
-			setItems, err := index.setCache.Get(term)
+			setItem, err := index.setCache.Get(term)
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
-			setItem := setItems[0]
 			setItem.isDirty = setItem.set.CheckedRemove(ad.Id) || setItem.isDirty
 		}
 		terms := make(map[string]Term)
@@ -242,11 +237,10 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 			if _, ok := docItem.Terms[term]; ok {
 				continue
 			}
-			setItems, err := index.setCache.Get(term)
+			setItem, err := index.setCache.Get(term)
 			if err != nil {
 				return fmt.Errorf("error getting set cache item: %w", err)
 			}
-			setItem := setItems[0]
 			setItem.isDirty = setItem.set.CheckedAdd(ad.Id) || setItem.isDirty
 		}
 		docItem.Terms = terms
@@ -320,11 +314,11 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 	// ---------------------------
 	sets := make([]*roaring64.Bitmap, 0, len(queryTerms))
 	for term := range queryTerms {
-		items, err := index.setCache.Get(term)
+		item, err := index.setCache.Get(term)
 		if err != nil {
 			return nil, fmt.Errorf("error getting set cache item: %w", err)
 		}
-		sets = append(sets, items[0].set)
+		sets = append(sets, item.set)
 	}
 	var finalSet *roaring64.Bitmap
 	if options.Operator == models.OperatorContainsAll {
@@ -338,11 +332,10 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 	it := finalSet.Iterator()
 	for it.HasNext() {
 		docId := it.Next()
-		docItems, err := index.docCache.Get(docId)
+		docItem, err := index.docCache.Get(docId)
 		if err != nil {
 			return nil, fmt.Errorf("error getting doc cache item: %w", err)
 		}
-		docItem := docItems[0]
 		// ---------------------------
 		// TF-IDF scoring
 		// https://en.wikipedia.org/wiki/Tf%E2%80%93idf
@@ -359,8 +352,7 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 			// term frequency tf = how often does the term occur in the document
 			// with respect to the length of the document
 			tf := float32(freq) / float32(docItem.Length)
-			termSetItems, _ := index.setCache.Get(term)
-			termSetItem := termSetItems[0]
+			termSetItem, _ := index.setCache.Get(term)
 			// inverse document frequency idf = how rare is the term in the
 			// index
 			idf := math.Log10(float64(index.numDocs) / float64(termSetItem.set.GetCardinality()+1))

@@ -41,11 +41,10 @@ func (v *IndexVamana) greedySearch(query []float32, k int, searchSize int) (Dist
 		searchSet.items[i].visited = true
 		// ---------------------------
 		// Get the node and its neighbours
-		nodes, err := v.nodeStore.Get(distElem.Point.Id())
+		node, err := v.nodeStore.Get(distElem.Point.Id())
 		if err != nil {
 			return searchSet, visitedSet, fmt.Errorf("failed to get node for neighbours: %w", err)
 		}
-		node := nodes[0]
 		// We have to lock the point here because while we are calculating the
 		// distance of its neighbours (edges in the graph) we can't have another
 		// goroutine changing them. The case we aren't covering is after we have
