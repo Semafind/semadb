@@ -58,6 +58,9 @@ func (g *graphNode) ClearNeighbours() {
 	g.edges = g.edges[:0]
 	g.neighbours = g.neighbours[:0]
 	g.isDirty = true
+	// When clearing, there won't be any neighbours to load, so they are deemed
+	// loaded.
+	g.isNeighLoaded.Store(true)
 }
 
 func (g *graphNode) AddNeighbour(neighbour vectorstore.VectorStorePoint) int {
