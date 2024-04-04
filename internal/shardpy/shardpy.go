@@ -60,7 +60,9 @@ func initShard(dataset *C.char, metric *C.char, vectorSize int) {
 			},
 		},
 	}
-	s, err := shard.NewShard(fmt.Sprintf("test-%s.bbolt", C.GoString(dataset)), collection, cache.NewManager(-1))
+	// Leaving path blank means use memory, cache manager -1 means cache is
+	// never evicted. So this creates a full in memory shard.
+	s, err := shard.NewShard("", collection, cache.NewManager(-1))
 	if err != nil {
 		log.Fatal(err)
 	}
