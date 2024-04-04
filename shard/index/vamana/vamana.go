@@ -38,7 +38,7 @@ type IndexVamana struct {
 	parameters models.IndexVectorVamanaParameters
 	// ---------------------------
 	vecStore  vectorstore.VectorStore
-	nodeStore *cache.ItemCache[*graphNode]
+	nodeStore *cache.ItemCache[uint64, *graphNode]
 	/* Maximum node id used in the index. This is actually used for visit sets to
 	 * determine the size of the bitset or fallback to a map. It is not the
 	 * counter from which new Ids are generated. That is handled by the id
@@ -61,7 +61,7 @@ func NewIndexVamana(name string, params models.IndexVectorVamanaParameters, buck
 	index := &IndexVamana{
 		distFn:     distFn,
 		parameters: params,
-		nodeStore:  cache.NewItemCache[*graphNode](bucket),
+		nodeStore:  cache.NewItemCache[uint64, *graphNode](bucket),
 		bucket:     bucket,
 		logger:     logger,
 	}

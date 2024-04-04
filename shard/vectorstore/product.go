@@ -32,7 +32,7 @@ type productQuantizer struct {
 	subVectorLen      int
 	distFnName        string
 	// ---------------------------
-	items         *cache.ItemCache[*productQuantizedPoint]
+	items         *cache.ItemCache[uint64, *productQuantizedPoint]
 	centroidDists []float32 // shape (num_subvectors * num_centroids * num_centroids)
 	flatCentroids []float32 // shape (num_subvectors* num_centroids * subvector_len)
 	// ---------------------------
@@ -59,7 +59,7 @@ func newProductQuantizer(bucket diskstore.Bucket, distFnName string, params mode
 		distFnName:        distFnName,
 		originalVectorLen: vectorLen,
 		subVectorLen:      vectorLen / params.NumSubVectors,
-		items:             cache.NewItemCache[*productQuantizedPoint](bucket),
+		items:             cache.NewItemCache[uint64, *productQuantizedPoint](bucket),
 		bucket:            bucket,
 	}
 	// Load centroid information from storage

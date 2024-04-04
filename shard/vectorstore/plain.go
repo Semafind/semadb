@@ -14,7 +14,7 @@ import (
 /* Stores vectors as they are with no quantization. This is the basic vector
  * store option. */
 type plainStore struct {
-	items  *cache.ItemCache[plainPoint]
+	items  *cache.ItemCache[uint64, plainPoint]
 	distFn distance.DistFunc
 }
 

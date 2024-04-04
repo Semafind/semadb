@@ -26,14 +26,14 @@ type binaryQuantizer struct {
 	// between 0 value vs not set.
 	threshold *float32
 	params    models.BinaryQuantizerParamaters
-	items     *cache.ItemCache[*binaryQuantizedPoint]
+	items     *cache.ItemCache[uint64, *binaryQuantizedPoint]
 	bucket    diskstore.Bucket
 	distFn    distance.DistFunc
 }
 
 func newBinaryQuantizer(bucket diskstore.Bucket, distFn distance.DistFunc, params models.BinaryQuantizerParamaters) *binaryQuantizer {
 	bq := &binaryQuantizer{
-		items:     cache.NewItemCache[*binaryQuantizedPoint](bucket),
+		items:     cache.NewItemCache[uint64, *binaryQuantizedPoint](bucket),
 		params:    params,
 		distFn:    distFn,
 		threshold: params.Threshold,

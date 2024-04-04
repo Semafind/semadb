@@ -49,7 +49,7 @@ func New(params *models.Quantizer, bucket diskstore.Bucket, distFnName string, v
 	}
 	if params == nil || params.Type == models.QuantizerNone {
 		ps := plainStore{
-			items:  cache.NewItemCache[plainPoint](bucket),
+			items:  cache.NewItemCache[uint64, plainPoint](bucket),
 			distFn: distFn,
 		}
 		return ps, nil

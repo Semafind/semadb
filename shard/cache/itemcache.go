@@ -11,24 +11,24 @@ import (
 var ErrNotFound = errors.New("not found")
 
 /* Represents an item that store itself to a bucket. */
-type Storable[T any] interface {
+type Storable[K comparable, T any] interface {
 	Cachable
 	// Extract the id from the key, returns false if the key is not valid
-	IdFromKey(key []byte) (uint64, bool)
+	IdFromKey(key []byte) (K, bool)
 	// Check if the item is dirty and clear the dirty flag, allows the Storable
 	// item to determine when it's dirty
 	CheckAndClearDirty() bool
 	// Read the item from the bucket, the return value is inserted into the
 	// cache, return a cache.ErrNotFound if the item is not found
-	ReadFrom(id uint64, bucket diskstore.Bucket) (T, error)
+	ReadFrom(id K, bucket diskstore.Bucket) (T, error)
 	// Write the item to the bucket
 	WriteTo(bucket diskstore.Bucket) error
 	// Delete the item from the bucket
 	DeleteFrom(bucket diskstore.Bucket) error
 }
 
-type itemCacheElem[T Storable[T]] struct {
-	value     T
+type itemCacheElem[K comparable, V Storable[K, V]] struct {
+	value     V
 	IsDirty   bool
 	IsDeleted bool
 }
@@ -37,22 +37,22 @@ type itemCacheElem[T Storable[T]] struct {
  * by a disktore bucket. It is useful to avoid decoding and encoding items all
  * the time. For example, for vectors encoding and decoding can take time so
  * having a cache helps. */
-type ItemCache[T Storable[T]] struct {
-	items   map[uint64]*itemCacheElem[T]
+type ItemCache[K comparable, V Storable[K, V]] struct {
+	items   map[K]*itemCacheElem[K, V]
 	itemsMu sync.Mutex
 	bucket  diskstore.Bucket
 }
 
-func NewItemCache[T Storable[T]](bucket diskstore.Bucket) *ItemCache[T] {
-	ic := &ItemCache[T]{
-		items:  make(map[uint64]*itemCacheElem[T]),
+func NewItemCache[K comparable, V Storable[K, V]](bucket diskstore.Bucket) *ItemCache[K, V] {
+	ic := &ItemCache[K, V]{
+		items:  make(map[K]*itemCacheElem[K, V]),
 		bucket: bucket,
 	}
 	return ic
 }
 
 // Approximate size in memory based on len(items) * size(item)
-func (ic *ItemCache[T]) SizeInMemory() int64 {
+func (ic *ItemCache[K, T]) SizeInMemory() int64 {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
 	for _, item := range ic.items {
@@ -65,11 +65,11 @@ func (ic *ItemCache[T]) SizeInMemory() int64 {
 // multiple transactions with different bucket handlers. For example, first
 // transaction creates elements, second transaction uses the same bucket name
 // but gets a different handler.
-func (ic *ItemCache[T]) UpdateBucket(bucket diskstore.Bucket) {
+func (ic *ItemCache[K, T]) UpdateBucket(bucket diskstore.Bucket) {
 	ic.bucket = bucket
 }
 
-func (ic *ItemCache[T]) read(id uint64) (T, error) {
+func (ic *ItemCache[K, T]) read(id K) (T, error) {
 	/* This dummy value is used to access the ReadFrom method. It allows a
 	 * Storable to group all methods and the compiler to check that it follows
 	 * the interface. Otherwise, it looks a big ugly, if there is a better to
@@ -79,7 +79,7 @@ func (ic *ItemCache[T]) read(id uint64) (T, error) {
 	if err != nil {
 		return value, err
 	}
-	item := &itemCacheElem[T]{
+	item := &itemCacheElem[K, T]{
 		value: value,
 	}
 	ic.items[id] = item
@@ -88,7 +88,7 @@ func (ic *ItemCache[T]) read(id uint64) (T, error) {
 
 // Get an item from the cache, if it's not in the cache, it will be read from the
 // bucket. Check for ErrNotFound to see if the item is not in the bucket.
-func (ic *ItemCache[T]) Get(ids ...uint64) ([]T, error) {
+func (ic *ItemCache[K, T]) Get(ids ...K) ([]T, error) {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
 	values := make([]T, len(ids))
@@ -109,7 +109,7 @@ func (ic *ItemCache[T]) Get(ids ...uint64) ([]T, error) {
 	return values, nil
 }
 
-func (ic *ItemCache[T]) Count() int {
+func (ic *ItemCache[K, T]) Count() int {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
 	bucketCount := 0
@@ -139,16 +139,16 @@ func (ic *ItemCache[T]) Count() int {
 
 // Put an item in the cache, it will be marked as dirty and written to the bucket
 // on the next Flush.
-func (ic *ItemCache[T]) Put(id uint64, item T) error {
+func (ic *ItemCache[K, T]) Put(id K, item T) error {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
-	ic.items[id] = &itemCacheElem[T]{value: item, IsDirty: true}
+	ic.items[id] = &itemCacheElem[K, T]{value: item, IsDirty: true}
 	return nil
 }
 
 // Delete an item from the cache, it will be marked as deleted and written to the
 // bucket on the next Flush.
-func (ic *ItemCache[T]) Delete(ids ...uint64) error {
+func (ic *ItemCache[K, T]) Delete(ids ...K) error {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
 	for _, id := range ids {
@@ -170,7 +170,7 @@ func (ic *ItemCache[T]) Delete(ids ...uint64) error {
 
 // Iterate over all items in the cache, if the item is not in the cache, it will
 // be read from the bucket. NOTE: Loads all items in memory.
-func (ic *ItemCache[T]) ForEach(fn func(id uint64, item T) error) error {
+func (ic *ItemCache[K, T]) ForEach(fn func(id K, item T) error) error {
 	// ---------------------------
 	// We have merge what's in the bucket with what's in the cache
 	ic.itemsMu.Lock()
@@ -213,7 +213,7 @@ func (ic *ItemCache[T]) ForEach(fn func(id uint64, item T) error) error {
 // Flush all items in the cache to the bucket. If an item is marked as deleted,
 // it will be deleted from the bucket. If an item is marked as dirty, it will be
 // written to the bucket.
-func (ic *ItemCache[T]) Flush() error {
+func (ic *ItemCache[K, T]) Flush() error {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
 	for id, item := range ic.items {

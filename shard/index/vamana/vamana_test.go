@@ -25,7 +25,7 @@ var vamanaParams = models.IndexVectorVamanaParameters{
 	Alpha:          1.2,
 }
 
-func checkConnectivity(t *testing.T, nodeStore *cache.ItemCache[*graphNode], expected int) {
+func checkConnectivity(t *testing.T, nodeStore *cache.ItemCache[uint64, *graphNode], expected int) {
 	visited := make(map[uint64]struct{})
 	queue := make([]uint64, 0)
 	queue = append(queue, STARTID)

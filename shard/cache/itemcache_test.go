@@ -45,7 +45,7 @@ func (d dummyStorable) DeleteFrom(bucket diskstore.Bucket) error {
 
 func seedBucketWithDummy(t *testing.T, bucket diskstore.Bucket, items ...dummyStorable) {
 	t.Helper()
-	c := cache.NewItemCache[dummyStorable](bucket)
+	c := cache.NewItemCache[uint64, dummyStorable](bucket)
 	for _, item := range items {
 		require.NoError(t, c.Put(item.id, item))
 	}
@@ -57,7 +57,7 @@ func TestItemCache_Get(t *testing.T) {
 	bucket := diskstore.NewMemBucket(false)
 	dummy := dummyStorable{42, 42}
 	dummy.WriteTo(bucket)
-	c := cache.NewItemCache[dummyStorable](bucket)
+	c := cache.NewItemCache[uint64, dummyStorable](bucket)
 	ds, err := c.Get(42)
 	require.NoError(t, err)
 	d := ds[0]
@@ -68,7 +68,7 @@ func TestItemCache_Get(t *testing.T) {
 }
 
 func TestItemCache_Put(t *testing.T) {
-	c := cache.NewItemCache[dummyStorable](diskstore.NewMemBucket(false))
+	c := cache.NewItemCache[uint64, dummyStorable](diskstore.NewMemBucket(false))
 	d := dummyStorable{43, 43}
 	err := c.Put(43, d)
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestItemCache_Put(t *testing.T) {
 func TestItemCache_Delete(t *testing.T) {
 	bucket := diskstore.NewMemBucket(false)
 	seedBucketWithDummy(t, bucket, dummyStorable{42, 42})
-	c := cache.NewItemCache[dummyStorable](bucket)
+	c := cache.NewItemCache[uint64, dummyStorable](bucket)
 	// Delete existing item in cache
 	d2 := dummyStorable{43, 43}
 	require.NoError(t, c.Put(43, d2))
@@ -105,7 +105,7 @@ func TestItemCache_Delete(t *testing.T) {
 func TestItemCache_Flush(t *testing.T) {
 	bucket := diskstore.NewMemBucket(false)
 	seedBucketWithDummy(t, bucket, dummyStorable{42, 42})
-	c := cache.NewItemCache[dummyStorable](bucket)
+	c := cache.NewItemCache[uint64, dummyStorable](bucket)
 	d := dummyStorable{43, 43}
 	require.NoError(t, c.Put(43, d))
 	require.NoError(t, c.Delete(42))
@@ -121,7 +121,7 @@ func TestItemCache_Flush(t *testing.T) {
 
 func TestItemCache_ForEach(t *testing.T) {
 	bucket := diskstore.NewMemBucket(false)
-	c := cache.NewItemCache[dummyStorable](bucket)
+	c := cache.NewItemCache[uint64, dummyStorable](bucket)
 	// Add some items
 	err := c.Put(43, dummyStorable{43, 43})
 	require.NoError(t, err)
