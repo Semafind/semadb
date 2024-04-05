@@ -59,7 +59,7 @@ type SearchVectorVamanaOptions struct {
 	Operator string    `json:"operator" binding:"required,oneof=near"`
 	Limit    int       `json:"limit" binding:"required,min=1,max=75"`
 	Filter   *Query    `json:"filter"`
-	Weight   float32   `json:"weight"`
+	Weight   *float32  `json:"weight"`
 }
 
 type SearchVectorFlatOptions struct {
@@ -67,7 +67,7 @@ type SearchVectorFlatOptions struct {
 	Operator string    `json:"operator" binding:"required,oneof=near"`
 	Limit    int       `json:"limit" binding:"required,min=1,max=75"`
 	Filter   *Query    `json:"filter"`
-	Weight   float32   `json:"weight"`
+	Weight   *float32  `json:"weight"`
 }
 
 type SearchTextOptions struct {

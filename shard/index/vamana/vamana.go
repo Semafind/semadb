@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/conversion"
@@ -271,26 +272,37 @@ func (v *IndexVamana) flush() error {
 	return nil
 }
 
-func (v *IndexVamana) Search(ctx context.Context, query []float32, limit int) ([]models.SearchResult, error) {
+func (v *IndexVamana) Search(ctx context.Context, query models.SearchVectorVamanaOptions, filter *roaring64.Bitmap) (*roaring64.Bitmap, []models.SearchResult, error) {
 	startTime := time.Now()
-	searchSet, _, err := v.greedySearch(query, limit, v.parameters.SearchSize)
+	searchSet, _, err := v.greedySearch(query.Vector, query.Limit, v.parameters.SearchSize, filter)
 	if err != nil {
-		return nil, fmt.Errorf("could not perform graph search: %w", err)
+		return nil, nil, fmt.Errorf("could not perform graph search: %w", err)
 	}
 	v.logger.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("SearchPoints - GreedySearch")
-	results := make([]models.SearchResult, 0, min(len(searchSet.items), limit))
+	results := make([]models.SearchResult, 0, min(len(searchSet.items), query.Limit))
+	resultSet := roaring64.New()
+	// ---------------------------
+	weight := float32(1)
+	if query.Weight != nil {
+		weight = *query.Weight
+	}
+	// ---------------------------
 	for _, elem := range searchSet.items {
 		if elem.Point.Id() == STARTID {
 			continue
 		}
-		if len(results) >= limit {
+		if len(results) >= query.Limit {
 			break
 		}
+		// We multiply by -1 to make the distance a positive score
+		score := (-1 * weight * elem.distance)
 		sr := models.SearchResult{
-			NodeId:   elem.Point.Id(),
-			Distance: &elem.distance,
+			NodeId:     elem.Point.Id(),
+			Distance:   &elem.distance,
+			FinalScore: &score,
 		}
 		results = append(results, sr)
+		resultSet.Add(elem.Point.Id())
 	}
-	return results, err
+	return resultSet, results, err
 }

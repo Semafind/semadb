@@ -44,12 +44,17 @@ func (im indexManager) Search(
 			return nil, nil, fmt.Errorf("no vectorVamana query options")
 		}
 		// ---------------------------
-		// TODO: Compute filter
+		// This has to be computed prior to the search so cannot be done in parallel
+		var filter *roaring64.Bitmap
 		if q.VectorVamana.Filter != nil {
-			return nil, nil, fmt.Errorf("filter not supported for property %s of type %s", q.Property, itype)
+			filter, _, err = im.Search(ctx, *q.VectorVamana.Filter)
+			if err != nil {
+				return nil, nil, fmt.Errorf("could not search filter: %w", err)
+			}
 		}
 		// ---------------------------
 		cacheName := im.cacheRoot + "/" + bucketName
+		var vamanaSet *roaring64.Bitmap
 		var vamanaRes []models.SearchResult
 		newVamanaFn := func() (cache.Cachable, error) {
 			return vamana.NewIndexVamana(cacheName, *iparams.VectorVamana, bucket)
@@ -57,29 +62,19 @@ func (im indexManager) Search(
 		err := im.cx.With(cacheName, true, newVamanaFn, func(cached cache.Cachable) error {
 			vamanaIndex := cached.(*vamana.IndexVamana)
 			vamanaIndex.UpdateBucket(bucket)
-			res, err := vamanaIndex.Search(ctx, q.VectorVamana.Vector, q.VectorVamana.Limit)
+			resSet, res, err := vamanaIndex.Search(ctx, *q.VectorVamana, filter)
 			if err != nil {
 				return fmt.Errorf("could not perform vamana search %s: %w", bucketName, err)
 			}
 			vamanaRes = res
+			vamanaSet = resSet
 			return nil
 		})
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not search %s: %w", bucketName, err)
 		}
 		// ---------------------------
-		weight := float32(1)
-		if q.VectorVamana.Weight != 0 {
-			weight = q.VectorVamana.Weight
-		}
-		set := roaring64.New()
-		for i, r := range vamanaRes {
-			// We multiply by -1 to make the distance a positive score
-			set.Add(r.NodeId)
-			score := (-1 * weight * *r.Distance)
-			vamanaRes[i].FinalScore = &score
-		}
-		return set, vamanaRes, nil
+		return vamanaSet, vamanaRes, nil
 	default:
 		return nil, nil, fmt.Errorf("search not supported for property %s of type %s", q.Property, itype)
 	}

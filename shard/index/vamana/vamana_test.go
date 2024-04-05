@@ -207,7 +207,12 @@ func Test_EmptySearch(t *testing.T) {
 	checkConnectivity(t, inv.nodeStore, 0)
 	// ---------------------------
 	// Search
-	res, err := inv.Search(context.Background(), []float32{0.5, 0.5}, 10)
+	s := models.SearchVectorVamanaOptions{
+		Vector: []float32{0.5, 0.5},
+		Limit:  10,
+	}
+	set, res, err := inv.Search(context.Background(), s, nil)
+	require.True(t, set.IsEmpty())
 	require.NoError(t, err)
 	require.Len(t, res, 0)
 }
@@ -224,7 +229,11 @@ func Test_Search(t *testing.T) {
 	// ---------------------------
 	// Search
 	for _, rp := range rps {
-		res, err := inv.Search(context.Background(), rp.Vector, 10)
+		s := models.SearchVectorVamanaOptions{
+			Vector: rp.Vector,
+			Limit:  10,
+		}
+		_, res, err := inv.Search(context.Background(), s, nil)
 		require.NoError(t, err)
 		require.Len(t, res, 10)
 		require.Equal(t, rp.Id, res[0].NodeId)

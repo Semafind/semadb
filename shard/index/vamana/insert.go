@@ -19,7 +19,7 @@ func (v *IndexVamana) insertSinglePoint(change IndexVectorChange) error {
 		return fmt.Errorf("could not set point: %w", err)
 	}
 	// ---------------------------
-	_, visitedSet, err := v.greedySearch(change.Vector, 1, v.parameters.SearchSize)
+	_, visitedSet, err := v.greedySearch(change.Vector, 1, v.parameters.SearchSize, nil)
 	if err != nil {
 		return fmt.Errorf("could not greedy search: %w", err)
 	}
