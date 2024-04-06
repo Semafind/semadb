@@ -56,7 +56,7 @@ func (iv *IndexVamana) pruneDeleteNeighbour(pointA vectorstore.VectorStorePoint,
 	// ---------------------------
 	// Potential new candidates for A
 	candidateSet := NewDistSet(len(nodeA.edges)*2, 0, iv.vecStore.DistanceFromPoint(pointA))
-	vecs, err := iv.vecStore.Get(validCandidateIds...)
+	vecs, err := iv.vecStore.GetMany(validCandidateIds...)
 	if err != nil {
 		return fmt.Errorf("could not get valid candidate points for prune deletion: %w", err)
 	}
@@ -97,7 +97,7 @@ func (v *IndexVamana) removeInboundEdges(deleteSet map[uint64]struct{}) error {
 	v.logger.Debug().Int("deleteSetSize", len(deleteSet)).Int("toPruneSize", len(toPrune)).Int("toSaveSize", len(toSave)).Str("duration", time.Since(startTime).String()).Msg("EdgeScan")
 	// ---------------------------
 	startTime = time.Now()
-	toPrunePoints, err := v.vecStore.Get(toPrune...)
+	toPrunePoints, err := v.vecStore.GetMany(toPrune...)
 	if err != nil {
 		return fmt.Errorf("could not get points to prune: %w", err)
 	}
@@ -134,7 +134,7 @@ func (v *IndexVamana) removeInboundEdges(deleteSet map[uint64]struct{}) error {
 		if err != nil {
 			return fmt.Errorf("could not get start node for saving: %w", err)
 		}
-		toSavePoints, err := v.vecStore.Get(toSave...)
+		toSavePoints, err := v.vecStore.GetMany(toSave...)
 		if err != nil {
 			return fmt.Errorf("could not get points to save: %w", err)
 		}

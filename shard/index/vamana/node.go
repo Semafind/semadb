@@ -45,7 +45,7 @@ func (g *graphNode) LoadNeighbours(vstore vectorstore.VectorStore) error {
 	if g.isNeighLoaded.Load() {
 		return nil
 	}
-	ns, err := vstore.Get(g.edges...)
+	ns, err := vstore.GetMany(g.edges...)
 	if err != nil {
 		return fmt.Errorf("could not load node neighbours: %w", err)
 	}

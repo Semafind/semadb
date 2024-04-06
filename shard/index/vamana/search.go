@@ -42,11 +42,12 @@ func (v *IndexVamana) greedySearch(query []float32, k int, searchSize int, filte
 		for i := 0; i < searchSize && iter.HasNext(); i++ {
 			filterK = append(filterK, iter.Next())
 		}
-		filterPoints, err := v.vecStore.Get(filterK...)
+		filterPoints, err := v.vecStore.GetMany(filterK...)
 		if err != nil {
 			return searchSet, visitedSet, fmt.Errorf("failed to get filter points: %w", err)
 		}
 		searchSet.Add(filterPoints...)
+		resultSet.AddWithLimit(filterPoints...)
 	}
 	// ---------------------------
 	/* Start the search with the start point neighbours, recall that the start
@@ -57,7 +58,7 @@ func (v *IndexVamana) greedySearch(query []float32, k int, searchSize int, filte
 	if err != nil {
 		return searchSet, visitedSet, fmt.Errorf("failed to get start point: %w", err)
 	}
-	searchSet.AddWithLimit(sn[0])
+	searchSet.AddWithLimit(sn)
 	// ---------------------------
 	/* This loop looks to curate the closest nodes to the query vector along the
 	 * way. The loop terminates when we visited all the nodes in our search list. */

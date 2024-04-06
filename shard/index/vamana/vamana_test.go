@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
@@ -238,4 +239,27 @@ func Test_Search(t *testing.T) {
 		require.Len(t, res, 10)
 		require.Equal(t, rp.Id, res[0].NodeId)
 	}
+}
+
+func Test_FilterSearch(t *testing.T) {
+	inv, err := NewIndexVamana("test", vamanaParams, diskstore.NewMemBucket(false))
+	require.NoError(t, err)
+	// Pre-insert
+	rps := randPoints(200, 0)
+	ctx := context.Background()
+	in := utils.ProduceWithContext(ctx, rps)
+	errC := inv.InsertUpdateDelete(ctx, in)
+	require.NoError(t, <-errC)
+	// ---------------------------
+	// Search
+	rp := rps[0]
+	s := models.SearchVectorVamanaOptions{
+		Vector: rp.Vector,
+		Limit:  10,
+	}
+	filter := roaring64.BitmapOf(rp.Id, rp.Id+1, rp.Id+2)
+	_, res, err := inv.Search(ctx, s, filter)
+	require.NoError(t, err)
+	require.Len(t, res, 3)
+	require.Equal(t, rp.Id, res[0].NodeId)
 }
