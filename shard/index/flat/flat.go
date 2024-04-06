@@ -3,7 +3,10 @@ package flat
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/index/vamana"
@@ -65,8 +68,37 @@ func (inf IndexFlat) InsertUpdateDelete(ctx context.Context, points <-chan vaman
 	return errC
 }
 
-func (inf IndexFlat) Search(ctx context.Context, options models.SearchVectorFlatOptions) ([]models.SearchResult, error) {
-	// distSet := vamana.NewDistSet(options.Limit, 0, inf.vecStore.DistanceFromFloat(options.Vector))
-	// TODO
-	return nil, nil
+func (inf IndexFlat) Search(ctx context.Context, options models.SearchVectorFlatOptions, filter *roaring64.Bitmap) (*roaring64.Bitmap, []models.SearchResult, error) {
+	distSet := vamana.NewDistSet(options.Limit, 0, inf.vecStore.DistanceFromFloat(options.Vector))
+	// ---------------------------
+	startTime := time.Now()
+	err := inf.vecStore.ForEach(func(point vectorstore.VectorStorePoint) error {
+		if filter != nil && !filter.Contains(point.Id()) {
+			return nil
+		}
+		distSet.AddWithLimit(point)
+		return nil
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to search flat: %w", err)
+	}
+	log.Debug().Dur("elapsed", time.Since(startTime)).Msg("search flat")
+	// ---------------------------
+	var weight float32 = 1
+	if options.Weight != nil {
+		weight = *options.Weight
+	}
+	// ---------------------------
+	rSet := roaring64.New()
+	results := make([]models.SearchResult, 0, options.Limit)
+	for _, elem := range distSet.Elements() {
+		rSet.Add(elem.Point.Id())
+		score := (-1 * weight * elem.Distance)
+		results = append(results, models.SearchResult{
+			NodeId:     elem.Point.Id(),
+			Distance:   &elem.Distance,
+			FinalScore: &score,
+		})
+	}
+	return rSet, results, nil
 }
