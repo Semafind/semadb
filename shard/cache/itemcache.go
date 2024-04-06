@@ -102,22 +102,25 @@ func (ic *ItemCache[K, V]) Get(id K) (value V, err error) {
 	return
 }
 
+// Attempts to get many items from the cache, if an item is not in the cache, it
+// will be read from the bucket. Ignores NotFound errors, if an item is not found
+// it will be skipped.
 func (ic *ItemCache[K, V]) GetMany(ids ...K) ([]V, error) {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
-	values := make([]V, len(ids))
-	for i, id := range ids {
+	values := make([]V, 0, len(ids))
+	for _, id := range ids {
 		if item, ok := ic.items[id]; ok {
 			if item.IsDeleted {
-				return nil, ErrNotFound
+				continue
 			}
-			values[i] = item.value
+			values = append(values, item.value)
 			continue
 		}
-		if item, err := ic.read(id); err != nil {
+		if item, err := ic.read(id); err != nil && err != ErrNotFound {
 			return nil, err
-		} else {
-			values[i] = item
+		} else if err == nil {
+			values = append(values, item)
 		}
 	}
 	return values, nil

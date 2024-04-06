@@ -69,12 +69,14 @@ func TestItemCache_GetMany(t *testing.T) {
 	dummy := dummyStorable{42}
 	dummy.WriteTo(42, bucket)
 	c := cache.NewItemCache[uint64, dummyStorable](bucket)
-	ds, err := c.GetMany(42)
+	c.Put(43, dummyStorable{43})
+	c.Put(44, dummyStorable{44})
+	c.Delete(44)
+	ds, err := c.GetMany(42, 43, 44, 45)
 	require.NoError(t, err)
-	d := ds[0]
-	require.EqualValues(t, 42, d.value)
-	_, err = c.Get(43)
-	require.ErrorIs(t, err, cache.ErrNotFound)
+	require.Len(t, ds, 2)
+	require.EqualValues(t, 42, ds[0].value)
+	require.EqualValues(t, 43, ds[1].value)
 }
 
 func TestItemCache_Put(t *testing.T) {

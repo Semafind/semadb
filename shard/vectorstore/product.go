@@ -87,7 +87,11 @@ func (pq *productQuantizer) Exists(id uint64) bool {
 	return err == nil
 }
 
-func (pq *productQuantizer) Get(ids ...uint64) ([]VectorStorePoint, error) {
+func (pq *productQuantizer) Get(id uint64) (VectorStorePoint, error) {
+	return pq.items.Get(id)
+}
+
+func (pq *productQuantizer) GetMany(ids ...uint64) ([]VectorStorePoint, error) {
 	points, err := pq.items.GetMany(ids...)
 	if err != nil {
 		return nil, err

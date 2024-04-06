@@ -22,7 +22,8 @@ type PointIdDistFn func(y VectorStorePoint) float32
 
 type VectorStore interface {
 	Exists(id uint64) bool
-	Get(ids ...uint64) ([]VectorStorePoint, error)
+	Get(id uint64) (VectorStorePoint, error)
+	GetMany(ids ...uint64) ([]VectorStorePoint, error)
 	Set(id uint64, vector []float32) (VectorStorePoint, error)
 	Delete(ids ...uint64) error
 	cache.Cachable

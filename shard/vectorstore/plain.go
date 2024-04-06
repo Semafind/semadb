@@ -23,7 +23,11 @@ func (ps plainStore) Exists(id uint64) bool {
 	return err == nil
 }
 
-func (ps plainStore) Get(ids ...uint64) ([]VectorStorePoint, error) {
+func (ps plainStore) Get(id uint64) (VectorStorePoint, error) {
+	return ps.items.Get(id)
+}
+
+func (ps plainStore) GetMany(ids ...uint64) ([]VectorStorePoint, error) {
 	points, err := ps.items.GetMany(ids...)
 	if err != nil {
 		return nil, err

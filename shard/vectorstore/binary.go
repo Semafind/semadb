@@ -55,7 +55,11 @@ func (bq *binaryQuantizer) Exists(id uint64) bool {
 	return err == nil
 }
 
-func (bq *binaryQuantizer) Get(ids ...uint64) ([]VectorStorePoint, error) {
+func (bq *binaryQuantizer) Get(id uint64) (VectorStorePoint, error) {
+	return bq.items.Get(id)
+}
+
+func (bq *binaryQuantizer) GetMany(ids ...uint64) ([]VectorStorePoint, error) {
 	points, err := bq.items.GetMany(ids...)
 	if err != nil {
 		return nil, err
