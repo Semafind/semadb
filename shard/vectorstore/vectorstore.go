@@ -26,6 +26,7 @@ type VectorStore interface {
 	GetMany(ids ...uint64) ([]VectorStorePoint, error)
 	Set(id uint64, vector []float32) (VectorStorePoint, error)
 	Delete(ids ...uint64) error
+	ForEach(fn func(VectorStorePoint) error) error
 	cache.Cachable
 	// Update bucket can be used to swap out the underlying disk storage. This
 	// is useful for cached items for which the underlying storage has changed.

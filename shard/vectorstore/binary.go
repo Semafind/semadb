@@ -72,6 +72,12 @@ func (bq *binaryQuantizer) GetMany(ids ...uint64) ([]VectorStorePoint, error) {
 
 }
 
+func (bq *binaryQuantizer) ForEach(fn func(VectorStorePoint) error) error {
+	return bq.items.ForEach(func(id uint64, point *binaryQuantizedPoint) error {
+		return fn(point)
+	})
+}
+
 func (bq *binaryQuantizer) SizeInMemory() int64 {
 	return bq.items.SizeInMemory()
 }

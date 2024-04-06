@@ -41,6 +41,12 @@ func (ps plainStore) GetMany(ids ...uint64) ([]VectorStorePoint, error) {
 	return ret, nil
 }
 
+func (ps plainStore) ForEach(fn func(VectorStorePoint) error) error {
+	return ps.items.ForEach(func(id uint64, point plainPoint) error {
+		return fn(point)
+	})
+}
+
 func (ps plainStore) SizeInMemory() int64 {
 	return ps.items.SizeInMemory()
 }

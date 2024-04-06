@@ -103,6 +103,12 @@ func (pq *productQuantizer) GetMany(ids ...uint64) ([]VectorStorePoint, error) {
 	return ret, nil
 }
 
+func (pq *productQuantizer) ForEach(fn func(VectorStorePoint) error) error {
+	return pq.items.ForEach(func(id uint64, point *productQuantizedPoint) error {
+		return fn(point)
+	})
+}
+
 func (pq *productQuantizer) SizeInMemory() int64 {
 	return pq.items.SizeInMemory() + int64(len(pq.flatCentroids)*4) + int64(len(pq.centroidDists)*4)
 }
