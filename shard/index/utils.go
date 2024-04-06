@@ -70,17 +70,20 @@ func getOperation(dec *msgpack.Decoder, propertyName string, prevData, currentDa
 
 // ---------------------------
 
-func castDataToVector(data any) ([]float32, error) {
+func castDataToArray[T any](data any) ([]T, error) {
 	// The problem is the query returns []any and we need to
 	// convert it to the appropriate type, doing .([]float32) doesn't work
-	var vector []float32
+	var vector []T
 	if data != nil {
 		if anyArr, ok := data.([]any); !ok {
 			return vector, fmt.Errorf("expected vector got %T", data)
 		} else {
-			vector = make([]float32, len(anyArr))
+			vector = make([]T, len(anyArr))
 			for i, v := range anyArr {
-				vector[i] = v.(float32)
+				vector[i], ok = v.(T)
+				if !ok {
+					return vector, fmt.Errorf("expected %T got %T", vector[i], v)
+				}
 			}
 		}
 	}

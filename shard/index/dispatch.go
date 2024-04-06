@@ -7,6 +7,7 @@ import (
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index/inverted"
+	"github.com/semafind/semadb/shard/index/text"
 	"github.com/semafind/semadb/shard/index/vamana"
 	"github.com/semafind/semadb/utils"
 	"github.com/vmihailenco/msgpack/v5"
@@ -128,6 +129,30 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 			return utils.MergeErrorsWithContext(ctx, transformErrC, writeErrC)
 		}
 		// ---------------------------
+	case models.IndexTypeText:
+		textIndex, err := text.NewIndexText(bucket, *params.Text)
+		if err != nil {
+			return nil, fmt.Errorf("could not create text index: %w", err)
+		}
+		drainFn = func(ctx context.Context, in <-chan decodedPointChange) <-chan error {
+			out, transformErrC := utils.TransformWithContext(ctx, in, preProcessText)
+			errC := textIndex.InsertUpdateDelete(ctx, out)
+			return utils.MergeErrorsWithContext(ctx, transformErrC, errC)
+		}
+	case models.IndexTypeString:
+		stringIndex := inverted.NewIndexInvertedString(bucket, *params.String)
+		drainFn = func(ctx context.Context, in <-chan decodedPointChange) <-chan error {
+			out, transformErrC := utils.TransformWithContext(ctx, in, preProcessInverted[string])
+			errC := stringIndex.InsertUpdateDelete(ctx, out)
+			return utils.MergeErrorsWithContext(ctx, transformErrC, errC)
+		}
+	case models.IndexTypeStringArray:
+		stringArrayIndex := inverted.NewIndexInvertedArrayString(bucket, *params.StringArray)
+		drainFn = func(ctx context.Context, in <-chan decodedPointChange) <-chan error {
+			out, transformErrC := utils.TransformWithContext(ctx, in, preProcessInvertedArray[string])
+			errC := stringArrayIndex.InsertUpdateDelete(ctx, out)
+			return utils.MergeErrorsWithContext(ctx, transformErrC, errC)
+		}
 	case models.IndexTypeInteger:
 		intIndex := inverted.NewIndexInverted[int64](bucket)
 		drainFn = func(ctx context.Context, in <-chan decodedPointChange) <-chan error {
@@ -135,10 +160,42 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 			errC := intIndex.InsertUpdateDelete(ctx, out)
 			return utils.MergeErrorsWithContext(ctx, transformErrC, errC)
 		}
+	case models.IndexTypeFloat:
+		intIndex := inverted.NewIndexInverted[float64](bucket)
+		drainFn = func(ctx context.Context, in <-chan decodedPointChange) <-chan error {
+			out, transformErrC := utils.TransformWithContext(ctx, in, preProcessInverted[float64])
+			errC := intIndex.InsertUpdateDelete(ctx, out)
+			return utils.MergeErrorsWithContext(ctx, transformErrC, errC)
+		}
 	default:
 		return nil, fmt.Errorf("unsupported index property type: %s", params.Type)
 	} // End of property type switch
 	return drainFn, nil
+}
+
+func preProcessText(change decodedPointChange) (doc text.Document, skip bool, err error) {
+	// ---------------------------
+	doc.Id = change.nodeId
+	if change.newData != nil {
+		text, ok := change.newData.(string)
+		if !ok {
+			err = fmt.Errorf("could not cast new data: %v", change.newData)
+			return
+		}
+		doc.Text = text
+	}
+	return
+}
+
+func preProcessInvertedArray[T inverted.Invertable](change decodedPointChange) (invChange inverted.IndexArrayChange[T], skip bool, err error) {
+	// ---------------------------
+	invChange.Id = change.nodeId
+	invChange.PreviousData, err = castDataToArray[T](change.oldData)
+	if err != nil {
+		return
+	}
+	invChange.CurrentData, err = castDataToArray[T](change.newData)
+	return
 }
 
 func preProcessInverted[T inverted.Invertable](change decodedPointChange) (invChange inverted.IndexChange[T], skip bool, err error) {
@@ -166,8 +223,6 @@ func preProcessInverted[T inverted.Invertable](change decodedPointChange) (invCh
 func preProcessVamana(change decodedPointChange) (vc vamana.IndexVectorChange, skip bool, err error) {
 	// ---------------------------
 	vc.Id = change.nodeId
-	if change.newData != nil {
-		vc.Vector, err = castDataToVector(change.newData)
-	}
+	vc.Vector, err = castDataToArray[float32](change.newData)
 	return
 }
