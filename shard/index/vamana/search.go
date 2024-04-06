@@ -129,7 +129,7 @@ func (iv *IndexVamana) robustPrune(node *graphNode, candidateSet DistSet) {
 				continue
 			}
 			// ---------------------------
-			if iv.parameters.Alpha*distFn(nextElem.Point) < nextElem.distance {
+			if iv.parameters.Alpha*distFn(nextElem.Point) < nextElem.Distance {
 				candidateSet.items[j].pruneRemoved = true
 			}
 		}

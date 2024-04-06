@@ -119,7 +119,7 @@ func (vb *VisitedBitSet) Release() {
 
 type DistSetElem struct {
 	Point        vectorstore.VectorStorePoint
-	distance     float32
+	Distance     float32
 	visited      bool
 	pruneRemoved bool
 }
@@ -160,6 +160,10 @@ func (ds *DistSet) Len() int {
 	return len(ds.items)
 }
 
+func (ds *DistSet) Elements() []DistSetElem {
+	return ds.items
+}
+
 // ---------------------------
 
 // Add points while respecting the capacity of the array, used in greedy search
@@ -181,11 +185,11 @@ func (ds *DistSet) AddWithLimit(points ...vectorstore.VectorStorePoint) {
 		// points. If we have already seen k points and this point is further
 		// away than the kth point, then we can skip it.
 		limit := cap(ds.items)
-		if len(ds.items) == limit && distance > ds.items[limit-1].distance {
+		if len(ds.items) == limit && distance > ds.items[limit-1].Distance {
 			continue
 		}
 		// We are going to add it, so create the new element
-		newElem := DistSetElem{Point: p, distance: distance}
+		newElem := DistSetElem{Point: p, Distance: distance}
 		if len(ds.items) < limit {
 			ds.items = append(ds.items, newElem)
 			ds.sortedUntil++
@@ -193,7 +197,7 @@ func (ds *DistSet) AddWithLimit(points ...vectorstore.VectorStorePoint) {
 			ds.items[len(ds.items)-1] = newElem
 		}
 		// Insert new element into the array in sorted order.
-		for i := len(ds.items) - 1; i > 0 && ds.items[i].distance < ds.items[i-1].distance; i-- {
+		for i := len(ds.items) - 1; i > 0 && ds.items[i].Distance < ds.items[i-1].Distance; i-- {
 			ds.items[i], ds.items[i-1] = ds.items[i-1], ds.items[i]
 		}
 	}
@@ -206,7 +210,7 @@ func (ds *DistSet) Add(points ...vectorstore.VectorStorePoint) {
 			continue
 		}
 		distance := ds.distFn(p)
-		ds.items = append(ds.items, DistSetElem{Point: p, distance: distance})
+		ds.items = append(ds.items, DistSetElem{Point: p, Distance: distance})
 	}
 }
 
@@ -230,7 +234,7 @@ func (ds *DistSet) Sort() {
 	// Perform insertion sort on the unsorted part of the array, sorting in
 	// ascending order
 	for i := ds.sortedUntil; i < len(ds.items); i++ {
-		for j := i; j > 0 && ds.items[j].distance < ds.items[j-1].distance; j-- {
+		for j := i; j > 0 && ds.items[j].Distance < ds.items[j-1].Distance; j-- {
 			ds.items[j], ds.items[j-1] = ds.items[j-1], ds.items[j]
 		}
 	}

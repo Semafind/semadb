@@ -295,10 +295,10 @@ func (v *IndexVamana) Search(ctx context.Context, query models.SearchVectorVaman
 			break
 		}
 		// We multiply by -1 to make the distance a positive score
-		score := (-1 * weight * elem.distance)
+		score := (-1 * weight * elem.Distance)
 		sr := models.SearchResult{
 			NodeId:     elem.Point.Id(),
-			Distance:   &elem.distance,
+			Distance:   &elem.Distance,
 			FinalScore: &score,
 		}
 		results = append(results, sr)
