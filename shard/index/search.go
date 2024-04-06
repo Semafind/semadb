@@ -8,6 +8,7 @@ import (
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
+	"github.com/semafind/semadb/shard/index/text"
 	"github.com/semafind/semadb/shard/index/vamana"
 )
 
@@ -75,6 +76,22 @@ func (im indexManager) Search(
 		}
 		// ---------------------------
 		return vamanaSet, vamanaRes, nil
+	case models.IndexTypeText:
+		if q.Text == nil {
+			return nil, nil, fmt.Errorf("no text query options")
+		}
+		var filter *roaring64.Bitmap
+		if q.Text.Filter != nil {
+			filter, _, err = im.Search(ctx, *q.Text.Filter)
+			if err != nil {
+				return nil, nil, fmt.Errorf("could not search filter: %w", err)
+			}
+		}
+		textIndex, err := text.NewIndexText(bucket, *iparams.Text)
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not create text index %s: %w", bucketName, err)
+		}
+		return textIndex.Search(*q.Text, filter)
 	default:
 		return nil, nil, fmt.Errorf("search not supported for property %s of type %s", q.Property, itype)
 	}

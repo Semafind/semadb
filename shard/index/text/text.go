@@ -297,14 +297,14 @@ func (index *indexText) flush() error {
 	return nil
 }
 
-func (index *indexText) Search(options models.SearchTextOptions) ([]models.SearchResult, error) {
+func (index *indexText) Search(options models.SearchTextOptions, filter *roaring64.Bitmap) (*roaring64.Bitmap, []models.SearchResult, error) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 	// ---------------------------
 	// Analyse query
 	tokens, err := index.analyser.Analyse(options.Value)
 	if err != nil {
-		return nil, fmt.Errorf("error analysing text: %w", err)
+		return nil, nil, fmt.Errorf("error analysing text: %w", err)
 	}
 	queryTerms := make(map[string]struct{})
 	for _, token := range tokens {
@@ -315,7 +315,7 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 	for term := range queryTerms {
 		item, err := index.setCache.Get(term)
 		if err != nil {
-			return nil, fmt.Errorf("error getting set cache item: %w", err)
+			return nil, nil, fmt.Errorf("error getting set cache item: %w", err)
 		}
 		sets = append(sets, item.set)
 	}
@@ -325,6 +325,9 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 	} else {
 		finalSet = roaring64.FastOr(sets...)
 	}
+	if filter != nil {
+		finalSet = roaring64.And(finalSet, filter)
+	}
 	// ---------------------------
 	// Get the documents and rank them using tf-idf
 	results := make([]models.SearchResult, 0, finalSet.GetCardinality())
@@ -333,7 +336,7 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 		docId := it.Next()
 		docItem, err := index.docCache.Get(docId)
 		if err != nil {
-			return nil, fmt.Errorf("error getting doc cache item: %w", err)
+			return nil, nil, fmt.Errorf("error getting doc cache item: %w", err)
 		}
 		// ---------------------------
 		// TF-IDF scoring
@@ -378,7 +381,7 @@ func (index *indexText) Search(options models.SearchTextOptions) ([]models.Searc
 		results = results[:options.Limit]
 	}
 	// ---------------------------
-	return results, nil
+	return finalSet, results, nil
 }
 
 // ---------------------------

@@ -118,17 +118,51 @@ func Test_Search(t *testing.T) {
 		Operator: models.OperatorContainsAll,
 		Limit:    10,
 	}
-	results, err := index.Search(so)
+	_, results, err := index.Search(so, nil)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, uint64(42), results[0].NodeId)
 	// ---------------------------
 	so.Operator = models.OperatorContainsAny
-	results, err = index.Search(so)
+	_, results, err = index.Search(so, nil)
 	require.NoError(t, err)
 	require.Len(t, results, 10)
 	require.Equal(t, uint64(42), results[0].NodeId)
 	require.Greater(t, *results[0].Score, *results[1].Score)
+}
+
+func Test_SearchFilter(t *testing.T) {
+	// ---------------------------
+	b := diskstore.NewMemBucket(false)
+	index, err := text.NewIndexText(b, models.IndexTextParameters{
+		Analyser: "standard",
+	})
+	// ---------------------------
+	require.NoError(t, err)
+	out := make(chan text.Document)
+	errC := index.InsertUpdateDelete(context.Background(), out)
+	for i := 0; i < 100; i++ {
+		out <- text.Document{
+			Id:   uint64(i),
+			Text: "hello world " + fmt.Sprint(i),
+		}
+	}
+	close(out)
+	require.NoError(t, <-errC)
+	checkDocCount(t, b, 100)
+	checkTermCount(t, b, 102)
+	// ---------------------------
+	// containsAll
+	so := models.SearchTextOptions{
+		Value:    "hello world",
+		Operator: models.OperatorContainsAll,
+		Limit:    10,
+	}
+	filter := roaring64.BitmapOf(42, 43, 44)
+	rSet, results, err := index.Search(so, filter)
+	require.NoError(t, err)
+	require.Len(t, results, 3)
+	require.True(t, filter.Equals(rSet))
 }
 
 func Test_Persistance(t *testing.T) {
@@ -161,7 +195,7 @@ func Test_Persistance(t *testing.T) {
 		Operator: models.OperatorContainsAny,
 		Limit:    10,
 	}
-	results, err := index.Search(so)
+	_, results, err := index.Search(so, nil)
 	require.NoError(t, err)
 	require.Len(t, results, 10)
 }
