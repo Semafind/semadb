@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
@@ -33,60 +34,78 @@ func (im indexManager) Dispatch(
 	changes <-chan IndexPointChange,
 ) <-chan error {
 	// ---------------------------
-	distributeErrC := make(chan error, 1)
+	ctx, cancel := context.WithCancelCause(ctx)
+	var wg sync.WaitGroup
 	// ---------------------------
 	/* We drain the original changes channel to multiplex into the appropriate
 	 * index queues which become their own pipelines. */
-	go func() {
-		errCs := make([]<-chan error, 0)
-		decodedQ := make(map[string]chan decodedPointChange)
-		dec := msgpack.NewDecoder(nil)
-		errC := utils.SinkWithContext(ctx, changes, func(change IndexPointChange) error {
-			for propName, params := range im.indexSchema {
-				prev, current, op, err := getOperation(dec, propName, change.PreviousData, change.NewData)
-				if err != nil {
-					return fmt.Errorf("could not get operation for property %s: %w", propName, err)
-				}
-				// This property has not changed or is not present
-				if op == opSkip {
-					continue
-				}
-				// e.g. index/vamana/myvector
-				bucketName := fmt.Sprintf("index/%s/%s", params.Type, propName)
-				queue, ok := decodedQ[bucketName]
-				if !ok {
-					queue = make(chan decodedPointChange)
-					decodedQ[bucketName] = queue
-					df, err := im.getDrainFn(bucketName, params)
-					if err != nil {
-						return fmt.Errorf("could not setup drain function for %s: %w", bucketName, err)
-					}
-					errCs = append(errCs, df(ctx, queue))
-				}
-				// ---------------------------
-				// Submit job to the queue
-				select {
-				case queue <- decodedPointChange{nodeId: change.NodeId, oldData: prev, newData: current}:
-				case <-ctx.Done():
-					return fmt.Errorf("context done while dispatching to %s: %w", bucketName, context.Cause(ctx))
-				}
+	decodedQ := make(map[string]chan decodedPointChange)
+	dec := msgpack.NewDecoder(nil)
+	wg.Add(1)
+	distributeSinkErrC := utils.SinkWithContext(ctx, changes, func(change IndexPointChange) error {
+		for propName, params := range im.indexSchema {
+			prev, current, op, err := getOperation(dec, propName, change.PreviousData, change.NewData)
+			if err != nil {
+				return fmt.Errorf("could not get operation for property %s: %w", propName, err)
 			}
-			return nil
-		})
-		err := <-errC
+			// This property has not changed or is not present
+			if op == opSkip {
+				continue
+			}
+			// e.g. index/vamana/myvector
+			bucketName := fmt.Sprintf("index/%s/%s", params.Type, propName)
+			queue, ok := decodedQ[bucketName]
+			if !ok {
+				queue = make(chan decodedPointChange)
+				decodedQ[bucketName] = queue
+				df, err := im.getDrainFn(bucketName, params)
+				if err != nil {
+					return fmt.Errorf("could not setup drain function for %s: %w", bucketName, err)
+				}
+				drainErrC := df(ctx, queue)
+				// Listen to errors on the drain function, if an index fails we
+				// abort the entire operation
+				wg.Add(1)
+				go func() {
+					if err := <-drainErrC; err != nil {
+						cancel(err)
+					}
+					wg.Done()
+				}()
+			}
+			// ---------------------------
+			// Submit job to the queue
+			select {
+			case queue <- decodedPointChange{nodeId: change.NodeId, oldData: prev, newData: current}:
+			case <-ctx.Done():
+				return fmt.Errorf("context done while dispatching to %s: %w", bucketName, context.Cause(ctx))
+			}
+		}
+		return nil
+	})
+	// ---------------------------
+	go func() {
+		// Go function to close index queues when the dispatching finishes
+		if err := <-distributeSinkErrC; err != nil {
+			cancel(err)
+		}
 		// Close any queues
 		for _, queue := range decodedQ {
 			close(queue)
 		}
-		if err != nil {
-			distributeErrC <- fmt.Errorf("error distributing changes: %w", err)
-		} else {
-			distributeErrC <- <-utils.MergeErrorsWithContext(ctx, errCs...)
-		}
-		close(distributeErrC)
+		wg.Done()
 	}()
 	// ---------------------------
-	return distributeErrC
+	dispatchErrC := make(chan error, 1)
+	go func() {
+		// Wait for all the drain functions and distribute sink to finish
+		wg.Wait()
+		// Did we succeed or fail?
+		dispatchErrC <- context.Cause(ctx)
+		close(dispatchErrC)
+	}()
+	// ---------------------------
+	return dispatchErrC
 }
 
 type DrainFn func(ctx context.Context, in <-chan decodedPointChange) <-chan error
