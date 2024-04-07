@@ -7,6 +7,7 @@ import (
 
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
+	"github.com/semafind/semadb/shard/index/flat"
 	"github.com/semafind/semadb/shard/index/inverted"
 	"github.com/semafind/semadb/shard/index/text"
 	"github.com/semafind/semadb/shard/index/vamana"
@@ -116,11 +117,11 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 	if err != nil {
 		return nil, fmt.Errorf("could not get write bucket %s: %w", bucketName, err)
 	}
+	cacheName := im.cacheRoot + "/" + bucketName
 	// ---------------------------
 	var drainFn DrainFn
 	switch params.Type {
 	case models.IndexTypeVectorVamana:
-		cacheName := im.cacheRoot + "/" + bucketName
 		// Transform
 		drainFn = func(ctx context.Context, in <-chan decodedPointChange) <-chan error {
 			out, transformErrC := utils.TransformWithContext(ctx, in, preProcessVamana)
@@ -148,6 +149,22 @@ func (im indexManager) getDrainFn(bucketName string, params models.IndexSchemaVa
 			return utils.MergeErrorsWithContext(ctx, transformErrC, writeErrC)
 		}
 		// ---------------------------
+	case models.IndexTypeVectorFlat:
+		drainFn = func(ctx context.Context, in <-chan decodedPointChange) <-chan error {
+			out, transformErrC := utils.TransformWithContext(ctx, in, preProcessVamana)
+			writeErrC := make(chan error, 1)
+			newFlatFn := func() (cache.Cachable, error) {
+				return flat.NewIndexFlat(*params.VectorFlat, bucket)
+			}
+			go func() {
+				writeErrC <- im.cx.With(cacheName, false, newFlatFn, func(cached cache.Cachable) error {
+					flatIndex := cached.(flat.IndexFlat)
+					flatIndex.UpdateBucket(bucket)
+					return <-flatIndex.InsertUpdateDelete(ctx, out)
+				})
+			}()
+			return utils.MergeErrorsWithContext(ctx, transformErrC, writeErrC)
+		}
 	case models.IndexTypeText:
 		textIndex, err := text.NewIndexText(bucket, *params.Text)
 		if err != nil {

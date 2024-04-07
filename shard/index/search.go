@@ -8,6 +8,7 @@ import (
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
+	"github.com/semafind/semadb/shard/index/flat"
 	"github.com/semafind/semadb/shard/index/text"
 	"github.com/semafind/semadb/shard/index/vamana"
 )
@@ -38,6 +39,7 @@ func (im indexManager) Search(
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not read bucket %s: %w", bucketName, err)
 	}
+	cacheName := im.cacheRoot + "/" + bucketName
 	// ---------------------------
 	switch itype {
 	case models.IndexTypeVectorVamana:
@@ -54,7 +56,6 @@ func (im indexManager) Search(
 			}
 		}
 		// ---------------------------
-		cacheName := im.cacheRoot + "/" + bucketName
 		var vamanaSet *roaring64.Bitmap
 		var vamanaRes []models.SearchResult
 		newVamanaFn := func() (cache.Cachable, error) {
@@ -76,6 +77,40 @@ func (im indexManager) Search(
 		}
 		// ---------------------------
 		return vamanaSet, vamanaRes, nil
+	case models.IndexTypeVectorFlat:
+		if q.VectorFlat == nil {
+			return nil, nil, fmt.Errorf("no vectorFlat query options")
+		}
+		// ---------------------------
+		var filter *roaring64.Bitmap
+		if q.VectorFlat.Filter != nil {
+			filter, _, err = im.Search(ctx, *q.VectorFlat.Filter)
+			if err != nil {
+				return nil, nil, fmt.Errorf("could not search filter: %w", err)
+			}
+		}
+		// ---------------------------
+		var flatSet *roaring64.Bitmap
+		var flatRes []models.SearchResult
+		newFlatFn := func() (cache.Cachable, error) {
+			return flat.NewIndexFlat(*iparams.VectorFlat, bucket)
+		}
+		err := im.cx.With(cacheName, true, newFlatFn, func(cached cache.Cachable) error {
+			flatIndex := cached.(flat.IndexFlat)
+			flatIndex.UpdateBucket(bucket)
+			resSet, res, err := flatIndex.Search(ctx, *q.VectorFlat, filter)
+			if err != nil {
+				return fmt.Errorf("could not perform flat search %s: %w", bucketName, err)
+			}
+			flatRes = res
+			flatSet = resSet
+			return nil
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not search %s: %w", bucketName, err)
+		}
+		// ---------------------------
+		return flatSet, flatRes, nil
 	case models.IndexTypeText:
 		if q.Text == nil {
 			return nil, nil, fmt.Errorf("no text query options")

@@ -63,24 +63,56 @@ func (inf IndexFlat) InsertUpdateDelete(ctx context.Context, points <-chan vaman
 			errC <- fmt.Errorf("failed to insert/update/delete: %w", err)
 			return
 		}
+		// Check vector store optimisation
+		if err := inf.vecStore.Fit(); err != nil {
+			errC <- fmt.Errorf("failed to fit vector store: %w", err)
+			return
+		}
 		errC <- inf.vecStore.Flush()
 	}()
 	return errC
 }
 
 func (inf IndexFlat) Search(ctx context.Context, options models.SearchVectorFlatOptions, filter *roaring64.Bitmap) (*roaring64.Bitmap, []models.SearchResult, error) {
-	distSet := vamana.NewDistSet(options.Limit, 0, inf.vecStore.DistanceFromFloat(options.Vector))
+	distFn := inf.vecStore.DistanceFromFloat(options.Vector)
 	// ---------------------------
+	/* We used to use multiple workers to scan through the vector store, but for
+	 * individual requests coming it adds too much overhead and the gain a low,
+	 * around 10 queries per second. So to not suffocate the CPU across requests
+	 * we keep it single-threaded. Also no reasonably sized collection should
+	 * use flat index as the main one. */
 	startTime := time.Now()
+	res := make([]models.SearchResult, 0, options.Limit)
 	err := inf.vecStore.ForEach(func(point vectorstore.VectorStorePoint) error {
 		if filter != nil && !filter.Contains(point.Id()) {
 			return nil
 		}
-		distSet.AddWithLimit(point)
+		dist := distFn(point)
+		// cap here is capacity of the array = options.Limit above, in case you
+		// are new to the Go language.
+		// Is it worth adding?
+		if len(res) == cap(res) && dist >= *res[len(res)-1].Distance {
+			return nil
+		}
+		/* Insert using insertion sort, we don't expect limit (K) to be very
+		 * large. We add the element to the end and swap until it is in the right
+		 * place. */
+		sr := models.SearchResult{
+			NodeId:   point.Id(),
+			Distance: &dist,
+		}
+		if len(res) < cap(res) {
+			res = append(res, sr)
+		} else {
+			res[len(res)-1] = sr
+		}
+		for i := len(res) - 1; i > 0 && *res[i].Distance < *res[i-1].Distance; i-- {
+			res[i], res[i-1] = res[i-1], res[i]
+		}
 		return nil
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to search flat: %w", err)
+		return nil, nil, fmt.Errorf("failed to iterate over points: %w", err)
 	}
 	log.Debug().Dur("elapsed", time.Since(startTime)).Msg("search flat")
 	// ---------------------------
@@ -90,15 +122,10 @@ func (inf IndexFlat) Search(ctx context.Context, options models.SearchVectorFlat
 	}
 	// ---------------------------
 	rSet := roaring64.New()
-	results := make([]models.SearchResult, 0, options.Limit)
-	for _, elem := range distSet.Elements() {
-		rSet.Add(elem.Point.Id())
-		score := (-1 * weight * elem.Distance)
-		results = append(results, models.SearchResult{
-			NodeId:     elem.Point.Id(),
-			Distance:   &elem.Distance,
-			FinalScore: &score,
-		})
+	for _, r := range res {
+		rSet.Add(r.NodeId)
+		score := (-1 * weight * *r.Distance)
+		r.FinalScore = &score
 	}
-	return rSet, results, nil
+	return rSet, res, nil
 }
