@@ -43,19 +43,28 @@ func initShard(dataset *C.char, metric *C.char, vectorSize int) {
 		Replicas: 1,
 		IndexSchema: models.IndexSchema{
 			"vector": models.IndexSchemaValue{
-				Type: "vectorVamana",
+				Type: models.IndexTypeVectorVamana,
 				VectorVamana: &models.IndexVectorVamanaParameters{
 					VectorSize:     uint(vectorSize),
 					DistanceMetric: C.GoString(metric),
 					SearchSize:     75,
 					DegreeBound:    64,
 					Alpha:          1.2,
-					// Quantizer: &models.Quantizer{
-					// 	Type: models.QuantizerBinary,
-					// 	Binary: &models.BinaryQuantizerParamaters{
-					// 		TriggerThreshold: 10000,
-					// 	},
-					// },
+					Quantizer: &models.Quantizer{
+						Type: models.QuantizerNone,
+						Binary: &models.BinaryQuantizerParamaters{
+							TriggerThreshold: 50000,
+						},
+						Product: &models.ProductQuantizerParameters{
+							NumCentroids:     256,
+							NumSubVectors:    98,
+							TriggerThreshold: 10000,
+						},
+					},
+				},
+				VectorFlat: &models.IndexVectorFlatParameters{
+					VectorSize:     uint(vectorSize),
+					DistanceMetric: C.GoString(metric),
 				},
 			},
 		},
@@ -138,6 +147,10 @@ func query(x []float32, k int, out []uint32) {
 		Query: models.Query{
 			Property: "vector",
 			VectorVamana: &models.SearchVectorVamanaOptions{
+				Vector: x,
+				Limit:  k,
+			},
+			VectorFlat: &models.SearchVectorFlatOptions{
 				Vector: x,
 				Limit:  k,
 			},

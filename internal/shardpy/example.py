@@ -36,7 +36,7 @@ vectorSize = 128
 
 shardpy.initShard(dataset.encode("utf-8"), metric.encode("utf-8"), vectorSize)
 
-X = np.random.rand(10000, 128).astype(np.float32)
+X = np.random.rand(1000, 128).astype(np.float32)
 X = X.flatten()
 shardpy.fit(GoSlice(ctypes.cast(X.ctypes.data, ctypes.c_void_p), X.shape[0], X.shape[0]))
 
