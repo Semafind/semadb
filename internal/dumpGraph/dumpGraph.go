@@ -28,17 +28,16 @@ func main() {
 	}
 	defer db.Close()
 	// ---------------------------
-	err = db.Read(func(bm diskstore.ReadOnlyBucketManager) error {
-		b, err := bm.ReadBucket(buckeName)
+	err = db.Read(func(bm diskstore.BucketManager) error {
+		b, err := bm.Get(buckeName)
 		if err != nil {
 			return err
 		}
 		return b.ForEach(func(k, v []byte) error {
-			if k[0] != 'n' || k[len(k)-1] != 'e' {
+			nodeId, ok := conversion.NodeIdFromKey(k, 'e')
+			if !ok {
 				return nil
 			}
-			nodeIdBytes := k[1 : len(k)-1]
-			nodeId := conversion.BytesToUint64(nodeIdBytes)
 			edges := conversion.BytesToEdgeList(v)
 			// Print as nodeid, edge1, edge2, ...
 			fmt.Printf("%d", nodeId)
