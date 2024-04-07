@@ -77,7 +77,12 @@ func initShard(cfgStr *C.char, metric *C.char, vectorSize int) {
 		collection.IndexSchema["vector"].VectorVamana.Quantizer.Type = models.QuantizerBinary
 	case "pq":
 		collection.IndexSchema["vector"].VectorVamana.Quantizer.Type = models.QuantizerProduct
-		collection.IndexSchema["vector"].VectorVamana.Quantizer.Product.NumSubVectors = vectorSize / 8
+		subcount := vectorSize / 8
+		for vectorSize%subcount != 0 {
+			subcount++
+		}
+		collection.IndexSchema["vector"].VectorVamana.Quantizer.Product.NumSubVectors = subcount
+		fmt.Println("Sub Vector Count", subcount)
 	default:
 		log.Fatal("Invalid config", config)
 	}
