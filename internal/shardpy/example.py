@@ -30,11 +30,11 @@ shardpy.fit.argtypes = [GoSlice]
 shardpy.query.argtypes = [GoSlice, ctypes.c_int, GoSlice]
 # ---------------------------
 
-dataset = "mydataset"
+configStr = "none"
 metric = "euclidean"
 vectorSize = 128
 
-shardpy.initShard(dataset.encode("utf-8"), metric.encode("utf-8"), vectorSize)
+shardpy.initShard(configStr.encode("utf-8"), metric.encode("utf-8"), vectorSize)
 
 X = np.random.rand(1000, 128).astype(np.float32)
 X = X.flatten()

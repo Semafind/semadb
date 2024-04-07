@@ -29,46 +29,59 @@ func init() {
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 }
 
-//export initShard
-func initShard(dataset *C.char, metric *C.char, vectorSize int) {
-	globalVectorSize = vectorSize
-	dpath := fmt.Sprintf("test-%s.bbolt", C.GoString(dataset))
-	// Remove the file if it exists
-	if err := os.Remove(dpath); err != nil && !os.IsNotExist(err) {
-		log.Fatal(err)
-	}
-	collection := models.Collection{
-		Id:       C.GoString(dataset),
-		UserId:   "benchmark",
-		Replicas: 1,
-		IndexSchema: models.IndexSchema{
-			"vector": models.IndexSchemaValue{
-				Type: models.IndexTypeVectorVamana,
-				VectorVamana: &models.IndexVectorVamanaParameters{
-					VectorSize:     uint(vectorSize),
-					DistanceMetric: C.GoString(metric),
-					SearchSize:     75,
-					DegreeBound:    64,
-					Alpha:          1.2,
-					Quantizer: &models.Quantizer{
-						Type: models.QuantizerNone,
-						Binary: &models.BinaryQuantizerParamaters{
-							TriggerThreshold: 50000,
-						},
-						Product: &models.ProductQuantizerParameters{
-							NumCentroids:     256,
-							NumSubVectors:    98,
-							TriggerThreshold: 10000,
-						},
+var collection = models.Collection{
+	Id:       "benchmark",
+	UserId:   "benchmark",
+	Replicas: 1,
+	IndexSchema: models.IndexSchema{
+		"vector": models.IndexSchemaValue{
+			Type: models.IndexTypeVectorVamana,
+			VectorVamana: &models.IndexVectorVamanaParameters{
+				VectorSize:     0,  // Set in initShard
+				DistanceMetric: "", // Set in initShard
+				SearchSize:     75,
+				DegreeBound:    64,
+				Alpha:          1.2,
+				Quantizer: &models.Quantizer{
+					Type: models.QuantizerNone,
+					Binary: &models.BinaryQuantizerParamaters{
+						TriggerThreshold: 50000,
+					},
+					Product: &models.ProductQuantizerParameters{
+						NumCentroids:     256,
+						NumSubVectors:    0, // Set in initShard
+						TriggerThreshold: 10000,
 					},
 				},
-				VectorFlat: &models.IndexVectorFlatParameters{
-					VectorSize:     uint(vectorSize),
-					DistanceMetric: C.GoString(metric),
-				},
+			},
+			VectorFlat: &models.IndexVectorFlatParameters{
+				VectorSize:     0,  // Set in initShard
+				DistanceMetric: "", // Set in initShard
 			},
 		},
+	},
+}
+
+//export initShard
+func initShard(cfgStr *C.char, metric *C.char, vectorSize int) {
+	globalVectorSize = vectorSize
+	// ---------------------------
+	collection.IndexSchema["vector"].VectorVamana.VectorSize = uint(vectorSize)
+	collection.IndexSchema["vector"].VectorVamana.DistanceMetric = C.GoString(metric)
+	collection.IndexSchema["vector"].VectorFlat.VectorSize = uint(vectorSize)
+	collection.IndexSchema["vector"].VectorFlat.DistanceMetric = C.GoString(metric)
+	config := C.GoString(cfgStr)
+	switch config {
+	case "none":
+	case "bq":
+		collection.IndexSchema["vector"].VectorVamana.Quantizer.Type = models.QuantizerBinary
+	case "pq":
+		collection.IndexSchema["vector"].VectorVamana.Quantizer.Type = models.QuantizerProduct
+		collection.IndexSchema["vector"].VectorVamana.Quantizer.Product.NumSubVectors = vectorSize / 8
+	default:
+		log.Fatal("Invalid config", config)
 	}
+	// ---------------------------
 	// Leaving path blank means use memory, cache manager -1 means cache is
 	// never evicted. So this creates a full in memory shard.
 	s, err := shard.NewShard("", collection, cache.NewManager(-1))
