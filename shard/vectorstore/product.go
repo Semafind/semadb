@@ -48,6 +48,10 @@ func newProductQuantizer(bucket diskstore.Bucket, distFnName string, params mode
 	if distFnName != models.DistanceEuclidean && distFnName != models.DistanceCosine && distFnName != models.DistanceDot {
 		return nil, fmt.Errorf("distance function %s not supported for product quantisation", distFnName)
 	}
+	// Check number of centroids, it cannot exceed 256 because of uint8 type
+	if params.NumCentroids > 256 {
+		return nil, fmt.Errorf("number of centroids %d cannot exceed 256", params.NumCentroids)
+	}
 	distFn, err := distance.GetDistanceFn(distFnName)
 	if err != nil {
 		return nil, fmt.Errorf("could not get distance function %s: %w", distFnName, err)
