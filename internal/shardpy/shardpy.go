@@ -43,7 +43,7 @@ var collection = models.Collection{
 				DegreeBound:    64,
 				Alpha:          1.2,
 				Quantizer: &models.Quantizer{
-					Type: models.QuantizerNone,
+					Type: "", // Set in initShard
 					Binary: &models.BinaryQuantizerParamaters{
 						TriggerThreshold: 50000,
 					},
@@ -73,11 +73,12 @@ func initShard(cfgStr *C.char, metric *C.char, vectorSize int) {
 	config := C.GoString(cfgStr)
 	switch config {
 	case "none":
+		collection.IndexSchema["vector"].VectorVamana.Quantizer.Type = models.QuantizerNone
 	case "bq":
 		collection.IndexSchema["vector"].VectorVamana.Quantizer.Type = models.QuantizerBinary
 	case "pq":
 		collection.IndexSchema["vector"].VectorVamana.Quantizer.Type = models.QuantizerProduct
-		subcount := vectorSize / 8
+		subcount := vectorSize / 4
 		for vectorSize%subcount != 0 {
 			subcount++
 		}
