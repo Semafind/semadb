@@ -24,27 +24,31 @@ const binaryQuantizerThresholdKey = "_binaryQuantizerThreshold"
 type binaryQuantizer struct {
 	// The threshold value for the binary quantizer. It is a pointer to distinguish
 	// between 0 value vs not set.
-	threshold *float32
+	threshold []float32
 	params    models.BinaryQuantizerParamaters
 	items     *cache.ItemCache[uint64, *binaryQuantizedPoint]
 	bucket    diskstore.Bucket
 	distFn    distance.DistFunc
 }
 
-func newBinaryQuantizer(bucket diskstore.Bucket, distFn distance.DistFunc, params models.BinaryQuantizerParamaters) *binaryQuantizer {
+func newBinaryQuantizer(bucket diskstore.Bucket, distFn distance.DistFunc, params models.BinaryQuantizerParamaters, vectorLen int) *binaryQuantizer {
 	bq := &binaryQuantizer{
-		items:     cache.NewItemCache[uint64, *binaryQuantizedPoint](bucket),
-		params:    params,
-		distFn:    distFn,
-		threshold: params.Threshold,
-		bucket:    bucket,
+		items:  cache.NewItemCache[uint64, *binaryQuantizedPoint](bucket),
+		params: params,
+		distFn: distFn,
+		bucket: bucket,
 	}
-	if bq.threshold == nil {
-		// Check storage
+	// Setup the threshold, if given
+	if params.Threshold != nil {
+		bq.threshold = make([]float32, vectorLen)
+		for i := range bq.threshold {
+			bq.threshold[i] = *params.Threshold
+		}
+	} else {
+		// Check storage for stored threshold
 		floatBytes := bucket.Get([]byte(binaryQuantizerThresholdKey))
 		if floatBytes != nil {
-			t := conversion.BytesToSingleFloat32(floatBytes)
-			bq.threshold = &t
+			bq.threshold = conversion.BytesToFloat32(floatBytes)
 		}
 	}
 	return bq
@@ -108,7 +112,7 @@ func (bq *binaryQuantizer) encode(vector []float32) []uint64 {
 	 * bits of the binary vector.
 	 */
 	for i, v := range vector {
-		if v > *bq.threshold {
+		if v > bq.threshold[i] {
 			encoded[i/64] |= 1 << (i % 64)
 		}
 	}
@@ -138,20 +142,25 @@ func (bq *binaryQuantizer) Fit() error {
 	/* Time to fit. We are doing two passes. First pass computes the mean of the
 	 * vectors. The second pass encodes the vectors. */
 	count := 0
-	sum := float32(0)
+	var sum []float32
 	startTime := time.Now()
 	err := bq.items.ForEach(func(id uint64, point *binaryQuantizedPoint) error {
-		for _, v := range point.Vector {
-			sum += v
-			count++
+		if sum == nil {
+			sum = make([]float32, len(point.Vector))
 		}
+		for i, v := range point.Vector {
+			sum[i] += v
+		}
+		count++
 		return nil
 	})
 	if err != nil {
 		return err
 	}
-	threshold := sum / float32(count)
-	bq.threshold = &threshold
+	for i := range sum {
+		sum[i] /= float32(count)
+	}
+	bq.threshold = sum
 	// ---------------------------
 	// Second pass to encode
 	err = bq.items.ForEach(func(id uint64, point *binaryQuantizedPoint) error {
@@ -159,7 +168,7 @@ func (bq *binaryQuantizer) Fit() error {
 		point.isDirty = true
 		return nil
 	})
-	log.Debug().Dur("duration", time.Since(startTime)).Float32("threshold", threshold).Msg("fitted binary quantizer")
+	log.Debug().Dur("duration", time.Since(startTime)).Int("thresholdLen", len(bq.threshold)).Msg("fitted binary quantizer")
 	// ---------------------------
 	return err
 
@@ -218,8 +227,8 @@ func (bq *binaryQuantizer) Flush() error {
 	if err := bq.items.Flush(); err != nil {
 		return err
 	}
-	if bq.threshold != nil {
-		return bq.bucket.Put([]byte(binaryQuantizerThresholdKey), conversion.SingleFloat32ToBytes(*bq.threshold))
+	if len(bq.threshold) > 0 {
+		return bq.bucket.Put([]byte(binaryQuantizerThresholdKey), conversion.Float32ToBytes(bq.threshold))
 	}
 	return nil
 }

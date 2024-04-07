@@ -61,7 +61,7 @@ func New(params *models.Quantizer, bucket diskstore.Bucket, distFnName string, v
 		if params.Binary == nil {
 			return nil, fmt.Errorf("binary quantizer parameters are nil")
 		}
-		return newBinaryQuantizer(bucket, distFn, *params.Binary), nil
+		return newBinaryQuantizer(bucket, distFn, *params.Binary, vectorLength), nil
 	case models.QuantizerProduct:
 		if params.Product == nil {
 			return nil, fmt.Errorf("product quantizer parameters are nil")

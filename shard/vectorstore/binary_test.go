@@ -13,7 +13,7 @@ func Test_Binary_Encode(t *testing.T) {
 	params := models.BinaryQuantizerParamaters{
 		Threshold: &threshold,
 	}
-	bq := newBinaryQuantizer(nil, nil, params)
+	bq := newBinaryQuantizer(nil, nil, params, 5)
 	vector := []float32{1.0, 0.1, 0.6, 0.7, 0.4}
 	encoded := bq.encode(vector)
 	require.Len(t, encoded, 1)
@@ -24,12 +24,12 @@ func Test_Binary_Fit(t *testing.T) {
 	params := models.BinaryQuantizerParamaters{
 		TriggerThreshold: 2,
 	}
-	bq := newBinaryQuantizer(diskstore.NewMemBucket(false), nil, params)
+	bq := newBinaryQuantizer(diskstore.NewMemBucket(false), nil, params, 2)
 	_, err := bq.Set(1, []float32{1.0, 2.0})
 	require.NoError(t, err)
 	_, err = bq.Set(2, []float32{3.0, 4.0})
 	require.NoError(t, err)
 	require.NoError(t, bq.Fit())
 	// Check if the threshold is the mean
-	require.Equal(t, float32(2.5), *bq.threshold)
+	require.Equal(t, []float32{2.0, 3.0}, bq.threshold)
 }
