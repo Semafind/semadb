@@ -38,9 +38,10 @@ type itemCacheElem[K comparable, V Storable[K, V]] struct {
  * the time. For example, for vectors encoding and decoding can take time so
  * having a cache helps. */
 type ItemCache[K comparable, V Storable[K, V]] struct {
-	items   map[K]*itemCacheElem[K, V]
-	itemsMu sync.Mutex
-	bucket  diskstore.Bucket
+	items        map[K]*itemCacheElem[K, V]
+	itemsMu      sync.Mutex
+	isAllInCache bool
+	bucket       diskstore.Bucket
 }
 
 func NewItemCache[K comparable, V Storable[K, V]](bucket diskstore.Bucket) *ItemCache[K, V] {
@@ -193,26 +194,29 @@ func (ic *ItemCache[K, T]) ForEach(fn func(id K, item T) error) error {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
 	// ---------------------------
-	err := ic.bucket.ForEach(func(key, value []byte) error {
-		var dummyValue T
-		id, ok := dummyValue.IdFromKey(key)
-		// Is this a valid key? It may be that a single item stores multiple key
-		// values and wants to recover the original id from one key.
-		if !ok {
+	if !ic.isAllInCache {
+		err := ic.bucket.ForEach(func(key, value []byte) error {
+			var dummyValue T
+			id, ok := dummyValue.IdFromKey(key)
+			// Is this a valid key? It may be that a single item stores multiple key
+			// values and wants to recover the original id from one key.
+			if !ok {
+				return nil
+			}
+			// Do we already have this item in cache?
+			if _, ok := ic.items[id]; ok {
+				return nil
+			}
+			// If not, let's read it from the bucket
+			if _, err := ic.read(id); err != nil {
+				return err
+			}
 			return nil
-		}
-		// Do we already have this item in cache?
-		if _, ok := ic.items[id]; ok {
-			return nil
-		}
-		// If not, let's read it from the bucket
-		if _, err := ic.read(id); err != nil {
+		})
+		if err != nil {
 			return err
 		}
-		return nil
-	})
-	if err != nil {
-		return err
+		ic.isAllInCache = true
 	}
 	// ---------------------------
 	for id, item := range ic.items {
