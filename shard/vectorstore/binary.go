@@ -102,14 +102,14 @@ func (bq *binaryQuantizer) encode(vector []float32) []uint64 {
 	 * value at position i in the float32 vector is greater than the threshold.
 	 *
 	 * For example: if the threshold is 0.5 and the float32 vector is [0.1, 0.6,
-	 * 0.7, 0.4], the binary vector would be [0, 1, 1, 0].
+	 * 0.7, 0.4], the binary vector would be [0, 1, 1, 0] in LittleEndian.
 	 *
 	 * This is then encoded into a uint64 array where each uint64 represents 64
 	 * bits of the binary vector.
 	 */
 	for i, v := range vector {
 		if v > *bq.threshold {
-			encoded[i/64] |= 1 << (63 - (i % 64))
+			encoded[i/64] |= 1 << (i % 64)
 		}
 	}
 	return encoded
@@ -143,8 +143,8 @@ func (bq *binaryQuantizer) Fit() error {
 	err := bq.items.ForEach(func(id uint64, point *binaryQuantizedPoint) error {
 		for _, v := range point.Vector {
 			sum += v
+			count++
 		}
-		count++
 		return nil
 	})
 	if err != nil {
