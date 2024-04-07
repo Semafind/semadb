@@ -160,10 +160,6 @@ func (ds *DistSet) Len() int {
 	return len(ds.items)
 }
 
-func (ds *DistSet) Elements() []DistSetElem {
-	return ds.items
-}
-
 // ---------------------------
 
 // Add points while respecting the capacity of the array, used in greedy search
