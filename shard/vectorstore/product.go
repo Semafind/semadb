@@ -27,7 +27,7 @@ const productQuantizerFlatCentroidsKey = "_productQuantizerFlatCentroids"
  */
 type productQuantizer struct {
 	params            models.ProductQuantizerParameters
-	distFn            distance.DistFunc
+	distFn            distance.FloatDistFunc
 	originalVectorLen int
 	subVectorLen      int
 	distFnName        string
@@ -48,11 +48,22 @@ func newProductQuantizer(bucket diskstore.Bucket, distFnName string, params mode
 	if distFnName != models.DistanceEuclidean && distFnName != models.DistanceCosine && distFnName != models.DistanceDot {
 		return nil, fmt.Errorf("distance function %s not supported for product quantisation", distFnName)
 	}
+	// Handle cosine distance
+	if distFnName == models.DistanceCosine {
+		/* Cosine distance can't be handled part wise. That is, product
+		 * quantisation splits each vector into parts and sums distances of each
+		 * part to centroids. Even if we compensate of cosine, the kmeans
+		 * clustering uses euclidean distance and the normalisation property of
+		 * subvectors are lost. We still have hope because for normalised vectors
+		 * euclidean distance = 2*cosine distance, so it is proportional and
+		 * yields similar results. */
+		distFnName = models.DistanceEuclidean
+	}
 	// Check number of centroids, it cannot exceed 256 because of uint8 type
 	if params.NumCentroids > 256 {
 		return nil, fmt.Errorf("number of centroids %d cannot exceed 256", params.NumCentroids)
 	}
-	distFn, err := distance.GetDistanceFn(distFnName)
+	distFn, err := distance.GetFloatDistanceFn(distFnName)
 	if err != nil {
 		return nil, fmt.Errorf("could not get distance function %s: %w", distFnName, err)
 	}
@@ -260,15 +271,6 @@ func (pq *productQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 		for i := 0; i < pq.params.NumSubVectors; i++ {
 			dist += dists[i*pq.params.NumCentroids+int(pointY.CentroidIds[i])]
 		}
-		// Add cosine correction. Recall cosine distance is 1-cosine similarity,
-		// so when we add multiple cosine distances we need adjust extra 1 minuses.
-		if pq.distFnName == models.DistanceCosine {
-			/* What is happened here is that we summed up 1 - d1 + 1 - d2 + ... +
-			 * 1 - dn etc = n - (d1 + d2 + ... + dn). We want 1 - (d1 + d2 + ...
-			 * + dn) so we subtract n-1 */
-			dist -= float32(pq.params.NumSubVectors - 1)
-			// which gives back 1 - SUM(cosine_similarities)
-		}
 		return dist
 	}
 }
@@ -296,10 +298,6 @@ func (pq *productQuantizer) DistanceFromPoint(x VectorStorePoint) PointIdDistFn 
 		var dist float32
 		for i := 0; i < pq.params.NumSubVectors; i++ {
 			dist += pq.centroidDists[pq.centroidDistIdx(i, int(pointX.CentroidIds[i]), int(pointY.CentroidIds[i]))]
-		}
-		// Add cosine correction
-		if pq.distFnName == models.DistanceCosine {
-			dist -= float32(pq.params.NumSubVectors - 1)
 		}
 		return dist
 	}
