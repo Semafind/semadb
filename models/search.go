@@ -86,15 +86,15 @@ type SearchStringOptions struct {
 }
 
 type SearchIntegerOptions struct {
-	Value    int    `json:"value" binding:"required"`
+	Value    int64  `json:"value" binding:"required"`
 	Operator string `json:"operator" binding:"required,oneof=equals notEquals greaterThan greaterThanOrEquals lessThan lessThanOrEquals inRange"`
-	EndValue string `json:"endValue"`
+	EndValue int64  `json:"endValue"`
 }
 
 type SearchFloatOptions struct {
-	Value    float32 `json:"value" binding:"required"`
+	Value    float64 `json:"value" binding:"required"`
 	Operator string  `json:"operator" binding:"required,oneof=equals notEquals greaterThan greaterThanOrEquals lessThan lessThanOrEquals inRange"`
-	EndValue string  `json:"endValue"`
+	EndValue float64 `json:"endValue"`
 }
 
 type SearchStringArrayOptions struct {

@@ -9,6 +9,7 @@ import (
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index/flat"
+	"github.com/semafind/semadb/shard/index/inverted"
 	"github.com/semafind/semadb/shard/index/text"
 	"github.com/semafind/semadb/shard/index/vamana"
 )
@@ -127,6 +128,34 @@ func (im indexManager) Search(
 			return nil, nil, fmt.Errorf("could not create text index %s: %w", bucketName, err)
 		}
 		return textIndex.Search(*q.Text, filter)
+	case models.IndexTypeString:
+		if q.String == nil {
+			return nil, nil, fmt.Errorf("no string query options")
+		}
+		stringIndex := inverted.NewIndexInvertedString(bucket, *iparams.String)
+		rSet, err := stringIndex.Search(*q.String)
+		return rSet, nil, err
+	case models.IndexTypeStringArray:
+		if q.StringArray == nil {
+			return nil, nil, fmt.Errorf("no stringArray query options")
+		}
+		stringArrayIndex := inverted.NewIndexInvertedArrayString(bucket, *iparams.StringArray)
+		rSet, err := stringArrayIndex.Search(*q.StringArray)
+		return rSet, nil, err
+	case models.IndexTypeInteger:
+		if q.Integer == nil {
+			return nil, nil, fmt.Errorf("no integer query options")
+		}
+		integerIndex := inverted.NewIndexInverted[int64](bucket)
+		rSet, err := integerIndex.Search(q.Integer.Value, q.Integer.EndValue, q.Integer.Operator)
+		return rSet, nil, err
+	case models.IndexTypeFloat:
+		if q.Float == nil {
+			return nil, nil, fmt.Errorf("no float query options")
+		}
+		floatIndex := inverted.NewIndexInverted[float64](bucket)
+		rSet, err := floatIndex.Search(q.Float.Value, q.Float.EndValue, q.Float.Operator)
+		return rSet, nil, err
 	default:
 		return nil, nil, fmt.Errorf("search not supported for property %s of type %s", q.Property, itype)
 	}

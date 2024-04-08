@@ -67,13 +67,13 @@ func randPoints(size int, idOffset int) []index.IndexPointChange {
 	points := make([]index.IndexPointChange, size)
 	for i := 0; i < size; i++ {
 		ii := i + idOffset + 2 // 0 and 1 are reserved for graph indices such as start node
-		fi := float32(i + idOffset)
+		fi := float32(ii)
 		point := models.PointAsMap{
 			"vector":      []float32{fi, fi + 1},
-			"flat":        []float32{fi, fi},
+			"flat":        []float32{fi, fi + 1},
 			"description": fmt.Sprintf("This is a description %d", ii),
 			"category":    fmt.Sprintf("category %d", ii),
-			"labels":      []string{fmt.Sprintf("label1 %d", ii), fmt.Sprintf("label2 %d", ii)},
+			"labels":      []string{fmt.Sprintf("label1 %d", ii), fmt.Sprintf("label2 %d", ii+1)},
 			"size":        ii,
 			"price":       fi + 0.5,
 			"extra":       fmt.Sprintf("extra %d", ii),
