@@ -378,6 +378,9 @@ func (index *indexText) Search(options models.SearchTextOptions, filter *roaring
 	})
 	// ---------------------------
 	if len(results) > options.Limit {
+		for i := options.Limit; i < len(results); i++ {
+			finalSet.Remove(results[i].NodeId)
+		}
 		results = results[:options.Limit]
 	}
 	// ---------------------------
