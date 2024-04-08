@@ -45,10 +45,33 @@ type VectorStore interface {
 // ---------------------------
 
 func New(params *models.Quantizer, bucket diskstore.Bucket, distFnName string, vectorLength int) (VectorStore, error) {
-	distFn, err := distance.GetDistanceFn(distFnName)
-	if err != nil {
-		return nil, err
+	// ---------------------------
+	var distFn distance.FloatDistFunc
+	// ---------------------------
+	/* We leverage the binary quantizer to implement bitwise operations for
+	 * hamming and jaccard distances. The quantizer is overwritten to accomodate
+	 * the appropiate metric. This setup avoids separate typing upstream and
+	 * allows the user to send in floating point vectors which are binarised by
+	 * the quantiser. */
+	if distFnName == models.DistanceHamming || distFnName == models.DistanceJaccard {
+		// Assuming vector values are 0.0 and 1.0 for hamming and jaccard
+		// distances, we set the threshold to 0.5.
+		threshold := float32(0.5)
+		params = &models.Quantizer{
+			Type: models.QuantizerBinary,
+			Binary: &models.BinaryQuantizerParamaters{
+				Threshold:      &threshold,
+				DistanceMetric: distFnName,
+			},
+		}
+	} else {
+		var err error
+		distFn, err = distance.GetFloatDistanceFn(distFnName)
+		if err != nil {
+			return nil, err
+		}
 	}
+	// ---------------------------
 	if params == nil || params.Type == models.QuantizerNone {
 		ps := plainStore{
 			items:  cache.NewItemCache[uint64, plainPoint](bucket),
@@ -56,12 +79,13 @@ func New(params *models.Quantizer, bucket diskstore.Bucket, distFnName string, v
 		}
 		return ps, nil
 	}
+	// ---------------------------
 	switch params.Type {
 	case models.QuantizerBinary:
 		if params.Binary == nil {
 			return nil, fmt.Errorf("binary quantizer parameters are nil")
 		}
-		return newBinaryQuantizer(bucket, distFn, *params.Binary, vectorLength), nil
+		return newBinaryQuantizer(bucket, distFn, *params.Binary, vectorLength)
 	case models.QuantizerProduct:
 		if params.Product == nil {
 			return nil, fmt.Errorf("product quantizer parameters are nil")

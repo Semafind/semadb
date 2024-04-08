@@ -42,7 +42,7 @@ func (km *KMeans) Fit(X [][]float32) {
 	 *
 	 * Read more at: https://en.wikipedia.org/wiki/K-means_clustering
 	 */
-	distFn, _ := distance.GetDistanceFn(models.DistanceEuclidean)
+	distFn, _ := distance.GetFloatDistanceFn(models.DistanceEuclidean)
 	logger := log.With().Str("module", "kmeans").Int("size", len(X)).Logger()
 	// ---------------------------
 	/* Initialise centroids following kmeans++, we effectively find the furthest

@@ -13,7 +13,7 @@ import (
 
 var storeTypes = []*models.Quantizer{
 	{Type: models.QuantizerNone},
-	{Type: models.QuantizerBinary, Binary: &models.BinaryQuantizerParamaters{Threshold: nil, TriggerThreshold: 5}},
+	{Type: models.QuantizerBinary, Binary: &models.BinaryQuantizerParamaters{Threshold: nil, TriggerThreshold: 5, DistanceMetric: models.DistanceHamming}},
 	{Type: models.QuantizerProduct, Product: &models.ProductQuantizerParameters{NumCentroids: 256, NumSubVectors: 2, TriggerThreshold: 5}},
 }
 

@@ -1,6 +1,7 @@
 package vectorstore
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -24,19 +25,27 @@ const binaryQuantizerThresholdKey = "_binaryQuantizerThreshold"
 type binaryQuantizer struct {
 	// The threshold value for the binary quantizer. It is a pointer to distinguish
 	// between 0 value vs not set.
-	threshold []float32
-	params    models.BinaryQuantizerParamaters
-	items     *cache.ItemCache[uint64, *binaryQuantizedPoint]
-	bucket    diskstore.Bucket
-	distFn    distance.DistFunc
+	threshold   []float32
+	params      models.BinaryQuantizerParamaters
+	items       *cache.ItemCache[uint64, *binaryQuantizedPoint]
+	bucket      diskstore.Bucket
+	floatDistFn distance.FloatDistFunc
+	bitDistFn   distance.BitDistFunc
 }
 
-func newBinaryQuantizer(bucket diskstore.Bucket, distFn distance.DistFunc, params models.BinaryQuantizerParamaters, vectorLen int) *binaryQuantizer {
+func newBinaryQuantizer(bucket diskstore.Bucket, floatDistFn distance.FloatDistFunc, params models.BinaryQuantizerParamaters, vectorLen int) (*binaryQuantizer, error) {
+	// ---------------------------
+	bitDistFn, err := distance.GetBitDistanceFn(params.DistanceMetric)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bit distance function: %w", err)
+	}
+	// ---------------------------
 	bq := &binaryQuantizer{
-		items:  cache.NewItemCache[uint64, *binaryQuantizedPoint](bucket),
-		params: params,
-		distFn: distFn,
-		bucket: bucket,
+		items:       cache.NewItemCache[uint64, *binaryQuantizedPoint](bucket),
+		params:      params,
+		floatDistFn: floatDistFn,
+		bitDistFn:   bitDistFn,
+		bucket:      bucket,
 	}
 	// Setup the threshold, if given
 	if params.Threshold != nil {
@@ -51,7 +60,7 @@ func newBinaryQuantizer(bucket diskstore.Bucket, distFn distance.DistFunc, param
 			bq.threshold = conversion.BytesToFloat32(floatBytes)
 		}
 	}
-	return bq
+	return bq, nil
 }
 
 func (bq *binaryQuantizer) Exists(id uint64) bool {
@@ -186,7 +195,7 @@ func (bq *binaryQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 				log.Warn().Uint64("id", y.Id()).Msg("point not found for distance calculation")
 				return math.MaxFloat32
 			}
-			return distance.HammingDistance(encodedX, pointY.BinaryVector)
+			return bq.bitDistFn(encodedX, pointY.BinaryVector)
 		}
 	}
 	/* Here we fall back to the original vector if the threshold is not set. */
@@ -196,7 +205,7 @@ func (bq *binaryQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 			log.Warn().Uint64("id", y.Id()).Msg("point not found for distance calculation")
 			return math.MaxFloat32
 		}
-		return bq.distFn(x, pointY.Vector)
+		return bq.floatDistFn(x, pointY.Vector)
 	}
 }
 
@@ -209,7 +218,7 @@ func (bq *binaryQuantizer) DistanceFromPoint(x VectorStorePoint) PointIdDistFn {
 				log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
 				return math.MaxFloat32
 			}
-			return distance.HammingDistance(pointX.BinaryVector, pointB.BinaryVector)
+			return bq.bitDistFn(pointX.BinaryVector, pointB.BinaryVector)
 		}
 	}
 	// Fallback to original vector
@@ -219,7 +228,7 @@ func (bq *binaryQuantizer) DistanceFromPoint(x VectorStorePoint) PointIdDistFn {
 			log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
 			return math.MaxFloat32
 		}
-		return bq.distFn(pointX.Vector, pointB.Vector)
+		return bq.floatDistFn(pointX.Vector, pointB.Vector)
 	}
 }
 
@@ -284,13 +293,15 @@ func (bqp *binaryQuantizedPoint) ReadFrom(id uint64, bucket diskstore.Bucket) (p
 }
 
 func (bqp *binaryQuantizedPoint) WriteTo(id uint64, bucket diskstore.Bucket) error {
-	if len(bqp.Vector) != 0 {
-		if err := bucket.Put(conversion.NodeKey(id, 'v'), conversion.Float32ToBytes(bqp.Vector)); err != nil {
-			return err
-		}
-	}
 	if len(bqp.BinaryVector) != 0 {
 		if err := bucket.Put(conversion.NodeKey(id, 'q'), conversion.EdgeListToBytes(bqp.BinaryVector)); err != nil {
+			return err
+		}
+		// We avoid writing the full vector if the quantised version exists.
+		return nil
+	}
+	if len(bqp.Vector) != 0 {
+		if err := bucket.Put(conversion.NodeKey(id, 'v'), conversion.Float32ToBytes(bqp.Vector)); err != nil {
 			return err
 		}
 	}

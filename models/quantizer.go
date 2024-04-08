@@ -13,6 +13,8 @@ type BinaryQuantizerParamaters struct {
 	// Number of points to use to calculate the threshold. It may be ignored if
 	// the threshold is set.
 	TriggerThreshold int `json:"triggerThreshold"`
+	// Distance function to use for binary quantizer, it can be either hamming or jaccard.
+	DistanceMetric string `json:"distanceMetric" binding:"required,oneof=hamming jaccard"`
 }
 
 type ProductQuantizerParameters struct {

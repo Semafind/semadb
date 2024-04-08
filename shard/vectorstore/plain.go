@@ -15,7 +15,7 @@ import (
  * store option. */
 type plainStore struct {
 	items  *cache.ItemCache[uint64, plainPoint]
-	distFn distance.DistFunc
+	distFn distance.FloatDistFunc
 }
 
 func (ps plainStore) Exists(id uint64) bool {

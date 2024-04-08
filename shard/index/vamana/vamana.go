@@ -14,7 +14,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
-	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/vectorstore"
@@ -35,7 +34,6 @@ const (
 // ---------------------------
 
 type IndexVamana struct {
-	distFn     distance.DistFunc
 	parameters models.IndexVectorVamanaParameters
 	// ---------------------------
 	vecStore  vectorstore.VectorStore
@@ -54,13 +52,9 @@ type IndexVamana struct {
 }
 
 func NewIndexVamana(name string, params models.IndexVectorVamanaParameters, bucket diskstore.Bucket) (*IndexVamana, error) {
-	distFn, err := distance.GetDistanceFn(params.DistanceMetric)
-	if err != nil {
-		return nil, fmt.Errorf("could not get distance function: %w", err)
-	}
 	logger := log.With().Str("component", "IndexVamana").Str("name", name).Logger()
+	// ---------------------------
 	index := &IndexVamana{
-		distFn:     distFn,
 		parameters: params,
 		nodeStore:  cache.NewItemCache[uint64, *graphNode](bucket),
 		bucket:     bucket,

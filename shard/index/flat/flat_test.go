@@ -158,7 +158,7 @@ func Test_Recall(t *testing.T) {
 			// Find ground truth
 			groundTruth := make([]models.SearchResult, 0)
 			for _, rp := range rps {
-				distFn, _ := distance.GetDistanceFn(params.DistanceMetric)
+				distFn, _ := distance.GetFloatDistanceFn(params.DistanceMetric)
 				dist := distFn(options.Vector, rp.Vector)
 				groundTruth = append(groundTruth, models.SearchResult{
 					NodeId:   rp.Id,
