@@ -46,6 +46,16 @@ func HammingDistance(x, y []uint64) float32 {
 	return float32(dist)
 }
 
+func JaccardDistance(x, y []uint64) float32 {
+	intersection := 0
+	union := 0
+	for i := range x {
+		intersection += bits.OnesCount64(x[i] & y[i])
+		union += bits.OnesCount64(x[i] | y[i])
+	}
+	return 1 - float32(intersection)/float32(union)
+}
+
 // GetDistanceFn returns the distance function by name.
 func GetDistanceFn(name string) (DistFunc, error) {
 	switch name {

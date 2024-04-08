@@ -65,6 +65,13 @@ func TestHammingDistance(t *testing.T) {
 	require.Equal(t, float32(2), dist)
 }
 
+func TestJaccardDistance(t *testing.T) {
+	x := []uint64{0b1001, 0b1}
+	y := []uint64{0b1101, 0b0}
+	dist := JaccardDistance(x, y)
+	require.Equal(t, float32(0.5), dist)
+}
+
 // ---------------------------
 
 var benchTable = []struct {

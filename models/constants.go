@@ -9,6 +9,7 @@ const (
 	DistanceCosine    = "cosine"
 	DistanceDot       = "dot"
 	DistanceHamming   = "hamming"
+	DistanceJaccard   = "jaccard"
 )
 
 // ---------------------------
