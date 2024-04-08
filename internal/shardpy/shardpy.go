@@ -46,6 +46,7 @@ var collection = models.Collection{
 					Type: "", // Set in initShard
 					Binary: &models.BinaryQuantizerParamaters{
 						TriggerThreshold: 50000,
+						DistanceMetric:   models.DistanceHamming,
 					},
 					Product: &models.ProductQuantizerParameters{
 						NumCentroids:     256,
@@ -66,10 +67,11 @@ var collection = models.Collection{
 func initShard(cfgStr *C.char, metric *C.char, vectorSize int) {
 	globalVectorSize = vectorSize
 	// ---------------------------
+	distMetric := C.GoString(metric)
 	collection.IndexSchema["vector"].VectorVamana.VectorSize = uint(vectorSize)
-	collection.IndexSchema["vector"].VectorVamana.DistanceMetric = C.GoString(metric)
+	collection.IndexSchema["vector"].VectorVamana.DistanceMetric = distMetric
 	collection.IndexSchema["vector"].VectorFlat.VectorSize = uint(vectorSize)
-	collection.IndexSchema["vector"].VectorFlat.DistanceMetric = C.GoString(metric)
+	collection.IndexSchema["vector"].VectorFlat.DistanceMetric = distMetric
 	config := C.GoString(cfgStr)
 	switch config {
 	case "none":
@@ -87,6 +89,8 @@ func initShard(cfgStr *C.char, metric *C.char, vectorSize int) {
 	default:
 		log.Fatal("Invalid config", config)
 	}
+	fmt.Printf("vamanaConfig %+v\n", *collection.IndexSchema["vector"].VectorVamana)
+	fmt.Printf("vamanQuantizer %+v\n", *collection.IndexSchema["vector"].VectorVamana.Quantizer)
 	// ---------------------------
 	// Leaving path blank means use memory, cache manager -1 means cache is
 	// never evicted. So this creates a full in memory shard.
