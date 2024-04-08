@@ -61,15 +61,19 @@ func TestASMSquaredEuclidean(t *testing.T) {
 func TestHammingDistance(t *testing.T) {
 	x := []uint64{0b1001, 0b1}
 	y := []uint64{0b1101, 0b0}
-	dist := HammingDistance(x, y)
+	dist := hammingDistance(x, y)
 	require.Equal(t, float32(2), dist)
 }
 
 func TestJaccardDistance(t *testing.T) {
 	x := []uint64{0b1001, 0b1}
 	y := []uint64{0b1101, 0b0}
-	dist := JaccardDistance(x, y)
+	dist := jaccardDistance(x, y)
 	require.Equal(t, float32(0.5), dist)
+	x = []uint64{0b0, 0b0}
+	y = []uint64{0b0, 0b0}
+	dist = jaccardDistance(x, y)
+	require.Equal(t, float32(0.0), dist)
 }
 
 // ---------------------------
