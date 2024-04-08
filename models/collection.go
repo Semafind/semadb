@@ -37,14 +37,6 @@ func (s IndexSchema) Validate() error {
 			if v.String == nil {
 				return fmt.Errorf("string parameters not provided for %s", k)
 			}
-		case IndexTypeInteger:
-			if v.Integer != nil {
-				return fmt.Errorf("integer parameters not provided for %s", k)
-			}
-		case IndexTypeFloat:
-			if v.Float != nil {
-				return fmt.Errorf("float parameters not provided for %s", k)
-			}
 		case IndexTypeStringArray:
 			if v.StringArray != nil {
 				return fmt.Errorf("stringArray parameters not provided for %s", k)
@@ -63,8 +55,6 @@ type IndexSchemaValue struct {
 	Text         *IndexTextParameters         `json:"text,omitempty"`
 	String       *IndexStringParameters       `json:"string,omitempty"`
 	StringArray  *IndexStringArrayParameters  `json:"stringArray,omitempty"`
-	Integer      *struct{}                    `json:"integer,omitempty"`
-	Float        *struct{}                    `json:"float,omitempty"`
 }
 
 // Attempts to convert a given value to a vector
@@ -165,9 +155,9 @@ func (s IndexSchema) CheckCompatibleMap(m PointAsMap) error {
 			}
 		case IndexTypeFloat:
 			switch v := v.(type) {
-			case float32:
 			case float64:
-				m[k] = float32(v)
+			case float32:
+				m[k] = float64(v)
 			default:
 				return fmt.Errorf("expected float for %s, got %T", k, v)
 			}

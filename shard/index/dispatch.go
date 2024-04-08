@@ -215,7 +215,7 @@ func preProcessText(change decodedPointChange) (doc text.Document, skip bool, er
 	if change.newData != nil {
 		text, ok := change.newData.(string)
 		if !ok {
-			err = fmt.Errorf("could not cast new data: %v", change.newData)
+			err = fmt.Errorf("could not cast new text data: %v", change.newData)
 			return
 		}
 		doc.Text = text
@@ -240,7 +240,7 @@ func preProcessInverted[T inverted.Invertable](change decodedPointChange) (invCh
 	if change.oldData != nil {
 		prevValue, ok := change.oldData.(T)
 		if !ok {
-			err = fmt.Errorf("could not cast old data: %v", change.oldData)
+			err = fmt.Errorf("could not cast old inverted data: %v %T", change.oldData, change.oldData)
 			return
 		}
 		invChange.PreviousData = &prevValue
@@ -248,7 +248,7 @@ func preProcessInverted[T inverted.Invertable](change decodedPointChange) (invCh
 	if change.newData != nil {
 		currentValue, ok := change.newData.(T)
 		if !ok {
-			err = fmt.Errorf("could not cast new data: %v", change.newData)
+			err = fmt.Errorf("could not cast new inverted data: %v %T", change.newData, change.newData)
 			return
 		}
 		invChange.CurrentData = &currentValue
