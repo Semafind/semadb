@@ -431,6 +431,7 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 			pointData = models.PointAsMap{}
 		}
 		// ---------------------------
+		// TODO: Handle pre-decoded data
 		// We re-add the system _id and _distance fields to the point data
 		pointData["_id"] = sp.Point.Id.String()
 		if sp.Distance != nil {

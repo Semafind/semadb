@@ -189,13 +189,8 @@ func query(x []float32, k int, out []uint32) {
 	if len(out) < len(res) {
 		log.Fatal("Output array too small")
 	}
-	var m models.PointAsMap
 	for i, r := range res {
-		err := msgpack.Unmarshal(r.Data, &m)
-		if err != nil {
-			log.Fatal(err)
-		}
-		out[i] = convertToUint32(m["xid"])
+		out[i] = convertToUint32(r.DecodedData["xid"])
 	}
 }
 

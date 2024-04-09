@@ -36,7 +36,10 @@ type Query struct {
 // Shared search result struct for ordered search results
 type SearchResult struct {
 	Point
-	NodeId uint64 `json:"-" msgpack:"-"` // NodeId is not exposed to the client
+	// Used to transmit partially decoded data to the client
+	DecodedData PointAsMap
+	// Internal NodeId is not exposed to the client
+	NodeId uint64 `json:"-" msgpack:"-"`
 	/* Pointers are used to differentiate between zero values and unset values. A
 	 * distance or score of 0 could be valid. */
 	// Computed from vector indices, lower is better
