@@ -1,8 +1,10 @@
 package index
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
@@ -205,55 +207,46 @@ func (im indexManager) searchParallel(
 	}
 	// ---------------------------
 	/* Clean up results. The important thing to note is that we need to
-	 * deduplicate and duplicate search results may have different final scores.
+	 * deduplicate and duplicate search results may have different hybrid scores.
 	 * For example, two searches may find the same item but assign different
-	 * final scores. */
+	 * hybrid scores. In this case we add them together. */
 	finalSize := finalSet.GetCardinality()
 	finalResults := make([]models.SearchResult, 0, finalSize)
-	deduplicateMap := make(map[uint64]struct{}, finalSize)
-	// ---------------------------
-	// This is now like post filtering, we keep only results that are in the
-	// final set while deduplicating.
-	// Perform N-way merge sort on the results sorted by .FinalScore in descending order
-	for {
-		var bestResult *models.SearchResult
-		var bestIndex int
-		// Find the best result across the results array
-		for i, res := range results {
-			if len(res) == 0 {
+	deduplicateMap := make(map[uint64]int, finalSize)
+	// For every result, we check and add hybrid scores
+	for _, res := range results {
+		for _, r := range res {
+			// In the disjunction case we know all the points are valid, so we
+			// only check for !isDisjunction case
+			if !isDisjunction && !finalSet.Contains(r.NodeId) {
 				continue
 			}
-			// Scan for for the first valid result
-			validIdx := 0
-			for !isDisjunction && validIdx < len(res) && !finalSet.Contains(res[validIdx].NodeId) {
-				validIdx++
+			idx, ok := deduplicateMap[r.NodeId]
+			if !ok {
+				deduplicateMap[r.NodeId] = len(finalResults)
+				finalResults = append(finalResults, r)
+			} else {
+				// Add hybrid scores together
+				finalResults[idx].HybridScore += r.HybridScore
+				/* For now we merge the results as it covers the base, but in the
+				 * future we might need to keep track of where these scores come
+				 * from etc. For example if you did a hybrid search of more than
+				 * 2 items, the distance and the score will be from the first
+				 * search. */
+				if finalResults[idx].Distance == nil && r.Distance != nil {
+					finalResults[idx].Distance = r.Distance
+				}
+				if finalResults[idx].Score == nil && r.Score != nil {
+					finalResults[idx].Score = r.Score
+				}
 			}
-			// Adjust the result array if we skipped elements
-			if validIdx > 0 {
-				results[i] = res[validIdx:]
-			}
-			// If we reached the end of the array, skip
-			if validIdx == len(res) {
-				continue
-			}
-			if bestResult == nil || *res[validIdx].FinalScore > *bestResult.FinalScore {
-				bestResult = &res[validIdx]
-				bestIndex = i
-			}
-		}
-		// Are we done?
-		if bestResult == nil {
-			break
-		}
-		// This is what leads to the loop terminating, we chip away at the
-		// results array one element at a time.
-		results[bestIndex] = results[bestIndex][1:]
-		// Is this result in the final set?
-		if _, ok := deduplicateMap[bestResult.NodeId]; !ok {
-			deduplicateMap[bestResult.NodeId] = struct{}{}
-			finalResults = append(finalResults, *bestResult)
 		}
 	}
+	// ---------------------------
+	// Sort based on potential new hybrid scores
+	slices.SortFunc(finalResults, func(a, b models.SearchResult) int {
+		return cmp.Compare(b.HybridScore, a.HybridScore)
+	})
 	// ---------------------------
 	return finalSet, finalResults, nil
 }

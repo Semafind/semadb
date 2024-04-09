@@ -44,7 +44,7 @@ type SearchResult struct {
 	// Computed from generic indices, higher is better
 	Score *float32 `json:"_score,omitempty" msgpack:"_score,omitempty"`
 	// Combined final score
-	FinalScore *float32 `json:"_finalScore,omitempty" msgpack:"_finalScore,omitempty"`
+	HybridScore float32 `json:"_hybridScore" msgpack:"_hybridScore"`
 }
 
 // ---------------------------

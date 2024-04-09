@@ -280,6 +280,11 @@ func (v *IndexVamana) Search(ctx context.Context, query models.SearchVectorVaman
 	if query.Weight != nil {
 		weight = *query.Weight
 	}
+	minDist := searchSet.items[0].Distance
+	maxDist := searchSet.items[min(len(searchSet.items)-1, query.Limit)].Distance
+	if maxDist == minDist {
+		maxDist += 1
+	}
 	// ---------------------------
 	for _, elem := range searchSet.items {
 		if elem.Point.Id() == STARTID {
@@ -288,15 +293,14 @@ func (v *IndexVamana) Search(ctx context.Context, query models.SearchVectorVaman
 		if len(results) >= query.Limit {
 			break
 		}
-		// We multiply by -1 to make the distance a positive score
-		score := (-1 * weight * elem.Distance)
 		sr := models.SearchResult{
-			NodeId:     elem.Point.Id(),
-			Distance:   &elem.Distance,
-			FinalScore: &score,
+			NodeId:      elem.Point.Id(),
+			Distance:    &elem.Distance,
+			HybridScore: (1 - (elem.Distance-minDist)/(maxDist-minDist)) * weight,
 		}
 		results = append(results, sr)
 		resultSet.Add(elem.Point.Id())
 	}
+	// ---------------------------
 	return resultSet, results, err
 }

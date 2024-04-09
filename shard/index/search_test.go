@@ -220,7 +220,7 @@ func TestSearch_And(t *testing.T) {
 	// Check sorting on the results
 	for i := 0; i < len(results)-1; i++ {
 		require.True(t, expectedSet.Contains(results[i].NodeId))
-		require.GreaterOrEqual(t, *results[i].FinalScore, *results[i+1].FinalScore)
+		require.GreaterOrEqual(t, results[i].HybridScore, results[i+1].HybridScore)
 	}
 }
 
@@ -259,7 +259,7 @@ func TestSearch_Or(t *testing.T) {
 	// Check sorting on the results
 	for i := 0; i < len(results)-1; i++ {
 		require.True(t, expectedSet.Contains(results[i].NodeId))
-		require.GreaterOrEqual(t, *results[i].FinalScore, *results[i+1].FinalScore)
+		require.GreaterOrEqual(t, results[i].HybridScore, results[i+1].HybridScore)
 	}
 	require.Equal(t, uint64(42), results[0].NodeId)
 	require.Equal(t, uint64(43), results[1].NodeId)

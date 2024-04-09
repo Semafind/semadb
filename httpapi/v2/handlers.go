@@ -439,9 +439,7 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 		if sp.Score != nil {
 			pointData["_score"] = *sp.Score
 		}
-		if sp.FinalScore != nil {
-			pointData["_finalScore"] = *sp.FinalScore
-		}
+		pointData["_hybridScore"] = sp.HybridScore
 		results[i] = pointData
 	}
 	resp := SearchPointsResponse{Points: results}
