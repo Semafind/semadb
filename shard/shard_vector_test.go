@@ -76,7 +76,7 @@ var sampleCol models.Collection = models.Collection{
 		Name:                    "test",
 		MaxCollections:          1,
 		MaxCollectionPointCount: 100000,
-		MaxMetadataSize:         100000,
+		MaxMetadataSize:         10000,
 		ShardBackupFrequency:    0,
 		ShardBackupCount:        0,
 	},
@@ -261,13 +261,12 @@ func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
 	})
 }*/
 
-func randPoints(size int) []models.Point {
-	points := make([]models.Point, size)
+func randPointsAsMap(size int) []models.PointAsMap {
+	points := make([]models.PointAsMap, size)
 	for i := 0; i < size; i++ {
 		randVector := make([]float32, 2)
 		randVector[0] = rand.Float32()
 		randVector[1] = rand.Float32()
-		id := uuid.New()
 		// We're using a slice of the id as random metadata
 		fi := float32(i)
 		pointData := models.PointAsMap{
@@ -285,16 +284,29 @@ func randPoints(size int) []models.Point {
 		if sampleIndexSchema.CheckCompatibleMap(pointData) != nil {
 			panic("Incompatible map")
 		}
-		pointDataBytes, err := msgpack.Marshal(pointData)
+		points[i] = pointData
+	}
+	return points
+
+}
+
+func pointsAsMapToPoints(points []models.PointAsMap) []models.Point {
+	pointList := make([]models.Point, len(points))
+	for i, p := range points {
+		pointDataBytes, err := msgpack.Marshal(p)
 		if err != nil {
 			panic(err)
 		}
-		points[i] = models.Point{
-			Id:   id,
+		pointList[i] = models.Point{
+			Id:   uuid.New(),
 			Data: pointDataBytes,
 		}
 	}
-	return points
+	return pointList
+}
+
+func randPoints(size int) []models.Point {
+	return pointsAsMapToPoints(randPointsAsMap(size))
 }
 
 func getVector(p models.Point) []float32 {

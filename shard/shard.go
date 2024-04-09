@@ -270,6 +270,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 				err = fmt.Errorf("could not get point by id: %w", err)
 				return
 			}
+			// ---------------------------
 			// Merge data on update
 			var existingData models.PointAsMap
 			var incomingData models.PointAsMap
@@ -281,7 +282,6 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 				err = fmt.Errorf("could not unmarshal new data: %w", err)
 				return
 			}
-			// TODO: add tests for this merging and deleting of values
 			for k, v := range incomingData {
 				if vs, ok := v.(string); ok && vs == DELETEVALUE {
 					delete(existingData, k)
@@ -294,8 +294,8 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 				err = fmt.Errorf("could not marshal final new data: %w", err)
 				return
 			}
+			// ---------------------------
 			// Check if the user is making a point too large
-			// TODO: Add tests for this check
 			if len(finalNewData) > s.collection.UserPlan.MaxMetadataSize {
 				err = fmt.Errorf("point size exceeds limit: %d", s.collection.UserPlan.MaxMetadataSize)
 				return
