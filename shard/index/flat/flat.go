@@ -76,6 +76,11 @@ func (inf IndexFlat) InsertUpdateDelete(ctx context.Context, points <-chan vaman
 func (inf IndexFlat) Search(ctx context.Context, options models.SearchVectorFlatOptions, filter *roaring64.Bitmap) (*roaring64.Bitmap, []models.SearchResult, error) {
 	distFn := inf.vecStore.DistanceFromFloat(options.Vector)
 	// ---------------------------
+	var weight float32 = 1
+	if options.Weight != nil {
+		weight = *options.Weight
+	}
+	// ---------------------------
 	/* We used to use multiple workers to scan through the vector store, but for
 	 * individual requests coming it adds too much overhead and the gain a low,
 	 * around 10 queries per second. So to not suffocate the CPU across requests
@@ -97,9 +102,11 @@ func (inf IndexFlat) Search(ctx context.Context, options models.SearchVectorFlat
 		/* Insert using insertion sort, we don't expect limit (K) to be very
 		 * large. We add the element to the end and swap until it is in the right
 		 * place. */
+		score := (-1 * weight * dist)
 		sr := models.SearchResult{
-			NodeId:   point.Id(),
-			Distance: &dist,
+			NodeId:     point.Id(),
+			Distance:   &dist,
+			FinalScore: &score,
 		}
 		if len(res) < cap(res) {
 			res = append(res, sr)
@@ -116,16 +123,9 @@ func (inf IndexFlat) Search(ctx context.Context, options models.SearchVectorFlat
 	}
 	log.Debug().Dur("elapsed", time.Since(startTime)).Msg("search flat")
 	// ---------------------------
-	var weight float32 = 1
-	if options.Weight != nil {
-		weight = *options.Weight
-	}
-	// ---------------------------
 	rSet := roaring64.New()
 	for _, r := range res {
 		rSet.Add(r.NodeId)
-		score := (-1 * weight * *r.Distance)
-		r.FinalScore = &score
 	}
 	return rSet, res, nil
 }

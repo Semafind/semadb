@@ -189,7 +189,7 @@ func (im indexManager) searchParallel(
 	// ---------------------------
 	wg.Wait()
 	if err := context.Cause(ctx); err != nil {
-		return nil, nil, fmt.Errorf("search failed: %w", err)
+		return nil, nil, fmt.Errorf("parallel search failed: %w", err)
 	}
 	// ---------------------------
 	if len(queries) == 1 {
@@ -198,50 +198,61 @@ func (im indexManager) searchParallel(
 	}
 	// ---------------------------
 	var finalSet *roaring64.Bitmap
-	finalResults := make([]models.SearchResult, 0)
-	duplicateMap := make(map[uint64]struct{})
-	if !isDisjunction {
-		// We will take the intersection of all sets
+	if isDisjunction {
+		finalSet = roaring64.FastOr(sets...)
+	} else {
 		finalSet = roaring64.FastAnd(sets...)
-		// This is now like post-filtering, we only keep those results that are in
-		// the final set
-		for _, res := range results {
-			for _, r := range res {
-				if finalSet.Contains(r.NodeId) {
-					if _, ok := duplicateMap[r.NodeId]; !ok {
-						finalResults = append(finalResults, r)
-						duplicateMap[r.NodeId] = struct{}{}
-					}
-				}
-			}
-		}
-		return finalSet, finalResults, nil
 	}
-	// We will take the union of all sets
-	finalSet = roaring64.FastOr(sets...)
 	// ---------------------------
-	// N way merge sort descending on .FinalScore property
+	/* Clean up results. The important thing to note is that we need to
+	 * deduplicate and duplicate search results may have different final scores.
+	 * For example, two searches may find the same item but assign different
+	 * final scores. */
+	finalSize := finalSet.GetCardinality()
+	finalResults := make([]models.SearchResult, 0, finalSize)
+	deduplicateMap := make(map[uint64]struct{}, finalSize)
+	// ---------------------------
+	// This is now like post filtering, we keep only results that are in the
+	// final set while deduplicating.
+	// Perform N-way merge sort on the results sorted by .FinalScore in descending order
 	for {
-		var best models.SearchResult
-		bestIndex := -1
-		// We loop through to find the highest score from the results array
+		var bestResult *models.SearchResult
+		var bestIndex int
+		// Find the best result across the results array
 		for i, res := range results {
 			if len(res) == 0 {
 				continue
 			}
-			if *res[0].FinalScore > *best.FinalScore {
-				best = res[0]
+			// Scan for for the first valid result
+			validIdx := 0
+			for !isDisjunction && validIdx < len(res) && !finalSet.Contains(res[validIdx].NodeId) {
+				validIdx++
+			}
+			// Adjust the result array if we skipped elements
+			if validIdx > 0 {
+				results[i] = res[validIdx:]
+			}
+			// If we reached the end of the array, skip
+			if validIdx == len(res) {
+				continue
+			}
+			if bestResult == nil || *res[validIdx].FinalScore > *bestResult.FinalScore {
+				bestResult = &res[validIdx]
 				bestIndex = i
 			}
 		}
-		if bestIndex == -1 {
+		// Are we done?
+		if bestResult == nil {
 			break
 		}
-		if _, ok := duplicateMap[best.NodeId]; !ok {
-			finalResults = append(finalResults, best)
-			duplicateMap[best.NodeId] = struct{}{}
-		}
+		// This is what leads to the loop terminating, we chip away at the
+		// results array one element at a time.
 		results[bestIndex] = results[bestIndex][1:]
+		// Is this result in the final set?
+		if _, ok := deduplicateMap[bestResult.NodeId]; !ok {
+			deduplicateMap[bestResult.NodeId] = struct{}{}
+			finalResults = append(finalResults, *bestResult)
+		}
 	}
 	// ---------------------------
 	return finalSet, finalResults, nil
