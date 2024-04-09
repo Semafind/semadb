@@ -55,11 +55,12 @@ type SortOption struct {
 }
 
 type SearchVectorVamanaOptions struct {
-	Vector   []float32 `json:"vector" binding:"required,max=4096"`
-	Operator string    `json:"operator" binding:"required,oneof=near"`
-	Limit    int       `json:"limit" binding:"required,min=1,max=75"`
-	Filter   *Query    `json:"filter"`
-	Weight   *float32  `json:"weight"`
+	Vector     []float32 `json:"vector" binding:"required,max=4096"`
+	Operator   string    `json:"operator" binding:"required,oneof=near"`
+	SearchSize int       `json:"searchSize" binding:"required,min=25,max=75"`
+	Limit      int       `json:"limit" binding:"required,min=1,max=75"`
+	Filter     *Query    `json:"filter"`
+	Weight     *float32  `json:"weight"`
 }
 
 type SearchVectorFlatOptions struct {

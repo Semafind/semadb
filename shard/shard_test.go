@@ -273,9 +273,10 @@ func searchRequest(p models.Point, limit int) models.SearchRequest {
 		Query: models.Query{
 			Property: "vector",
 			VectorVamana: &models.SearchVectorVamanaOptions{
-				Vector:   getVector(p),
-				Limit:    limit,
-				Operator: "near",
+				Vector:     getVector(p),
+				SearchSize: 75,
+				Limit:      limit,
+				Operator:   "near",
 			},
 		},
 		Limit: limit,

@@ -170,8 +170,9 @@ func query(x []float32, k int, out []uint32) {
 		Query: models.Query{
 			Property: "vector",
 			VectorVamana: &models.SearchVectorVamanaOptions{
-				Vector: x,
-				Limit:  k,
+				Vector:     x,
+				SearchSize: 75,
+				Limit:      k,
 			},
 			VectorFlat: &models.SearchVectorFlatOptions{
 				Vector: x,

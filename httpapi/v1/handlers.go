@@ -451,9 +451,10 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 		Query: models.Query{
 			Property: "vector",
 			VectorVamana: &models.SearchVectorVamanaOptions{
-				Vector:   req.Vector,
-				Limit:    req.Limit,
-				Operator: "near",
+				Vector:     req.Vector,
+				SearchSize: 75, // Default search size
+				Limit:      req.Limit,
+				Operator:   "near",
 			},
 		},
 		Select: []string{"metadata"},

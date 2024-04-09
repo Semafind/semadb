@@ -209,12 +209,13 @@ func Test_EmptySearch(t *testing.T) {
 	// ---------------------------
 	// Search
 	s := models.SearchVectorVamanaOptions{
-		Vector: []float32{0.5, 0.5},
-		Limit:  10,
+		Vector:     []float32{0.5, 0.5},
+		SearchSize: 75,
+		Limit:      10,
 	}
 	set, res, err := inv.Search(context.Background(), s, nil)
-	require.True(t, set.IsEmpty())
 	require.NoError(t, err)
+	require.True(t, set.IsEmpty())
 	require.Len(t, res, 0)
 }
 
@@ -231,8 +232,9 @@ func Test_Search(t *testing.T) {
 	// Search
 	for _, rp := range rps {
 		s := models.SearchVectorVamanaOptions{
-			Vector: rp.Vector,
-			Limit:  10,
+			Vector:     rp.Vector,
+			SearchSize: 75,
+			Limit:      10,
 		}
 		_, res, err := inv.Search(context.Background(), s, nil)
 		require.NoError(t, err)
@@ -254,8 +256,9 @@ func Test_FilterSearch(t *testing.T) {
 	// Search
 	rp := rps[0]
 	s := models.SearchVectorVamanaOptions{
-		Vector: rp.Vector,
-		Limit:  10,
+		Vector:     rp.Vector,
+		SearchSize: 75,
+		Limit:      10,
 	}
 	filter := roaring64.BitmapOf(rp.Id, rp.Id+1, rp.Id+2)
 	_, res, err := inv.Search(ctx, s, filter)

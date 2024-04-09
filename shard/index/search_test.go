@@ -87,8 +87,9 @@ func TestSearch_Single(t *testing.T) {
 				Limit:  10,
 			},
 			VectorVamana: &models.SearchVectorVamanaOptions{
-				Vector: []float32{42, 43},
-				Limit:  10,
+				Vector:     []float32{42, 43},
+				SearchSize: 75,
+				Limit:      10,
 			},
 			Text: &models.SearchTextOptions{
 				Value:    "description 42",

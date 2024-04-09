@@ -268,7 +268,7 @@ func (v *IndexVamana) flush() error {
 
 func (v *IndexVamana) Search(ctx context.Context, query models.SearchVectorVamanaOptions, filter *roaring64.Bitmap) (*roaring64.Bitmap, []models.SearchResult, error) {
 	startTime := time.Now()
-	searchSet, _, err := v.greedySearch(query.Vector, query.Limit, v.parameters.SearchSize, filter)
+	searchSet, _, err := v.greedySearch(query.Vector, query.Limit, query.SearchSize, filter)
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not perform graph search: %w", err)
 	}
