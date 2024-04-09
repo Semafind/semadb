@@ -1,6 +1,7 @@
 package shard
 
 import (
+	"fmt"
 	"math/rand"
 	"path/filepath"
 	"sync"
@@ -17,22 +18,60 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-var sampleCol models.Collection = models.Collection{
-	UserId:   "test",
-	Id:       "test",
-	Replicas: 1,
-	IndexSchema: models.IndexSchema{
-		"vector": models.IndexSchemaValue{
-			Type: "vectorVamana",
-			VectorVamana: &models.IndexVectorVamanaParameters{
-				VectorSize:     2,
-				DistanceMetric: "euclidean",
-				SearchSize:     75,
-				DegreeBound:    64,
-				Alpha:          1.2,
+var sampleIndexSchema = models.IndexSchema{
+	"vector": models.IndexSchemaValue{
+		Type: models.IndexTypeVectorVamana,
+		VectorVamana: &models.IndexVectorVamanaParameters{
+			VectorSize:     2,
+			DistanceMetric: "euclidean",
+			SearchSize:     75,
+			DegreeBound:    64,
+			Alpha:          1.2,
+		},
+	},
+	"flat": models.IndexSchemaValue{
+		Type: models.IndexTypeVectorFlat,
+		VectorFlat: &models.IndexVectorFlatParameters{
+			VectorSize:     2,
+			DistanceMetric: "euclidean",
+		},
+	},
+	"description": models.IndexSchemaValue{
+		Type: models.IndexTypeText,
+		Text: &models.IndexTextParameters{
+			Analyser: "standard",
+		},
+	},
+	"category": models.IndexSchemaValue{
+		Type: models.IndexTypeString,
+		String: &models.IndexStringParameters{
+			CaseSensitive: false,
+		},
+	},
+	"labels": models.IndexSchemaValue{
+		Type: models.IndexTypeStringArray,
+		StringArray: &models.IndexStringArrayParameters{
+			IndexStringParameters: models.IndexStringParameters{
+				CaseSensitive: false,
 			},
 		},
 	},
+	"size": models.IndexSchemaValue{
+		Type: models.IndexTypeInteger,
+	},
+	"price": models.IndexSchemaValue{
+		Type: models.IndexTypeFloat,
+	},
+	"nonExistent": models.IndexSchemaValue{
+		Type: models.IndexTypeInteger,
+	},
+}
+
+var sampleCol models.Collection = models.Collection{
+	UserId:      "test",
+	Id:          "test",
+	Replicas:    1,
+	IndexSchema: sampleIndexSchema,
 	UserPlan: models.UserPlan{
 		Name:                    "test",
 		MaxCollections:          1,
@@ -229,11 +268,20 @@ func randPoints(size int) []models.Point {
 		randVector[0] = rand.Float32()
 		randVector[1] = rand.Float32()
 		id := uuid.New()
-		randIndex := rand.Intn(16)
 		// We're using a slice of the id as random metadata
+		fi := float32(i)
 		pointData := models.PointAsMap{
-			"vector":   randVector,
-			"metadata": id[:randIndex],
+			"vector":      randVector,
+			"flat":        []float32{fi, fi + 1},
+			"description": fmt.Sprintf("This is a description %d", i),
+			"category":    fmt.Sprintf("category %d", i),
+			"labels":      []string{fmt.Sprintf("label1 %d", i), fmt.Sprintf("label2 %d", i+1)},
+			"size":        i,
+			"price":       fi + 0.5,
+			"extra":       fmt.Sprintf("extra %d", i),
+		}
+		if sampleIndexSchema.CheckCompatibleMap(pointData) != nil {
+			panic("Incompatible map")
 		}
 		pointDataBytes, err := msgpack.Marshal(pointData)
 		if err != nil {
