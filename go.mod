@@ -3,7 +3,7 @@ module github.com/semafind/semadb
 go 1.22.0
 
 require (
-	github.com/RoaringBitmap/roaring v1.9.1
+	github.com/RoaringBitmap/roaring v1.9.2
 	github.com/bits-and-blooms/bitset v1.13.0
 	github.com/blevesearch/bleve/v2 v2.4.0
 	github.com/cespare/xxhash v1.1.0
