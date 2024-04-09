@@ -391,10 +391,11 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 		selectSortStart := time.Now()
 		/* We are selecting only a subset of the point data. We need to partial
 		 * decode and re-encode the point data. */
-		tempPoints := make([]models.PointAsMap, len(finalResults))
 		dec := msgpack.NewDecoder(nil)
 		for i, r := range finalResults {
-			tp := make(models.PointAsMap)
+			// This fills with selected properties {"name": ...}
+			finalResults[i].DecodedData = make(models.PointAsMap)
+			// E.g. ["name", "age"]
 			for _, p := range searchRequest.Select {
 				// E.g. p = "name"
 				dec.Reset(bytes.NewReader(r.Point.Data))
@@ -406,28 +407,35 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 					// Didn't find anything for this property
 					continue
 				}
-				tp[p] = res[0]
+				// This means {"property": value} e.g. {"name": "james"}
+				finalResults[i].DecodedData[p] = res[0]
 			}
-			tempPoints[i] = tp
+			// We erase data information as it is not needed anymore, saves us
+			// from transmitting it
+			finalResults[i].Data = nil
 		}
 		// ---------------------------
 		// Time to sort, the tricky bit here is that the type of values is any.
 		if len(searchRequest.Sort) > 0 {
 			/* Because we don't know the type of the values, this may be a costly
 			 * operation to undertake. We should monitor how this performs. */
-			slices.SortFunc(tempPoints, func(a models.PointAsMap, b models.PointAsMap) int {
+			slices.SortFunc(finalResults, func(a, b models.SearchResult) int {
 				for _, s := range searchRequest.Sort {
 					// E.g. s = "age"
-					av, ok := a[s.Property]
-					if !ok {
-						// If the property is missing, we need to decide what to do
-						// here. We can either put it at the top or bottom. We put it
-						// at the bottom for now.
+					av, aok := a.DecodedData[s.Property]
+					bv, bok := b.DecodedData[s.Property]
+					/* If the property is missing, we need to decide what to do
+					 * here. We can either put it at the top or bottom. We put it
+					 * at the bottom for now so that missing values are last. */
+					if aok && !bok {
+						// a has it, but b doesn't
+						return -1
+					}
+					if !aok && bok {
 						return 1
 					}
-					bv, ok := b[s.Property]
-					if !ok {
-						return -1
+					if !aok && !bok {
+						continue
 					}
 					var res int
 					if s.Descending {
@@ -443,14 +451,6 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 			})
 		}
 		// ---------------------------
-		// Re-encode the point data
-		for i, tp := range tempPoints {
-			b, err := msgpack.Marshal(tp)
-			if err != nil {
-				return nil, fmt.Errorf("could not re-encode point data after select: %w", err)
-			}
-			finalResults[i].Point.Data = b
-		}
 		s.logger.Debug().Str("duration", time.Since(selectSortStart).String()).Msg("Search - Select Sort")
 	}
 	// ---------------------------

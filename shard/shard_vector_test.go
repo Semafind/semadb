@@ -278,7 +278,9 @@ func randPoints(size int) []models.Point {
 			"labels":      []string{fmt.Sprintf("label1 %d", i), fmt.Sprintf("label2 %d", i+1)},
 			"size":        i,
 			"price":       fi + 0.5,
-			"extra":       fmt.Sprintf("extra %d", i),
+		}
+		if rand.Float32() < 0.5 {
+			pointData["extra"] = fmt.Sprintf("extra %d", i%5)
 		}
 		if sampleIndexSchema.CheckCompatibleMap(pointData) != nil {
 			panic("Incompatible map")
