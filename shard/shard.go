@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -417,38 +416,7 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 		// ---------------------------
 		// Time to sort, the tricky bit here is that the type of values is any.
 		if len(searchRequest.Sort) > 0 {
-			/* Because we don't know the type of the values, this may be a costly
-			 * operation to undertake. We should monitor how this performs. */
-			slices.SortFunc(finalResults, func(a, b models.SearchResult) int {
-				for _, s := range searchRequest.Sort {
-					// E.g. s = "age"
-					av, aok := a.DecodedData[s.Property]
-					bv, bok := b.DecodedData[s.Property]
-					/* If the property is missing, we need to decide what to do
-					 * here. We can either put it at the top or bottom. We put it
-					 * at the bottom for now so that missing values are last. */
-					if aok && !bok {
-						// a has it, but b doesn't
-						return -1
-					}
-					if !aok && bok {
-						return 1
-					}
-					if !aok && !bok {
-						continue
-					}
-					var res int
-					if s.Descending {
-						res = utils.CompareAny(bv, av)
-					} else {
-						res = utils.CompareAny(av, bv)
-					}
-					if res != 0 {
-						return res
-					}
-				}
-				return 0
-			})
+			utils.SortSearchResults(finalResults, searchRequest.Sort)
 		}
 		// ---------------------------
 		s.logger.Debug().Str("duration", time.Since(selectSortStart).String()).Msg("Search - Select Sort")

@@ -3,6 +3,9 @@ package utils
 import (
 	"cmp"
 	"reflect"
+	"slices"
+
+	"github.com/semafind/semadb/models"
 )
 
 // Attempts to compare two values of any type.
@@ -28,4 +31,40 @@ func CompareAny(a, b any) int {
 	}
 	// We don't know how to compare this type, so we just say they are equal.
 	return 0
+}
+
+// Attemps to sort search results by the given properties.
+func SortSearchResults(results []models.SearchResult, sortOpts []models.SortOption) {
+	/* Because we don't know the type of the values, this may be a costly
+	 * operation to undertake. We should monitor how this performs. */
+	slices.SortFunc(results, func(a, b models.SearchResult) int {
+		for _, s := range sortOpts {
+			// E.g. s = "age"
+			av, aok := a.DecodedData[s.Property]
+			bv, bok := b.DecodedData[s.Property]
+			/* If the property is missing, we need to decide what to do
+			 * here. We can either put it at the top or bottom. We put it
+			 * at the bottom for now so that missing values are last. */
+			if aok && !bok {
+				// a has it, but b doesn't
+				return -1
+			}
+			if !aok && bok {
+				return 1
+			}
+			if !aok && !bok {
+				continue
+			}
+			var res int
+			if s.Descending {
+				res = CompareAny(bv, av)
+			} else {
+				res = CompareAny(av, bv)
+			}
+			if res != 0 {
+				return res
+			}
+		}
+		return 0
+	})
 }

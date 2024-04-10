@@ -358,57 +358,13 @@ func (c *ClusterNode) SearchPoints(col models.Collection, sr models.SearchReques
 		// future work.
 		if len(sr.Sort) == 0 {
 			slices.SortFunc(results, func(a, b models.SearchResult) int {
-				var as float32
-				if a.Score != nil {
-					as = *a.Score
-				}
-				var bs float32
-				if b.Score != nil {
-					bs = *b.Score
-				}
-				return cmp.Compare(as, bs)
+				return cmp.Compare(b.HybridScore, a.HybridScore)
 			})
 		} else {
 			// We have to sort the results based on the sort options. This is a
 			// multi-level sort. We first sort based on the first sort option, then
 			// the second and so on.
-			decodedMap := make(map[string]any)
-			slices.SortFunc(results, func(a, b models.SearchResult) int {
-				for _, so := range sr.Sort {
-					// We use the decoded map to avoid decoding the same property
-					ak := a.Id.String() + so.Property
-					av, ok := decodedMap[ak]
-					if !ok {
-						var err error
-						av, err = a.GetField(so.Property)
-						if err != nil {
-							// We couldn't get the property, so we put the item at the end
-							return 1
-						}
-					}
-					bk := b.Id.String() + so.Property
-					bv, ok := decodedMap[bk]
-					if !ok {
-						var err error
-						bv, err = b.GetField(so.Property)
-						if err != nil {
-							// We couldn't get the property, so we put the item at the end
-							return -1
-						}
-					}
-					// We compare the two values
-					var res int
-					if so.Descending {
-						res = utils.CompareAny(bv, av)
-					} else {
-						res = utils.CompareAny(av, bv)
-					}
-					if res != 0 {
-						return res
-					}
-				}
-				return 0
-			})
+			utils.SortSearchResults(results, sr.Sort)
 		}
 	} // End of merge
 	// ---------------------------
@@ -429,14 +385,14 @@ type FailedPoint struct {
 
 func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point) ([]FailedPoint, error) {
 	// ---------------------------
-	// The update request is similar to the search request except we need to
-	// request every shard to participate. This is because we don't keep a table
-	// of which points map to which shards and that the number of shards can
-	// change dynamically making it difficult to keep up. A potential solution
-	// is to keep a table or using a consistent hashing algorithm. Because at
-	// the moment we fill shards in order without any rebalancing, its a fair
-	// starting point to probe all shards for the update request since only 1
-	// shard will have the point.
+	/* The update request is similar to the search request except we need to
+	 * request every shard to participate. This is because we don't keep a table
+	 * of which points map to which shards and that the number of shards can
+	 * change dynamically making it difficult to keep up. A potential solution is
+	 * to keep a table or using a consistent hashing algorithm. Because at the
+	 * moment we fill shards in order without any rebalancing, its a fair
+	 * starting point to probe all shards for the update request since only 1
+	 * shard will have the point. */
 	results := make([]uuid.UUID, 0, len(points))
 	var wg sync.WaitGroup
 	successCount := 0
