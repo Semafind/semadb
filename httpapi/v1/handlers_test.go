@@ -57,7 +57,7 @@ func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode
 			Name:                    "BASIC",
 			MaxCollections:          1,
 			MaxCollectionPointCount: 2,
-			MaxMetadataSize:         100,
+			MaxPointSize:            100,
 			ShardBackupFrequency:    60,
 			ShardBackupCount:        3,
 		}
@@ -78,7 +78,7 @@ func setupTestRouter(t *testing.T, nodeS ClusterNodeState) *gin.Engine {
 			Name:                    "BASIC",
 			MaxCollections:          1,
 			MaxCollectionPointCount: 2,
-			MaxMetadataSize:         100,
+			MaxPointSize:            100,
 			ShardBackupFrequency:    60,
 			ShardBackupCount:        3,
 		},

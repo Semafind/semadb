@@ -76,7 +76,7 @@ var sampleCol models.Collection = models.Collection{
 		Name:                    "test",
 		MaxCollections:          1,
 		MaxCollectionPointCount: 100000,
-		MaxMetadataSize:         10000,
+		MaxPointSize:            10000,
 		ShardBackupFrequency:    0,
 		ShardBackupCount:        0,
 	},

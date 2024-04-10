@@ -274,8 +274,8 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}
-		if len(binaryPointData) > collection.UserPlan.MaxMetadataSize {
-			errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryPointData), collection.UserPlan.MaxMetadataSize)
+		if len(binaryPointData) > collection.UserPlan.MaxPointSize {
+			errMsg := fmt.Sprintf("point %d exceeds maximum point size %d > %d", i, len(binaryPointData), collection.UserPlan.MaxPointSize)
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}
@@ -350,8 +350,8 @@ func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}
-		if len(binaryPointData) > collection.UserPlan.MaxMetadataSize {
-			errMsg := fmt.Sprintf("point %d exceeds maximum metadata size %d > %d", i, len(binaryPointData), collection.UserPlan.MaxMetadataSize)
+		if len(binaryPointData) > collection.UserPlan.MaxPointSize {
+			errMsg := fmt.Sprintf("point %d exceeds maximum point size %d > %d", i, len(binaryPointData), collection.UserPlan.MaxPointSize)
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
 			return
 		}

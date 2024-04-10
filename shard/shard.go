@@ -296,8 +296,8 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 			}
 			// ---------------------------
 			// Check if the user is making a point too large
-			if len(finalNewData) > s.collection.UserPlan.MaxMetadataSize {
-				err = fmt.Errorf("point size exceeds limit: %d", s.collection.UserPlan.MaxMetadataSize)
+			if len(finalNewData) > s.collection.UserPlan.MaxPointSize {
+				err = fmt.Errorf("point size exceeds limit: %d", s.collection.UserPlan.MaxPointSize)
 				return
 			}
 			// ---------------------------

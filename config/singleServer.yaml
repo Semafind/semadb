@@ -51,6 +51,6 @@ httpApi:
       name: Basic Plan
       maxCollections: 1
       maxCollectionPointCount: 2000000 # 2M
-      maxMetadataSize: 1024 # 1KiB
+      maxPointSize: 1024 # 1KiB
       shardBackupFrequency: 3600 # 1 hour
       shardBackupCount: 2
