@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"sync"
-	"sync/atomic"
 
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/models"
@@ -315,7 +314,8 @@ func (c *ClusterNode) SearchPoints(col models.Collection, sr models.SearchReques
 	results := make([]models.SearchResult, 0, len(col.ShardIds)*10)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var errCount atomic.Int32
+	var searchErr error
+	var errOnce sync.Once
 	for _, shardId := range col.ShardIds {
 		wg.Add(1)
 		go func(sId string) {
@@ -333,8 +333,11 @@ func (c *ClusterNode) SearchPoints(col models.Collection, sr models.SearchReques
 			}
 			searchResp := RPCSearchPointsResponse{}
 			if err := c.RPCSearchPoints(&searchReq, &searchResp); err != nil {
+				errOnce.Do(func() {
+					// If we encounter an error, we only want to report it once.
+					searchErr = fmt.Errorf("shard could not search points: %w", err)
+				})
 				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", sId).Msg("could not search points")
-				errCount.Add(1)
 			} else {
 				// Alternatively we can stream the results into a channel and
 				// loop over. This is more straightforward for now.
@@ -346,8 +349,8 @@ func (c *ClusterNode) SearchPoints(col models.Collection, sr models.SearchReques
 	}
 	// ---------------------------
 	wg.Wait()
-	if len(col.ShardIds) > 0 && errCount.Load() == int32(len(col.ShardIds)) {
-		return nil, fmt.Errorf("could not search any shards")
+	if searchErr != nil {
+		return nil, searchErr
 	}
 	if len(col.ShardIds) > 1 {
 		// Merge results in a single slice. We could instead use a channel to stream
