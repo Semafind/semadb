@@ -60,22 +60,21 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                id:
-                  $ref: '#/components/schemas/CollectionId'
-                vectorSize:
-                  $ref: '#/components/schemas/VectorSize'
-                distanceMetric:
-                  $ref: '#/components/schemas/DistanceMetric'
+              $ref: '#/components/schemas/CreateCollectionRequest'
             examples:
               SampleCreateCollection:
                 summary: Sample create collection
                 description: A sample collection to create with id mycollection, vector size 2 and euclidean distance.
                 value:
                   id: mycollection
-                  vectorSize: 2
-                  distanceMetric: euclidean
+                  indexSchema:
+                    myvector:
+                      type: vectorVamana
+                      vectorSize: 2
+                      distanceMetric: euclidean
+                      searchSize: 75
+                      degreeBound: 64
+                      alpha: 1.2
       responses:
         '200':
           $ref: '#/components/responses/SuccessfulMessageResponse'
@@ -569,42 +568,6 @@ components:
       example: mycollection
       schema:
         $ref: '#/components/schemas/CollectionId'
-  schemas:
-    CollectionId:
-      type: string
-      title: Collection Id
-      description: The unique identifier of the collection
-      pattern: "^[a-z0-9]{3,16}$"
-      examples:
-        - mycollection
-        - abc
-    VectorSize:
-      type: number
-      description: The size of the vectors in the collection
-      minimum: 1
-      maximum: 2000
-      examples:
-        - 2
-    DistanceMetric:
-      type: string
-      enum:
-        - euclidean
-        - cosine
-        - dot
-    Vector:
-      type: array
-      description: Point vector, aka embedding
-      minItems: 1
-      maxItems: 2000
-      items:
-        type: number
-      examples:
-        - [4.2, 2.4]
-    PointMetadata:
-      type: object
-      description: JSON serialisable point metadata
-      examples:
-        - externalId: 42
   responses:
     SuccessfulMessageResponse:
       description: Operation was successful
@@ -644,3 +607,204 @@ components:
               description: Something unexpected happened
               value:
                 error: Something went wrong
+  schemas:
+    CollectionId:
+      type: string
+      title: Collection Id
+      description: The unique identifier of the collection
+      pattern: "^[a-z0-9]{3,24}$"
+    VectorSize:
+      type: number
+      description: The size of the vectors in the collection
+      minimum: 1
+      maximum: 4096
+    DistanceMetric:
+      type: string
+      enum:
+        - euclidean
+        - cosine
+        - dot
+        - hamming
+        - jaccard
+    Vector:
+      type: array
+      description: Point vector, aka embedding
+      minItems: 1
+      maxItems: 2000
+      items:
+        type: number
+    PointMetadata:
+      type: object
+      description: JSON serialisable point metadata
+# ---------------------------
+    CreateCollectionRequest:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/CollectionId'
+        indexSchema:
+          $ref: '#/components/schemas/IndexSchema'
+# ---------------------------
+# Index schema objects
+    IndexSchema:
+      type: object
+      description: >-
+        The schema for the collection, each property can be indexed with a
+        different type of index.
+      minProperties: 1
+      additionalProperties:
+        $ref: '#/components/schemas/IndexSchemaValue'
+    IndexSchemaValue:
+      type: object
+      description: >-
+        Defines what the property is and how it is indexed.
+      properties:
+        type:
+          type: string
+          enum: [vectorFlat, vectorVamana, text, string, stringArray, integer, float]
+        vectorFlat:
+          $ref: '#/components/schemas/IndexVectorFlatParameters'
+        vectorVamana:
+          $ref: '#/components/schemas/IndexVectorVamanaParameters'
+        text:
+          $ref: '#/components/schemas/IndexTextParameters'
+        string:
+          $ref: '#/components/schemas/IndexStringParameters'
+        stringArray:
+          $ref: '#/components/schemas/IndexStringArrayParameters'
+    IndexVectorFlatParameters:
+      type: object
+      description: >-
+        Parameters for flat indexing. Flat indexing is the simplest form of
+        indexing, where the search is exhaustive.
+      required: [vectorSize, distanceMetric]
+      properties:
+        vectorSize:
+          $ref: '#/components/schemas/VectorSize'
+        distanceMetric:
+          $ref: '#/components/schemas/DistanceMetric'
+        quantizer:
+          $ref: '#/components/schemas/Quantizer'
+    IndexVectorVamanaParameters:
+      type: object
+      description: Parameters for Vamana indexing
+      required: [vectorSize, distanceMetric, searchSize, degreeBound, alpha]
+      properties:
+        vectorSize:
+          $ref: '#/components/schemas/VectorSize'
+        distanceMetric:
+          $ref: '#/components/schemas/DistanceMetric'
+        searchSize:
+          type: number
+          description: >-
+            Determines the scope of the greedy search algorithm. The higher the
+            value, the more exhaustive the search.
+          minimum: 25
+          maximum: 75
+          default: 75
+        degreeBound:
+          type: number
+          description: >-
+            Maximum number of edges of a node in the graph. The higher the value,
+            the denser the graph becomes, slower the search but more accurate.
+          minimum: 32
+          maximum: 64
+          default: 64
+        alpha:
+          type: number
+          description: >-
+            Determines how aggressive the edge pruning is. Higher values reduce
+            pruning, lower values make it more aggressive.
+          minimum: 1.1
+          maximum: 1.5
+          default: 1.2
+        quantizer:
+          $ref: '#/components/schemas/Quantizer'
+    IndexTextParameters:
+      type: object
+      description: Parameters for text indexing
+      required: [analyser]
+      properties:
+        analyser:
+          type: string
+          enum: [standard]
+          default: standard
+    IndexStringParameters:
+      type: object
+      description: Parameters for string indexing
+      required: [caseSensitive]
+      properties:
+        caseSensitive:
+          type: boolean
+          description: Whether the string is case sensitive
+          default: false
+    IndexStringArrayParameters:
+      $ref: '#/components/schemas/IndexStringParameters'
+# ---------------------------
+# Quantizer objects
+    Quantizer:
+      type: object
+      description: Applied quantizer to the vectors if any
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [none, binary, product]
+        binary:
+          $ref: '#/components/schemas/BinaryQuantizerParameters'
+        product:
+          $ref: '#/components/schemas/ProductQuantizerParameters'
+    BinaryQuantizerParameters:
+      type: object
+      description: >-
+        Converts vectors to boolean values. Works effectively only if vector
+        features are already binary or are normally distributed.
+      required: [distanceMetric]
+      minProperties: 2
+      properties:
+        threshold:
+          type: number
+          description: Optional initial threshold for binary quantization, if not provided, it will be calculated at trigger threshold.
+        triggerThreshold:
+          type: number
+          description: Optional trigger threshold for binary quantization.
+          minimum: 0
+          maximum: 50000
+          default: 10000
+        distanceMetric:
+          type: string
+          description: The distance metric to use for binary quantization after the vectors are encoded
+          enum: [hamming, jaccard]
+    ProductQuantizerParameters:
+      type: object
+      description: >-
+        Uses the product quantization to reduce the memory footprint of the
+        vectors. It may be slower and less accurate.
+      required: [numCentroids, numSubVectors, triggerThreshold]
+      properties:
+        numCentroids:
+          type: number
+          description: >-
+            Number of centroids to quantize to, this is the k* parameter in the paper
+            and is often set to 255 giving 256 centroids (including 0). We are
+            limiting this to maximum of 256 (uint8) to keep the overhead of this
+            process tractable.
+          minimum: 2
+          maximum: 256
+          default: 256
+        numSubVectors:
+          type: number
+          description: >-
+            Number of subvectors / segments / subquantizers to use, this is the
+            m parameter in the paper and is often set to 8.
+          minimum: 2
+        triggerThreshold:
+          type: number
+          description: >-
+            The trigger threshold is the number of points in the collection that
+            will trigger the quantization process. This is to ensure that the
+            quantization process is only triggered when the collection is large
+            enough to benefit from the memory savings.
+          minimum: 1000
+          maximum: 10000
+          default: 10000
