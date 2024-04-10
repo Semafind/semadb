@@ -1,5 +1,7 @@
 package models
 
+import "fmt"
+
 /* The search query design is based on the following key steps:
  *
  * 1. Filter first to narrow down search space.
@@ -31,6 +33,72 @@ type Query struct {
 	StringArray  *SearchStringArrayOptions  `json:"stringArray"`
 	And          []Query                    `json:"_and" binding:"dive"`
 	Or           []Query                    `json:"_or" binding:"dive"`
+}
+
+func (q Query) Validate(schema IndexSchema) error {
+	// Handle recursive case
+	switch q.Property {
+	case "_and":
+		for _, subQuery := range q.And {
+			if err := subQuery.Validate(schema); err != nil {
+				return err
+			}
+		}
+	case "_or":
+		for _, subQuery := range q.Or {
+			if err := subQuery.Validate(schema); err != nil {
+				return err
+			}
+		}
+	}
+	// Handle base case
+	value, ok := schema[q.Property]
+	if !ok {
+		return fmt.Errorf("property %s not found in index schema, cannot query", q.Property)
+	}
+	// Are the options given correctly?
+	switch value.Type {
+	case IndexTypeVectorFlat:
+		if q.VectorFlat == nil {
+			return fmt.Errorf("vectorFlat query options not provided for property %s", q.Property)
+		}
+		if len(q.VectorFlat.Vector) != int(value.VectorFlat.VectorSize) {
+			return fmt.Errorf("vectorFlat query vector length mismatch for property %s, expected %d got %d", q.Property, value.VectorFlat.VectorSize, len(q.VectorFlat.Vector))
+		}
+	case IndexTypeVectorVamana:
+		if q.VectorVamana == nil {
+			return fmt.Errorf("vectorVamana query options not provided for property %s", q.Property)
+		}
+		if len(q.VectorVamana.Vector) != int(value.VectorVamana.VectorSize) {
+			return fmt.Errorf("vectorVamana query vector length mismatch for property %s, expected %d got %d", q.Property, value.VectorVamana.VectorSize, len(q.VectorVamana.Vector))
+		}
+		if q.VectorVamana.SearchSize < q.VectorVamana.Limit {
+			return fmt.Errorf("searchSize must be greater than or equal to limit for property %s", q.Property)
+		}
+	case IndexTypeText:
+		if q.Text == nil {
+			return fmt.Errorf("text query options not provided for property %s", q.Property)
+		}
+	case IndexTypeString:
+		if q.String == nil {
+			return fmt.Errorf("string query options not provided for property %s", q.Property)
+		}
+	case IndexTypeStringArray:
+		if q.StringArray == nil {
+			return fmt.Errorf("stringArray query options not provided for property %s", q.Property)
+		}
+	case IndexTypeInteger:
+		if q.Integer == nil {
+			return fmt.Errorf("integer query options not provided for property %s", q.Property)
+		}
+	case IndexTypeFloat:
+		if q.Float == nil {
+			return fmt.Errorf("float query options not provided for property %s", q.Property)
+		}
+	default:
+		return fmt.Errorf("unknown index type %s", value.Type)
+	}
+	return nil
 }
 
 // Shared search result struct for ordered search results

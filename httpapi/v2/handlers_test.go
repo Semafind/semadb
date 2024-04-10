@@ -703,8 +703,69 @@ func Test_SearchPoints_Invalid(t *testing.T) {
 		Req  string
 	}{
 		{
-			"Missing query",
+			"Blank request",
 			"",
+		},
+		{
+			"Missing limit",
+			`{
+				"query": {
+					"property": "description"
+				}
+			}`,
+		},
+		{
+			"Missing search options",
+			`{
+				"query": {
+					"property": "description"
+				},
+				"limit": 10
+			}`,
+		},
+		{
+			"Wrong vector size for flat index",
+			`{
+				"query": {
+					"property": "flat",
+					"vectorFlat": {
+						"vector": [1, 2, 3],
+						"operator": "near",
+						"limit": 10
+					}
+				},
+				"limit": 10
+			}`,
+		},
+		{
+			"Wrong vector size for vamana index",
+			`{
+				"query": {
+					"property": "vector",
+					"vectorVamana": {
+						"vector": [1, 2, 3],
+						"operator": "near",
+						"searchSize": 75,
+						"limit": 10
+					}
+				},
+				"limit": 10
+			}`,
+		},
+		{
+			"Invalid sub options",
+			`{
+				"query": {
+					"property": "vector",
+					"vectorVamana": {
+						"vector": [1, 2],
+						"operator": "near",
+						"searchSize": 200,
+						"limit": 10
+					}
+				},
+				"limit": 10
+			}`,
 		},
 	}
 	// ---------------------------

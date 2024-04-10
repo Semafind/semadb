@@ -416,12 +416,11 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	// Get corresponding collection
 	collection := c.MustGet("collection").(models.Collection)
 	// ---------------------------
-	// Check vector dimension
-	// if len(req.Vector) != int(collection.VectorSize) {
-	// 	errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d", collection.VectorSize, len(req.Vector))
-	// 	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
-	// 	return
-	// }
+	// Validate query against schema, checks vector dimensions, query options etc.
+	if err := req.Query.Validate(collection.IndexSchema); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	// ---------------------------
 	points, err := sdbh.clusterNode.SearchPoints(collection, req)
 	if err != nil {
