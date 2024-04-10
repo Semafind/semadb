@@ -296,6 +296,11 @@ type UpdatePointsRequest struct {
 	Points []models.PointAsMap `json:"points" binding:"required,max=100"`
 }
 
+type UpdatePointsResponse struct {
+	Message      string                `json:"message"`
+	FailedPoints []cluster.FailedPoint `json:"failedPoints"`
+}
+
 func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 	// ---------------------------
 	var req UpdatePointsRequest
@@ -342,17 +347,22 @@ func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	message := "success"
+	resp := UpdatePointsResponse{Message: "success", FailedPoints: failedPoints}
 	if len(failedPoints) > 0 {
-		message = "partial success"
+		resp.Message = "partial success"
 	}
-	c.JSON(http.StatusOK, gin.H{"message": message, "failedPoints": failedPoints})
+	c.JSON(http.StatusOK, resp)
 }
 
 // ---------------------------
 
 type DeletePointsRequest struct {
 	Ids []string `json:"ids" binding:"required,max=100,dive,uuid"`
+}
+
+type DeletePointsResponse struct {
+	Message      string                `json:"message"`
+	FailedPoints []cluster.FailedPoint `json:"failedPoints"`
 }
 
 func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
@@ -378,11 +388,11 @@ func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	message := "success"
+	resp := DeletePointsResponse{Message: "success", FailedPoints: failedPoints}
 	if len(failedPoints) > 0 {
-		message = "partial success"
+		resp.Message = "partial success"
 	}
-	c.JSON(http.StatusOK, gin.H{"message": message, "failedPoints": failedPoints})
+	c.JSON(http.StatusOK, resp)
 }
 
 // ---------------------------

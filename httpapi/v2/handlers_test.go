@@ -161,9 +161,15 @@ func makeRequest(t *testing.T, router *gin.Engine, method string, endpoint strin
 	// ---------------------------
 	var bodyReader io.Reader
 	if body != nil {
-		jsonBody, err := json.Marshal(body)
-		require.NoError(t, err)
-		bodyReader = bytes.NewReader(jsonBody)
+		var bodyAsString string
+		if bodyString, ok := body.(string); ok {
+			bodyAsString = bodyString
+		} else {
+			jsonBody, err := json.Marshal(body)
+			require.NoError(t, err)
+			bodyAsString = string(jsonBody)
+		}
+		bodyReader = bytes.NewReader([]byte(bodyAsString))
 	}
 	req, err := http.NewRequest(method, endpoint, bodyReader)
 	require.NoError(t, err)
@@ -206,7 +212,7 @@ func Test_CreateCollection(t *testing.T) {
 	// ---------------------------
 	reqBody := v2.CreateCollectionRequest{
 		Id:          "testy",
-		IndexSchema: sampleCollection.IndexSchema,
+		IndexSchema: sampleIndexSchema,
 	}
 	resp := makeRequest(t, router, "POST", "/v1/collections", reqBody, nil)
 	require.Equal(t, http.StatusOK, resp)
@@ -315,7 +321,7 @@ func Test_GetCollection(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp)
 	require.Equal(t, "gandalf", respBody.Id)
 	require.Len(t, respBody.Shards, 0)
-	require.Len(t, respBody.IndexSchema, 1)
+	require.Len(t, respBody.IndexSchema, 8)
 }
 
 func Test_DeleteCollection(t *testing.T) {
@@ -377,6 +383,50 @@ func Test_InsertPoints(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, resp)
 }
 
+type requestTest struct {
+	Name   string
+	Points []models.PointAsMap
+}
+
+var invalidPoints = []requestTest{
+	{
+		Name: "Invalid vector size",
+		Points: []models.PointAsMap{
+			{
+				"vector": []float32{1, 2, 3},
+			},
+		},
+	},
+	{
+		Name: "Invalid id",
+		Points: []models.PointAsMap{
+			{
+				"_id":    "thisaintnoid",
+				"vector": []float32{1, 2},
+			},
+		},
+	},
+	{
+		Name: "Invalid metadata size",
+		Points: []models.PointAsMap{
+			{
+				"_id":      uuid.New().String(),
+				"vector":   []float32{1, 2},
+				"metadata": make([]float64, 200),
+			},
+		},
+	},
+	{
+		Name: "Invalid vector type",
+		Points: []models.PointAsMap{
+			{
+				"_id":    uuid.New().String(),
+				"vector": []any{1.0, "gandalf"},
+			},
+		},
+	},
+}
+
 func Test_InsertPointsInvalid(t *testing.T) {
 	nodeS := clusterNodeState{
 		Collections: []collectionState{
@@ -387,61 +437,282 @@ func Test_InsertPointsInvalid(t *testing.T) {
 	}
 	router := setupTestRouter(t, nodeS)
 	// ---------------------------
-	type requestTest struct {
-		Name    string
-		Payload any
+	// ---------------------------
+	for _, test := range invalidPoints {
+		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+			r := v2.InsertPointsRequest{
+				Points: test.Points,
+			}
+			resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", r, nil)
+			require.Equal(t, http.StatusBadRequest, resp)
+		})
 	}
-	tests := []requestTest{
-		{
-			Name: "Invalid vector size",
-			Payload: v2.InsertPointsRequest{
-				Points: []models.PointAsMap{
+	// ---------------------------
+}
+
+func Test_UpdatePointsInvalid(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+			},
+		},
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	for _, test := range invalidPoints {
+		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+			r := v2.UpdatePointsRequest{
+				Points: test.Points,
+			}
+			resp := makeRequest(t, router, "PUT", "/v1/collections/gandalf/points", r, nil)
+			require.Equal(t, http.StatusBadRequest, resp)
+		})
+	}
+	// ---------------------------
+}
+
+func Test_UpdatePoints(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+				Points: []pointState{
 					{
-						"vector": []float32{1, 2, 3},
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":  []float32{1, 2},
+							"myfield": "gandalf",
+						},
 					},
 				},
 			},
 		},
-		{
-			Name: "Invalid id",
-			Payload: v2.InsertPointsRequest{
-				Points: []models.PointAsMap{
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	reqBody := v2.UpdatePointsRequest{
+		Points: []models.PointAsMap{
+			{
+				"_id":     nodeS.Collections[0].Points[0].Id.String(),
+				"vector":  []float32{3, 4},
+				"size":    42,
+				"myfield": "frodo",
+			},
+			{
+				"_id":    uuid.New().String(),
+				"doesnt": "exist",
+			},
+		},
+	}
+	var respBody v2.UpdatePointsResponse
+	resp := makeRequest(t, router, "PUT", "/v1/collections/gandalf/points", reqBody, &respBody)
+	require.Equal(t, http.StatusOK, resp)
+	require.Len(t, respBody.FailedPoints, 1)
+	require.Equal(t, reqBody.Points[1]["_id"], respBody.FailedPoints[0].Id.String())
+	// ---------------------------
+	// Can we see the changes?
+	sr := models.SearchRequest{
+		Query: models.Query{
+			Property: "size",
+			Integer: &models.SearchIntegerOptions{
+				Value:    42,
+				Operator: models.OperatorEquals,
+			},
+		},
+		Limit: 10,
+	}
+	var searchResp v2.SearchPointsResponse
+	resp = makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr, &searchResp)
+	require.Equal(t, http.StatusOK, resp)
+	require.Len(t, searchResp.Points, 1)
+	require.EqualValues(t, 42, searchResp.Points[0]["size"])
+}
+
+func Test_DeletePoints(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+				Points: []pointState{
 					{
-						"_id":    "thisaintnoid",
-						"vector": []float32{1, 2},
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":   []float32{1, 2},
+							"metadata": "frodo",
+						},
+					},
+					{
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":   []float32{2, 3},
+							"metadata": "sam",
+						},
 					},
 				},
 			},
 		},
-		{
-			Name: "Invalid metadata size",
-			Payload: v2.InsertPointsRequest{
-				Points: []models.PointAsMap{
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	r := v2.DeletePointsRequest{
+		Ids: []string{uuid.New().String(), nodeS.Collections[0].Points[0].Id.String(), nodeS.Collections[0].Points[1].Id.String()},
+	}
+	var respBody v2.DeletePointsResponse
+	resp := makeRequest(t, router, "DELETE", "/v1/collections/gandalf/points", r, &respBody)
+	require.Equal(t, http.StatusOK, resp)
+	require.Len(t, respBody.FailedPoints, 1)
+	require.Equal(t, r.Ids[0], respBody.FailedPoints[0].Id.String())
+}
+
+func Test_SearchPoints_Empty(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+			},
+		},
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	sr := models.SearchRequest{
+		Query: models.Query{
+			Property: "size",
+			Integer: &models.SearchIntegerOptions{
+				Value:    42,
+				Operator: models.OperatorEquals,
+			},
+		},
+		Limit: 10,
+	}
+	var respBody v2.SearchPointsResponse
+	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr, &respBody)
+	require.Equal(t, http.StatusOK, resp)
+	require.Len(t, respBody.Points, 0)
+}
+
+func Test_SearchPoints(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+				Points: []pointState{
 					{
-						"vector":   []float32{1, 2},
-						"metadata": make([]float64, 200),
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":      []float32{1, 2},
+							"description": "hobbit frodo",
+						},
+					},
+					{
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":      []float32{2, 3},
+							"description": "hobbit sam",
+						},
 					},
 				},
 			},
 		},
-		{
-			Name: "Invalid vector type",
-			Payload: v2.InsertPointsRequest{
-				Points: []models.PointAsMap{
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	sr := models.SearchRequest{
+		Query: models.Query{
+			Property: "description",
+			Text: &models.SearchTextOptions{
+				Value:    "frodo",
+				Operator: models.OperatorContainsAll,
+				Limit:    10,
+			},
+		},
+		Limit: 10,
+	}
+	var respBody v2.SearchPointsResponse
+	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr, &respBody)
+	require.Equal(t, http.StatusOK, resp)
+	require.Len(t, respBody.Points, 1)
+	require.Equal(t, "hobbit frodo", respBody.Points[0]["description"])
+	require.Equal(t, float64(0), respBody.Points[0]["_hybridScore"])
+	require.Equal(t, nodeS.Collections[0].Points[0].Id.String(), respBody.Points[0]["_id"])
+}
+
+func Test_SearchPoints_NonExistent(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+				Points: []pointState{
 					{
-						"vector": []any{1.0, "gandalf"},
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector": []float32{1, 2},
+						},
 					},
 				},
 			},
+		},
+	}
+	router := setupTestRouter(t, nodeS)
+	sr := models.SearchRequest{
+		Query: models.Query{
+			Property: "nonExistent",
+			Integer: &models.SearchIntegerOptions{
+				Value:    42,
+				Operator: models.OperatorEquals,
+			},
+		},
+		Limit: 10,
+	}
+	var respBody v2.SearchPointsResponse
+	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr, &respBody)
+	require.Equal(t, http.StatusOK, resp)
+	require.Len(t, respBody.Points, 0)
+}
+
+func Test_SearchPoints_Invalid(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+				Points: []pointState{
+					{
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":      []float32{1, 2},
+							"description": "hobbit frodo",
+						},
+					},
+					{
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":      []float32{2, 3},
+							"description": "hobbit sam",
+						},
+					},
+				},
+			},
+		},
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	tests := []struct {
+		Name string
+		Req  string
+	}{
+		{
+			"Missing query",
+			"",
 		},
 	}
 	// ---------------------------
 	for _, test := range tests {
 		t.Run(test.Name, func(t *testing.T) {
 			t.Parallel()
-			resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", test.Payload, nil)
+			resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", test.Req, nil)
 			require.Equal(t, http.StatusBadRequest, resp)
 		})
 	}
-	// ---------------------------
 }

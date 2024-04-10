@@ -4,8 +4,8 @@ package models
  *
  * 1. Filter first to narrow down search space.
  * 2. Then vector or text search and combine with hybrid weights.
- * 3. Then offset and limit the data, something like pagination.
- * 4. Maybe select or sort the data other than score with added vector _distance and _score.
+ * 3. Maybe select or sort the data other than score with added vector _distance and _score.
+ * 4. Then offset and limit the data, something like pagination.
  */
 
 // ---------------------------

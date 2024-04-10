@@ -11,24 +11,27 @@ func (s IndexSchema) Validate() error {
 		switch v.Type {
 		case IndexTypeVectorFlat:
 			if v.VectorFlat == nil {
-				return fmt.Errorf("vectorFlat parameters not provided for %s", k)
+				return fmt.Errorf("vectorFlat parameters not provided for property %s", k)
 			}
 		case IndexTypeVectorVamana:
 			if v.VectorVamana == nil {
-				return fmt.Errorf("vectorVamana parameters not provided for %s", k)
+				return fmt.Errorf("vectorVamana parameters not provided for property %s", k)
 			}
 		case IndexTypeText:
 			if v.Text == nil {
-				return fmt.Errorf("text parameters not provided for %s", k)
+				return fmt.Errorf("text parameters not provided for property %s", k)
 			}
 		case IndexTypeString:
 			if v.String == nil {
-				return fmt.Errorf("string parameters not provided for %s", k)
+				return fmt.Errorf("string parameters not provided for property %s", k)
 			}
 		case IndexTypeStringArray:
-			if v.StringArray != nil {
-				return fmt.Errorf("stringArray parameters not provided for %s", k)
+			if v.StringArray == nil {
+				return fmt.Errorf("stringArray parameters not provided for property %s", k)
 			}
+		case IndexTypeInteger:
+			// Nothing to check
+		case IndexTypeFloat:
 		default:
 			return fmt.Errorf("unknown index type %s", v.Type)
 		}
