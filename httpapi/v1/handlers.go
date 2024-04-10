@@ -65,8 +65,8 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 		UserId:    appHeaders.UserId,
 		Id:        req.Id,
 		Replicas:  1,
-		Timestamp: time.Now().UnixMicro(),
-		CreatedAt: time.Now().UnixMicro(),
+		Timestamp: time.Now().Unix(),
+		CreatedAt: time.Now().Unix(),
 		UserPlan:  c.MustGet("userPlan").(models.UserPlan),
 		IndexSchema: models.IndexSchema{
 			"vector": {
