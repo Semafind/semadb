@@ -18,12 +18,6 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-type requestTest struct {
-	Name    string
-	Payload any
-	Code    int
-}
-
 type pointState struct {
 	Id   uuid.UUID
 	Data models.PointAsMap
@@ -38,21 +32,59 @@ type clusterNodeState struct {
 	Collections []collectionState
 }
 
-var sampleCollection models.Collection = models.Collection{
-	Id:     "gandalf",
-	UserId: "testy",
-	IndexSchema: models.IndexSchema{
-		"vector": {
-			Type: "vectorVamana",
-			VectorVamana: &models.IndexVectorVamanaParameters{
-				VectorSize:     2,
-				DistanceMetric: "euclidean",
-				SearchSize:     75,
-				DegreeBound:    64,
-				Alpha:          1.2,
+var sampleIndexSchema = models.IndexSchema{
+	"vector": models.IndexSchemaValue{
+		Type: models.IndexTypeVectorVamana,
+		VectorVamana: &models.IndexVectorVamanaParameters{
+			VectorSize:     2,
+			DistanceMetric: "euclidean",
+			SearchSize:     75,
+			DegreeBound:    64,
+			Alpha:          1.2,
+		},
+	},
+	"flat": models.IndexSchemaValue{
+		Type: models.IndexTypeVectorFlat,
+		VectorFlat: &models.IndexVectorFlatParameters{
+			VectorSize:     2,
+			DistanceMetric: "euclidean",
+		},
+	},
+	"description": models.IndexSchemaValue{
+		Type: models.IndexTypeText,
+		Text: &models.IndexTextParameters{
+			Analyser: "standard",
+		},
+	},
+	"category": models.IndexSchemaValue{
+		Type: models.IndexTypeString,
+		String: &models.IndexStringParameters{
+			CaseSensitive: false,
+		},
+	},
+	"labels": models.IndexSchemaValue{
+		Type: models.IndexTypeStringArray,
+		StringArray: &models.IndexStringArrayParameters{
+			IndexStringParameters: models.IndexStringParameters{
+				CaseSensitive: false,
 			},
 		},
 	},
+	"size": models.IndexSchemaValue{
+		Type: models.IndexTypeInteger,
+	},
+	"price": models.IndexSchemaValue{
+		Type: models.IndexTypeFloat,
+	},
+	"nonExistent": models.IndexSchemaValue{
+		Type: models.IndexTypeInteger,
+	},
+}
+
+var sampleCollection models.Collection = models.Collection{
+	Id:          "gandalf",
+	UserId:      "testy",
+	IndexSchema: sampleIndexSchema,
 }
 
 func setupClusterNode(t *testing.T, nodeS clusterNodeState) *cluster.ClusterNode {
@@ -114,7 +146,7 @@ func setupTestRouter(t *testing.T, nodeS clusterNodeState) *gin.Engine {
 			Name:                    "BASIC",
 			MaxCollections:          1,
 			MaxCollectionPointCount: 2,
-			MaxPointSize:            100,
+			MaxPointSize:            200,
 			ShardBackupFrequency:    60,
 			ShardBackupCount:        3,
 		},
@@ -146,6 +178,7 @@ func makeRequest(t *testing.T, router *gin.Engine, method string, endpoint strin
 		err = json.Unmarshal(recorder.Body.Bytes(), resp)
 		require.NoError(t, err)
 	}
+	t.Log(recorder.Body.String())
 	// ---------------------------
 	return recorder.Code
 }
@@ -172,19 +205,8 @@ func Test_CreateCollection(t *testing.T) {
 	router := setupTestRouter(t, clusterNodeState{})
 	// ---------------------------
 	reqBody := v2.CreateCollectionRequest{
-		Id: "testy",
-		IndexSchema: models.IndexSchema{
-			"vector": {
-				Type: "vectorVamana",
-				VectorVamana: &models.IndexVectorVamanaParameters{
-					VectorSize:     42,
-					DistanceMetric: "cosine",
-					SearchSize:     75,
-					DegreeBound:    64,
-					Alpha:          1.2,
-				},
-			},
-		},
+		Id:          "testy",
+		IndexSchema: sampleCollection.IndexSchema,
 	}
 	resp := makeRequest(t, router, "POST", "/v1/collections", reqBody, nil)
 	require.Equal(t, http.StatusOK, resp)
@@ -197,6 +219,57 @@ func Test_CreateCollection(t *testing.T) {
 	reqBody.Id = "testy2"
 	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody, nil)
 	require.Equal(t, http.StatusForbidden, resp)
+}
+
+func Test_CreateCollectionInvalidSchema(t *testing.T) {
+	router := setupTestRouter(t, clusterNodeState{})
+	// ---------------------------
+	// Missing vector parameters
+	reqBody := v2.CreateCollectionRequest{
+		Id: "testy",
+		IndexSchema: models.IndexSchema{
+			"vector": {
+				Type: "vectorVamana",
+			},
+		},
+	}
+	resp := makeRequest(t, router, "POST", "/v1/collections", reqBody, nil)
+	require.Equal(t, http.StatusBadRequest, resp)
+	// ---------------------------
+	// Wrong distance metric
+	reqBody = v2.CreateCollectionRequest{
+		Id: "testy",
+		IndexSchema: models.IndexSchema{
+			"vector": {
+				Type: "vectorFlat",
+				VectorFlat: &models.IndexVectorFlatParameters{
+					VectorSize:     2,
+					DistanceMetric: "gandalf",
+				},
+			},
+		},
+	}
+	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody, nil)
+	require.Equal(t, http.StatusBadRequest, resp)
+	// ---------------------------
+	// Wrong quantizer type
+	reqBody = v2.CreateCollectionRequest{
+		Id: "testy",
+		IndexSchema: models.IndexSchema{
+			"vector": {
+				Type: "vectorFlat",
+				VectorFlat: &models.IndexVectorFlatParameters{
+					VectorSize:     2,
+					DistanceMetric: "euclidean",
+					Quantizer: &models.Quantizer{
+						Type: "random",
+					},
+				},
+			},
+		},
+	}
+	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody, nil)
+	require.Equal(t, http.StatusBadRequest, resp)
 }
 
 func Test_ListCollections(t *testing.T) {
@@ -242,6 +315,7 @@ func Test_GetCollection(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp)
 	require.Equal(t, "gandalf", respBody.Id)
 	require.Len(t, respBody.Shards, 0)
+	require.Len(t, respBody.IndexSchema, 1)
 }
 
 func Test_DeleteCollection(t *testing.T) {
@@ -276,47 +350,21 @@ func Test_InsertPoints(t *testing.T) {
 	}
 	router := setupTestRouter(t, nodeS)
 	// ---------------------------
-	tests := []requestTest{
-		{
-			Name: "Invalid vector size",
-			Payload: v2.InsertPointsRequest{
-				Points: []models.PointAsMap{
-					{
-						"vector": []float32{1, 2, 3},
-					},
-				},
-			},
-			Code: http.StatusBadRequest,
-		},
-		{
-			Name: "Invalid metadata size",
-			Payload: v2.InsertPointsRequest{
-				Points: []models.PointAsMap{
-					{
-						"vector":   []float32{1, 2},
-						"metadata": []float32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
-					},
-				},
-			},
-			Code: http.StatusBadRequest,
-		},
-	}
-	// ---------------------------
-	for _, test := range tests {
-		t.Run(test.Name, func(t *testing.T) {
-			resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", test.Payload, nil)
-			require.Equal(t, test.Code, resp)
-		})
-	}
-	// ---------------------------
-	// Can insert points
 	reqBody := v2.InsertPointsRequest{
 		Points: []models.PointAsMap{
 			{
-				"vector": []float32{1, 2},
+				"_id":     uuid.New().String(),
+				"vector":  []float32{1, 2},
+				"myfield": "gandalf",
 			},
 			{
-				"vector": []float32{3, 4},
+				"vector":      []float32{3, 4},
+				"flat":        []float32{3, 4},
+				"description": "This is a description",
+				"category":    "category",
+				"labels":      []string{"label1", "label2"},
+				"size":        42,
+				"price":       42.42,
 			},
 		},
 	}
@@ -327,4 +375,73 @@ func Test_InsertPoints(t *testing.T) {
 	// Adding more points triggers quota limit
 	resp = makeRequest(t, router, "POST", "/v1/collections/gandalf/points", reqBody, nil)
 	require.Equal(t, http.StatusForbidden, resp)
+}
+
+func Test_InsertPointsInvalid(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+			},
+		},
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	type requestTest struct {
+		Name    string
+		Payload any
+	}
+	tests := []requestTest{
+		{
+			Name: "Invalid vector size",
+			Payload: v2.InsertPointsRequest{
+				Points: []models.PointAsMap{
+					{
+						"vector": []float32{1, 2, 3},
+					},
+				},
+			},
+		},
+		{
+			Name: "Invalid id",
+			Payload: v2.InsertPointsRequest{
+				Points: []models.PointAsMap{
+					{
+						"_id":    "thisaintnoid",
+						"vector": []float32{1, 2},
+					},
+				},
+			},
+		},
+		{
+			Name: "Invalid metadata size",
+			Payload: v2.InsertPointsRequest{
+				Points: []models.PointAsMap{
+					{
+						"vector":   []float32{1, 2},
+						"metadata": make([]float64, 200),
+					},
+				},
+			},
+		},
+		{
+			Name: "Invalid vector type",
+			Payload: v2.InsertPointsRequest{
+				Points: []models.PointAsMap{
+					{
+						"vector": []any{1.0, "gandalf"},
+					},
+				},
+			},
+		},
+	}
+	// ---------------------------
+	for _, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+			resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", test.Payload, nil)
+			require.Equal(t, http.StatusBadRequest, resp)
+		})
+	}
+	// ---------------------------
 }

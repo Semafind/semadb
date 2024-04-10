@@ -69,11 +69,11 @@ func convertToVector(v any) ([]float32, error) {
 			case float64:
 				vector[i] = float32(f)
 			default:
-				return nil, fmt.Errorf("expected float32, got %T", f)
+				return nil, fmt.Errorf("expected float, got %T", f)
 			}
 		}
 	default:
-		return nil, fmt.Errorf("expected vector, got %T", v)
+		return nil, fmt.Errorf("expected vector array, got %T", v)
 	}
 	return vector, nil
 }
@@ -94,13 +94,13 @@ func (s IndexSchema) CheckCompatibleMap(m PointAsMap) error {
 		case IndexTypeVectorFlat:
 			vector, err := convertToVector(v)
 			if err != nil {
-				return fmt.Errorf("expected vector for %s, got %T", k, v)
+				return fmt.Errorf("expected a vector for property %s: %w", k, err)
 			}
 			if schema.VectorFlat == nil {
 				return fmt.Errorf("vectorFlat parameters not provided for %s", k)
 			}
 			if len(vector) != int(schema.VectorFlat.VectorSize) {
-				return fmt.Errorf("expected vector of size %d for %s, got %d", schema.VectorFlat.VectorSize, k, len(vector))
+				return fmt.Errorf("expected vector of size %d for property %s, got %d", schema.VectorFlat.VectorSize, k, len(vector))
 			}
 			// We override the map value with the vector so downstream code can
 			// use the vector directly.
@@ -108,13 +108,13 @@ func (s IndexSchema) CheckCompatibleMap(m PointAsMap) error {
 		case IndexTypeVectorVamana:
 			vector, err := convertToVector(v)
 			if err != nil {
-				return fmt.Errorf("expected vector for %s, got %T", k, v)
+				return fmt.Errorf("expected a vector for property %s: %w", k, err)
 			}
 			if schema.VectorVamana == nil {
-				return fmt.Errorf("vamana parameters not provided for %s", k)
+				return fmt.Errorf("vamanaVamana parameters not provided for %s", k)
 			}
 			if len(vector) != int(schema.VectorVamana.VectorSize) {
-				return fmt.Errorf("expected vector of size %d for %s, got %d", schema.VectorVamana.VectorSize, k, len(vector))
+				return fmt.Errorf("expected vector of size %d for property %s, got %d", schema.VectorVamana.VectorSize, k, len(vector))
 			}
 			// We override the map value with the vector so downstream code can
 			// use the vector directly.
@@ -123,7 +123,7 @@ func (s IndexSchema) CheckCompatibleMap(m PointAsMap) error {
 			fallthrough
 		case IndexTypeString:
 			if _, ok := v.(string); !ok {
-				return fmt.Errorf("expected string for %s, got %T", k, v)
+				return fmt.Errorf("expected string for property %s, got %T", k, v)
 			}
 		case IndexTypeInteger:
 			switch v := v.(type) {
@@ -136,10 +136,17 @@ func (s IndexSchema) CheckCompatibleMap(m PointAsMap) error {
 				m[k] = int64(v)
 			case uint32:
 				m[k] = int64(v)
+			// Floating point cases are here because encoding/json decodes
+			// any number as float64. So you give it say 42, and it gives
+			// you back float64(42)
+			case float32:
+				m[k] = int64(v)
+			case float64:
+				m[k] = int64(v)
 			// We are not supporting uint64 because it won't fit in int64
 			// case uint64:
 			default:
-				return fmt.Errorf("expected int for %s, got %T", k, v)
+				return fmt.Errorf("expected integer number for property %s, got %T", k, v)
 			}
 		case IndexTypeFloat:
 			switch v := v.(type) {
@@ -147,11 +154,24 @@ func (s IndexSchema) CheckCompatibleMap(m PointAsMap) error {
 			case float32:
 				m[k] = float64(v)
 			default:
-				return fmt.Errorf("expected float for %s, got %T", k, v)
+				return fmt.Errorf("expected floating point number for property %s, got %T", k, v)
 			}
 		case IndexTypeStringArray:
-			if _, ok := v.([]string); !ok {
-				return fmt.Errorf("expected string array for %s, got %T", k, v)
+			switch v := v.(type) {
+			case []string:
+			case []any:
+				// Similar problem to float vectors, encoding/json gives back []any for arrays
+				strs := make([]string, len(v))
+				for i, s := range v {
+					if ss, ok := s.(string); ok {
+						strs[i] = ss
+					} else {
+						return fmt.Errorf("expected string array for property %s, got %T", k, s)
+					}
+				}
+				m[k] = strs
+			default:
+				return fmt.Errorf("expected string array for property %s, got %T", k, v)
 			}
 		}
 	}

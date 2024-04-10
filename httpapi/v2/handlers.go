@@ -69,8 +69,8 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 		UserId:      appHeaders.UserId,
 		Id:          req.Id,
 		Replicas:    1,
-		Timestamp:   time.Now().UnixMicro(),
-		CreatedAt:   time.Now().UnixMicro(),
+		Timestamp:   time.Now().Unix(),
+		CreatedAt:   time.Now().Unix(),
 		UserPlan:    c.MustGet("userPlan").(models.UserPlan),
 		IndexSchema: req.IndexSchema,
 	}
@@ -123,7 +123,7 @@ func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
 // ---------------------------
 
 type GetCollectionUri struct {
-	CollectionId string `uri:"collectionId" binding:"required,alphanum,min=3,max=16"`
+	CollectionId string `uri:"collectionId" binding:"required,alphanum,min=3,max=24"`
 }
 
 func (sdbh *SemaDBHandlers) CollectionURIMiddleware() gin.HandlerFunc {
