@@ -304,7 +304,9 @@ func (c *ClusterNode) SearchPoints(col models.Collection, sr models.SearchReques
 	 * increase the shard offset only when multiples of len(shards) is set by the
 	 * user. That is, if the user sets offset=3 and len(shards)=3 then offset for
 	 * each shard will be 1 discarding 3 points in total. */
-	sr.Offset = sr.Offset / len(col.ShardIds)
+	if len(col.ShardIds) > 1 && sr.Offset%len(col.ShardIds) == 0 {
+		sr.Offset = sr.Offset / len(col.ShardIds)
+	}
 	// ---------------------------
 	/* Search every shard in parallel. If a shard is unavailable, we will simply
 	 * ignore it for now to keep the search request alive. This is not a major
