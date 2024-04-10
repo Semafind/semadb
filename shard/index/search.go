@@ -47,7 +47,7 @@ func (im indexManager) Search(
 	switch itype {
 	case models.IndexTypeVectorVamana:
 		if q.VectorVamana == nil {
-			return nil, nil, fmt.Errorf("no vectorVamana query options")
+			return nil, nil, fmt.Errorf("no vectorVamana query options for property %s", q.Property)
 		}
 		// ---------------------------
 		// This has to be computed prior to the search so cannot be done in parallel
@@ -82,7 +82,7 @@ func (im indexManager) Search(
 		return vamanaSet, vamanaRes, nil
 	case models.IndexTypeVectorFlat:
 		if q.VectorFlat == nil {
-			return nil, nil, fmt.Errorf("no vectorFlat query options")
+			return nil, nil, fmt.Errorf("no vectorFlat query options for property %s", q.Property)
 		}
 		// ---------------------------
 		var filter *roaring64.Bitmap
@@ -116,7 +116,7 @@ func (im indexManager) Search(
 		return flatSet, flatRes, nil
 	case models.IndexTypeText:
 		if q.Text == nil {
-			return nil, nil, fmt.Errorf("no text query options")
+			return nil, nil, fmt.Errorf("no text query options for property %s", q.Property)
 		}
 		var filter *roaring64.Bitmap
 		if q.Text.Filter != nil {
@@ -132,28 +132,28 @@ func (im indexManager) Search(
 		return textIndex.Search(*q.Text, filter)
 	case models.IndexTypeString:
 		if q.String == nil {
-			return nil, nil, fmt.Errorf("no string query options")
+			return nil, nil, fmt.Errorf("no string query options for property %s", q.Property)
 		}
 		stringIndex := inverted.NewIndexInvertedString(bucket, *iparams.String)
 		rSet, err := stringIndex.Search(*q.String)
 		return rSet, nil, err
 	case models.IndexTypeStringArray:
 		if q.StringArray == nil {
-			return nil, nil, fmt.Errorf("no stringArray query options")
+			return nil, nil, fmt.Errorf("no stringArray query options for property %s", q.Property)
 		}
 		stringArrayIndex := inverted.NewIndexInvertedArrayString(bucket, *iparams.StringArray)
 		rSet, err := stringArrayIndex.Search(*q.StringArray)
 		return rSet, nil, err
 	case models.IndexTypeInteger:
 		if q.Integer == nil {
-			return nil, nil, fmt.Errorf("no integer query options")
+			return nil, nil, fmt.Errorf("no integer query options for property %s", q.Property)
 		}
 		integerIndex := inverted.NewIndexInverted[int64](bucket)
 		rSet, err := integerIndex.Search(q.Integer.Value, q.Integer.EndValue, q.Integer.Operator)
 		return rSet, nil, err
 	case models.IndexTypeFloat:
 		if q.Float == nil {
-			return nil, nil, fmt.Errorf("no float query options")
+			return nil, nil, fmt.Errorf("no float query options for property %s", q.Property)
 		}
 		floatIndex := inverted.NewIndexInverted[float64](bucket)
 		rSet, err := floatIndex.Search(q.Float.Value, q.Float.EndValue, q.Float.Operator)
