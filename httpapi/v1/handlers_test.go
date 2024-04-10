@@ -10,11 +10,13 @@ import (
 	"testing"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
 	v1 "github.com/semafind/semadb/httpapi/v1"
 	"github.com/semafind/semadb/models"
 	"github.com/stretchr/testify/require"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 type requestTest struct {
@@ -23,9 +25,14 @@ type requestTest struct {
 	Code    int
 }
 
+type pointState struct {
+	Id   uuid.UUID
+	Data models.PointAsMap
+}
+
 type collectionState struct {
 	Collection models.Collection
-	Points     []models.Point
+	Points     []pointState
 }
 
 type clusterNodeState struct {
@@ -65,7 +72,19 @@ func setupClusterNode(t *testing.T, nodeS clusterNodeState) *cluster.ClusterNode
 		err := cnode.CreateCollection(colState.Collection)
 		require.NoError(t, err)
 		// ---------------------------
-		failedRanges, err := cnode.InsertPoints(colState.Collection, colState.Points)
+		if len(colState.Points) == 0 {
+			continue
+		}
+		points := make([]models.Point, len(colState.Points))
+		for i, p := range colState.Points {
+			pointDataBytes, err := msgpack.Marshal(p.Data)
+			require.NoError(t, err)
+			points[i] = models.Point{
+				Id:   p.Id,
+				Data: pointDataBytes,
+			}
+		}
+		failedRanges, err := cnode.InsertPoints(colState.Collection, points)
 		require.NoError(t, err)
 		require.Len(t, failedRanges, 0)
 	}
@@ -155,7 +174,7 @@ var sampleCollection models.Collection = models.Collection{
 			Type: "vectorVamana",
 			VectorVamana: &models.IndexVectorVamanaParameters{
 				VectorSize:     2,
-				DistanceMetric: "cosine",
+				DistanceMetric: "euclidean",
 				// Default values for the vamana algorithm
 				SearchSize:  75,
 				DegreeBound: 64,
@@ -192,7 +211,7 @@ func Test_ListCollections(t *testing.T) {
 	require.Len(t, respBody.Collections, 1)
 	require.Equal(t, "gandalf", respBody.Collections[0].Id)
 	require.EqualValues(t, 2, respBody.Collections[0].VectorSize)
-	require.Equal(t, "cosine", respBody.Collections[0].DistanceMetric)
+	require.Equal(t, "euclidean", respBody.Collections[0].DistanceMetric)
 }
 
 func Test_GetCollection(t *testing.T) {
@@ -215,7 +234,7 @@ func Test_GetCollection(t *testing.T) {
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
 	require.NoError(t, err)
 	require.Equal(t, "gandalf", respBody.Id)
-	require.Equal(t, "cosine", respBody.DistanceMetric)
+	require.Equal(t, "euclidean", respBody.DistanceMetric)
 	require.EqualValues(t, 2, respBody.VectorSize)
 	require.Len(t, respBody.Shards, 0)
 }
@@ -306,4 +325,163 @@ func Test_InsertPoints(t *testing.T) {
 	// Adding more points triggers quota limit
 	resp = makeRequest(t, router, "POST", "/v1/collections/gandalf/points", reqBody)
 	require.Equal(t, http.StatusForbidden, resp.Code)
+}
+
+func Test_SearchPointsEmpty(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+			},
+		},
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	sr := v1.SearchPointsRequest{
+		Vector: []float32{1, 2},
+	}
+	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr)
+	require.Equal(t, http.StatusOK, resp.Code)
+	var respBody v1.SearchPointsResponse
+	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
+	require.NoError(t, err)
+	require.Len(t, respBody.Points, 0)
+}
+
+func Test_SearchPoints(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+				Points: []pointState{
+					{
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":   []float32{1, 2},
+							"metadata": "frodo",
+						},
+					},
+					{
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":   []float32{2, 3},
+							"metadata": "sam",
+						},
+					},
+				},
+			},
+		},
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	sr := v1.SearchPointsRequest{
+		Vector: []float32{1, 2},
+	}
+	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr)
+	require.Equal(t, http.StatusOK, resp.Code)
+	var respBody v1.SearchPointsResponse
+	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
+	require.NoError(t, err)
+	require.Len(t, respBody.Points, 2)
+	require.Equal(t, "frodo", respBody.Points[0].Metadata)
+}
+
+func Test_UpdatePoints(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+				Points: []pointState{
+					{
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":   []float32{1, 2},
+							"metadata": "frodo",
+						},
+					},
+				},
+			},
+		},
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	// Large update fails
+	r := v1.UpdatePointsRequest{
+		Points: []v1.UpdateSinglePointRequest{
+			{
+				Id:       nodeS.Collections[0].Points[0].Id.String(),
+				Vector:   []float32{3, 4},
+				Metadata: make([]float64, 100),
+			},
+		},
+	}
+	resp := makeRequest(t, router, "PUT", "/v1/collections/gandalf/points", r)
+	require.Equal(t, http.StatusBadRequest, resp.Code)
+	// ---------------------------
+	// Update the point
+	r = v1.UpdatePointsRequest{
+		Points: []v1.UpdateSinglePointRequest{
+			{
+				Id:       nodeS.Collections[0].Points[0].Id.String(),
+				Vector:   []float32{3, 4},
+				Metadata: "sam",
+			},
+		},
+	}
+	// ---------------------------
+	resp = makeRequest(t, router, "PUT", "/v1/collections/gandalf/points", r)
+	require.Equal(t, http.StatusOK, resp.Code)
+	var respBody v1.UpdatePointsResponse
+	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
+	require.NoError(t, err)
+	require.Len(t, respBody.FailedPoints, 0)
+	// ---------------------------
+	// Has it been updated?
+	sr := v1.SearchPointsRequest{
+		Vector: []float32{3, 4},
+	}
+	resp = makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr)
+	require.Equal(t, http.StatusOK, resp.Code)
+	var respBodySearch v1.SearchPointsResponse
+	err = json.Unmarshal(resp.Body.Bytes(), &respBodySearch)
+	require.NoError(t, err)
+	require.Len(t, respBodySearch.Points, 1)
+	require.Equal(t, "sam", respBodySearch.Points[0].Metadata)
+}
+
+func Test_DeletePoints(t *testing.T) {
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
+			{
+				Collection: sampleCollection,
+				Points: []pointState{
+					{
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":   []float32{1, 2},
+							"metadata": "frodo",
+						},
+					},
+					{
+						Id: uuid.New(),
+						Data: models.PointAsMap{
+							"vector":   []float32{2, 3},
+							"metadata": "sam",
+						},
+					},
+				},
+			},
+		},
+	}
+	router := setupTestRouter(t, nodeS)
+	// ---------------------------
+	r := v1.DeletePointsRequest{
+		Ids: []string{nodeS.Collections[0].Points[0].Id.String(), nodeS.Collections[0].Points[1].Id.String()},
+	}
+	resp := makeRequest(t, router, "DELETE", "/v1/collections/gandalf/points", r)
+	require.Equal(t, http.StatusOK, resp.Code)
+	var respBody v1.DeletePointsResponse
+	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
+	require.NoError(t, err)
+	require.Len(t, respBody.FailedPoints, 0)
 }
