@@ -429,18 +429,18 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	}
 	results := make([]models.PointAsMap, len(points))
 	for i, sp := range points {
-		var pointData models.PointAsMap
-		if len(sp.Point.Data) > 0 {
-			if err := msgpack.Unmarshal(sp.Point.Data, &pointData); err != nil {
-				errMsg := fmt.Sprintf("could not decode point %s", sp.Point.Id.String())
-				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": errMsg})
-				return
-			}
-		} else {
+		pointData := sp.DecodedData
+		if sp.DecodedData == nil {
 			pointData = models.PointAsMap{}
+			if len(sp.Point.Data) > 0 {
+				if err := msgpack.Unmarshal(sp.Point.Data, &pointData); err != nil {
+					errMsg := fmt.Sprintf("could not decode point %s", sp.Point.Id.String())
+					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": errMsg})
+					return
+				}
+			}
 		}
 		// ---------------------------
-		// TODO: Handle pre-decoded data
 		// We re-add the system _id and _distance fields to the point data
 		pointData["_id"] = sp.Point.Id.String()
 		if sp.Distance != nil {
