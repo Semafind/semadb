@@ -1,4 +1,4 @@
-package v1
+package v1_test
 
 import (
 	"bytes"
@@ -12,26 +12,27 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
+	v1 "github.com/semafind/semadb/httpapi/v1"
 	"github.com/semafind/semadb/models"
 	"github.com/stretchr/testify/require"
 )
 
-type RequestTest struct {
+type requestTest struct {
 	Name    string
 	Payload any
 	Code    int
 }
 
-type CollectionState struct {
+type collectionState struct {
 	Collection models.Collection
 	Points     []models.Point
 }
 
-type ClusterNodeState struct {
-	Collections []CollectionState
+type clusterNodeState struct {
+	Collections []collectionState
 }
 
-func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode {
+func setupClusterNode(t *testing.T, nodeS clusterNodeState) *cluster.ClusterNode {
 	tempDir := t.TempDir()
 	cnode, err := cluster.NewNode(cluster.ClusterNodeConfig{
 		RootDir: tempDir,
@@ -71,7 +72,7 @@ func setupClusterNode(t *testing.T, nodeS ClusterNodeState) *cluster.ClusterNode
 	return cnode
 }
 
-func setupTestRouter(t *testing.T, nodeS ClusterNodeState) *gin.Engine {
+func setupTestRouter(t *testing.T, nodeS clusterNodeState) *gin.Engine {
 	router := gin.New()
 	userPlans := map[string]models.UserPlan{
 		"BASIC": {
@@ -83,8 +84,8 @@ func setupTestRouter(t *testing.T, nodeS ClusterNodeState) *gin.Engine {
 			ShardBackupCount:        3,
 		},
 	}
-	v1 := router.Group("/v1", middleware.AppHeaderMiddleware(userPlans))
-	SetupV1Handlers(setupClusterNode(t, nodeS), v1)
+	v1g := router.Group("/v1", middleware.AppHeaderMiddleware(userPlans))
+	v1.SetupV1Handlers(setupClusterNode(t, nodeS), v1g)
 	return router
 }
 
@@ -108,7 +109,7 @@ func makeRequest(t *testing.T, router *gin.Engine, method string, endpoint strin
 }
 
 func Test_pongHandler(t *testing.T) {
-	router := setupTestRouter(t, ClusterNodeState{})
+	router := setupTestRouter(t, clusterNodeState{})
 	req, err := http.NewRequest("GET", "/v1/ping", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -126,9 +127,9 @@ func Test_pongHandler(t *testing.T) {
 }
 
 func Test_CreateCollection(t *testing.T) {
-	router := setupTestRouter(t, ClusterNodeState{})
+	router := setupTestRouter(t, clusterNodeState{})
 	// ---------------------------
-	reqBody := CreateCollectionRequest{
+	reqBody := v1.CreateCollectionRequest{
 		Id:             "testy",
 		VectorSize:     128,
 		DistanceMetric: "euclidean",
@@ -167,17 +168,17 @@ var sampleCollection models.Collection = models.Collection{
 func Test_ListCollections(t *testing.T) {
 	// ---------------------------
 	// Initially the user no collections
-	router := setupTestRouter(t, ClusterNodeState{})
+	router := setupTestRouter(t, clusterNodeState{})
 	resp := makeRequest(t, router, "GET", "/v1/collections", nil)
 	require.Equal(t, http.StatusOK, resp.Code)
-	var respBody ListCollectionsResponse
+	var respBody v1.ListCollectionsResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
 	require.NoError(t, err)
 	require.Len(t, respBody.Collections, 0)
 	// ---------------------------
 	// List user collections
-	nodeS := ClusterNodeState{
-		Collections: []CollectionState{
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
 			{
 				Collection: sampleCollection,
 			},
@@ -195,8 +196,8 @@ func Test_ListCollections(t *testing.T) {
 }
 
 func Test_GetCollection(t *testing.T) {
-	nodeS := ClusterNodeState{
-		Collections: []CollectionState{
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
 			{
 				Collection: sampleCollection,
 			},
@@ -210,7 +211,7 @@ func Test_GetCollection(t *testing.T) {
 	// ---------------------------
 	resp = makeRequest(t, router, "GET", "/v1/collections/gandalf", nil)
 	require.Equal(t, http.StatusOK, resp.Code)
-	var respBody GetCollectionResponse
+	var respBody v1.GetCollectionResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
 	require.NoError(t, err)
 	require.Equal(t, "gandalf", respBody.Id)
@@ -220,8 +221,8 @@ func Test_GetCollection(t *testing.T) {
 }
 
 func Test_DeleteCollection(t *testing.T) {
-	nodeS := ClusterNodeState{
-		Collections: []CollectionState{
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
 			{
 				Collection: sampleCollection,
 			},
@@ -242,8 +243,8 @@ func Test_DeleteCollection(t *testing.T) {
 }
 
 func Test_InsertPoints(t *testing.T) {
-	nodeS := ClusterNodeState{
-		Collections: []CollectionState{
+	nodeS := clusterNodeState{
+		Collections: []collectionState{
 			{
 				Collection: sampleCollection,
 			},
@@ -251,11 +252,11 @@ func Test_InsertPoints(t *testing.T) {
 	}
 	router := setupTestRouter(t, nodeS)
 	// ---------------------------
-	tests := []RequestTest{
+	tests := []requestTest{
 		{
 			Name: "Invalid vector size",
-			Payload: InsertPointsRequest{
-				Points: []InsertSinglePointRequest{
+			Payload: v1.InsertPointsRequest{
+				Points: []v1.InsertSinglePointRequest{
 					{
 						Vector: []float32{1, 2, 3},
 					},
@@ -265,8 +266,8 @@ func Test_InsertPoints(t *testing.T) {
 		},
 		{
 			Name: "Invalid metadata size",
-			Payload: InsertPointsRequest{
-				Points: []InsertSinglePointRequest{
+			Payload: v1.InsertPointsRequest{
+				Points: []v1.InsertSinglePointRequest{
 					{
 						Vector:   []float32{1, 2},
 						Metadata: []float32{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
@@ -285,8 +286,8 @@ func Test_InsertPoints(t *testing.T) {
 	}
 	// ---------------------------
 	// Can insert points
-	reqBody := InsertPointsRequest{
-		Points: []InsertSinglePointRequest{
+	reqBody := v1.InsertPointsRequest{
+		Points: []v1.InsertSinglePointRequest{
 			{
 				Vector: []float32{1, 2},
 			},
@@ -298,7 +299,7 @@ func Test_InsertPoints(t *testing.T) {
 	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", reqBody)
 	fmt.Println(resp)
 	require.Equal(t, http.StatusOK, resp.Code)
-	var respBody InsertPointsResponse
+	var respBody v1.InsertPointsResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
 	require.NoError(t, err)
 	require.Len(t, respBody.FailedRanges, 0)

@@ -267,7 +267,7 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 		if len(point.Id) > 0 {
 			pointId = uuid.MustParse(point.Id)
 		}
-		pointData := map[string]any{"vector": point.Vector, "metadata": point.Metadata}
+		pointData := models.PointAsMap{"vector": point.Vector, "metadata": point.Metadata}
 		binaryPointData, err := msgpack.Marshal(pointData)
 		if err != nil {
 			errMsg := fmt.Sprintf("failed to JSON encode point at index %d, please ensure all fields are JSON compatible", i)
@@ -342,8 +342,7 @@ func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 		points[i] = models.Point{
 			Id: uuid.MustParse(point.Id),
 		}
-		pointData := map[string]any{"vector": point.Vector, "metadata": point.Metadata}
-		// TODO: Handle max point size for update case
+		pointData := models.PointAsMap{"vector": point.Vector, "metadata": point.Metadata}
 		binaryPointData, err := msgpack.Marshal(pointData)
 		if err != nil {
 			errMsg := fmt.Sprintf("failed to JSON encode %d, please ensure all fields are JSON compatible", i)
@@ -467,12 +466,7 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	}
 	results := make([]SearchPointResult, len(points))
 	for i, sp := range points {
-		mdata, err := sp.Point.GetField("metadata")
-		if err != nil {
-			errMsg := fmt.Sprintf("failed to get metadata for point %s: %s", sp.Point.Id, err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": errMsg})
-			return
-		}
+		mdata := sp.DecodedData["metadata"]
 		var dist float32
 		if sp.Distance != nil {
 			dist = *sp.Distance
