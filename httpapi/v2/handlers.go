@@ -76,8 +76,6 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 	}
 	log.Debug().Interface("collection", vamanaCollection).Msg("CreateCollection")
 	// ---------------------------
-	// TODO: Add max vector size check for indexes as part of user plan
-	// ---------------------------
 	err := sdbh.clusterNode.CreateCollection(vamanaCollection)
 	switch err {
 	case nil:

@@ -11,8 +11,6 @@ import (
 // This is the generic data type for a point that the user interacts with.
 type PointAsMap map[string]any
 
-// TODO: Refactor all marshalling business to this package
-
 func (p PointAsMap) ExtractIdField(createNew bool) (uuid.UUID, error) {
 	id, ok := p["_id"]
 	if !ok {
