@@ -13,6 +13,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/semafind/semadb/cluster/mrpc"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/utils"
 )
@@ -140,13 +141,9 @@ func openNodeDB(dbPath string) (diskstore.DiskStore, error) {
 func (c *ClusterNode) Serve() {
 	// ---------------------------
 	// Setup RPC server
-	rpc.Register(c)
-	rpc.HandleHTTP()
-	rpcServer := &http.Server{
-		Addr:         c.cfg.RpcHost + ":" + strconv.Itoa(c.cfg.RpcPort),
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-	}
+	rpcMainServer := rpc.NewServer()
+	rpcMainServer.Register(c)
+	rpcServer := mrpc.NewHTTPServer(c.cfg.RpcHost+":"+strconv.Itoa(c.cfg.RpcPort), rpcMainServer)
 	// ---------------------------
 	go func() {
 		// service connections

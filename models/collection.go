@@ -8,6 +8,6 @@ type Collection struct {
 	CreatedAt int64
 	ShardIds  []string
 	// Active user plan, dynamically assigned
-	UserPlan    UserPlan `json:"-" msgpack:"-"`
+	UserPlan    UserPlan
 	IndexSchema IndexSchema
 }

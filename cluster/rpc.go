@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/rpc"
 	"time"
+
+	"github.com/semafind/semadb/cluster/mrpc"
 )
 
 func (c *ClusterNode) rpcClient(destination string) (*rpc.Client, error) {
@@ -13,7 +15,7 @@ func (c *ClusterNode) rpcClient(destination string) (*rpc.Client, error) {
 		return client, nil
 	}
 	c.logger.Debug().Str("destination", destination).Msg("Creating new rpc client")
-	client, err := rpc.DialHTTP("tcp", destination)
+	client, err := mrpc.DialHTTP("tcp", destination)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +39,7 @@ func (args RPCRequestArgs) Destination() string {
 	return args.Dest
 }
 
-func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply interface{}) error {
+func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply any) error {
 	destination := args.Destination()
 	c.logger.Debug().Str("destination", destination).Msg(remoteFn + ": routing")
 	// ---------------------------
