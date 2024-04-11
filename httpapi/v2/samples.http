@@ -1,7 +1,7 @@
 @package = BASIC
 @baseUrl = http://localhost:8081/v2
 @userId = alice
-@collectionId = abc
+@collectionId = mycollection
 @pointId = faefe2b1-cf85-48db-9621-94b833ee9cc9
 
 ###
@@ -74,9 +74,7 @@ X-Plan-Id: {{package}}
         {
             "_id": "{{pointId}}",
             "vector": [1, 2],
-            "metadata": {
-                "foo": "bar"
-            }
+            "foo": "bar"
         },
         {
             "vector": [3, 4]
@@ -117,6 +115,7 @@ X-Plan-Id: {{package}}
         "vectorVamana": {
             "vector": [1, 2],
             "operator": "near",
+            "searchSize": 75,
             "limit": 10 
         }
     },

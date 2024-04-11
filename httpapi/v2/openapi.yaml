@@ -99,19 +99,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  collections:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          $ref: '#/components/schemas/CollectionId'
-                        vectorSize:
-                          $ref: '#/components/schemas/VectorSize'
-                        distanceMetric:
-                          $ref: '#/components/schemas/DistanceMetric'
+                $ref: '#/components/schemas/ListCollectionResponse'
               examples:
                 SampleCollectionList:
                   summary: Sample collection list
@@ -119,8 +107,7 @@ paths:
                   value:
                     collections:
                       - id: mycollection
-                        vectorSize: 2
-                        distanceMetric: euclidean
+                      - id: anothercollection
 # ---------------------------
   /collections/{collectionId}:
     summary: Endpoint for managing a specific collection
@@ -144,32 +131,21 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  id:
-                    $ref: '#/components/schemas/CollectionId'
-                  vectorSize:
-                    $ref: '#/components/schemas/VectorSize'
-                  distanceMetric:
-                    $ref: '#/components/schemas/DistanceMetric'
-                  shards:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                        pointCount:
-                          type: integer
+                $ref: '#/components/schemas/GetCollectionResponse'
               examples:
                 SampleCollection:
                   summary: Sample collection
                   description: A sample collection with shard information
                   value:
                     id: mycollection
-                    vectorSize: 2
-                    distanceMetric: euclidean
+                    indexSchema:
+                      myvector:
+                        type: vectorVamana
+                        vectorSize: 2
+                        distanceMetric: euclidean
+                        searchSize: 75
+                        degreeBound: 64
+                        alpha: 1.2
                     shards:
                       - id: fff3a226-b9f8-4375-8dbd-1a240e000705
                         pointCount: 1000
@@ -221,40 +197,20 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - points
-              properties:
-                points:
-                  type: array
-                  minItems: 1
-                  maxItems: 10000
-                  items:
-                    type: object
-                    required: 
-                      - vector
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                      vector:
-                        $ref: '#/components/schemas/Vector'
-                      metadata:
-                        $ref: '#/components/schemas/PointMetadata'
+              $ref: '#/components/schemas/InsertPointsRequest'
             examples:
               SampleInsertPoints:
                 summary: Sample insert points
                 description: A sample list of points to insert
                 value:
                   points:
-                    - vector: [4.2, 2.4]
-                    - vector: [1.2, 3.4]
-                      metadata:
-                        externalId: 42
-                    - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                    - myvector: [4.2, 2.4]
+                    - myvector: [1.2, 3.4]
+                      foo: bar
+                      externalId: 42
+                    - _id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
                       vector: [3.4, 2.4]
-                      metadata:
-                        externalId: 43
+                      externalId: 43
       responses:
         '200':
           description: >-
@@ -267,31 +223,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    examples:
-                      - partial success
-                  failedRanges:
-                    type: array
-                    description: >-
-                      A list of ranges of points that failed to insert. Each
-                      range has a start and an end index.  The end index is
-                      exclusive. For example, if the range is [0, 2], the first
-                      two points failed to insert.
-                    items:
-                      type: object
-                      properties:
-                        shardId:
-                          type: string
-                          format: uuid
-                        start:
-                          type: integer
-                        end:
-                          type: integer
-                        error:
-                          type: string
+                $ref: '#/components/schemas/InsertPointsResponse'
               examples:
                 SuccessfulInsertPointsResponse:
                   summary: Fully successful insert points response
@@ -332,27 +264,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - points
-              properties:
-                points:
-                  type: array
-                  minItems: 1
-                  maxItems: 100
-                  items:
-                    type: object
-                    required:
-                      - id
-                      - vector
-                    properties:
-                      id:
-                        type: string
-                        format: uuid
-                      vector:
-                        $ref: '#/components/schemas/Vector'
-                      metadata:
-                        $ref: '#/components/schemas/PointMetadata'
+              $ref: '#/components/schemas/UpdatePointsRequest'
             examples:
               SampleUpdatePoints:
                 summary: Sample update points
@@ -371,22 +283,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    examples:
-                      - partial success
-                  failedPoints:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                        error:
-                          type: string
+                $ref: '#/components/schemas/UpdatePointsResponse'
               examples:
                 SuccessfulUpdatePointsResponse:
                   summary: Successful update points response
@@ -417,17 +314,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - ids
-              properties:
-                ids:
-                  type: array
-                  minItems: 1
-                  maxItems: 100
-                  items:
-                    type: string
-                    format: uuid
+              $ref: '#/components/schemas/DeletePointsRequest'
             examples:
               SampleDeletePoints:
                 summary: Sample delete points
@@ -442,22 +329,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    examples:
-                      - partial success
-                  failedPoints:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                        error:
-                          type: string
+                $ref: '#/components/schemas/DeletePointsResponse'
               examples:
                 SuccessfulDeletePointsResponse:
                   summary: Successful delete points response
@@ -483,80 +355,48 @@ paths:
     post:
       tags:
         - Point
-      summary: Vector search
+      summary: Fast index based search
       description: >-
-        Perform similarity search on points in a collection. The search is
-        performed using a vector, which is a mathematical representation of the
-        point. The vector must have the same number of dimensions as the vectors
-        in the collection. The search returns the most similar points to the
-        vector, along with the distance between the vector and the points.
+        This endpoint allows searching for points in a collection using the
+        index. The search is based on the index schema of the collection.
       operationId: SearchPoint
       requestBody:
-        description: Vector to similarity search
+        description: Search request
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - vector
-              properties:
-                vector:
-                  $ref: '#/components/schemas/Vector'
-                limit:
-                  type: number
-                  description: Maximum number of points to search
-                  minimum: 1
-                  maximum: 75
-                  default: 10
+              $ref: '#/components/schemas/SearchRequest'
             examples:
               SampleSearchPoint:
                 summary: Sample search point
                 description: A sample vector to search with default limit
                 value:
-                  vector: [4.2, 2.4]
-              SampleSearchPointWithLimit:
-                summary: Sample search point with limit
-                description: A sample vector to search with limit 10
-                value:
-                  vector: [4.2, 2.4]
+                  query:
+                    property: myvector
+                    vectorVamana:
+                      vector: [4.2, 2.4]
+                      operator: near
+                      searchSize: 75
+                      limit: 10
                   limit: 10
       responses:
         '200':
-          description: Point search results sorted by distance
+          description: Search results ordered by relevance
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  points:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                        distance:
-                          type: number
-                          description: Distance between the vector and the point
-                          examples:
-                            - 4.2
-                        metadata:
-                          $ref: '#/components/schemas/PointMetadata'
+                $ref: '#/components/schemas/SearchPointsResponse'
               examples:
                 SampleSearchPointResponse:
                   summary: Sample search point response
                   description: A sample response with two points
                   value:
                     points:
-                      - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-                        distance: 4.2
-                        metadata:
-                          externalId: 42
+                      - _id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                        myvector: [4.2, 2.4]
                       - id: 3fa85f64-5717-4562-b3fc-2c963f66afa7
-                        distance: 4.3
-                        metadata: null
+                        foo: bar
 # ---------------------------
 components:
   parameters:
@@ -608,6 +448,8 @@ components:
               value:
                 error: Something went wrong
   schemas:
+# ---------------------------
+# Common objects
     CollectionId:
       type: string
       title: Collection Id
@@ -628,15 +470,34 @@ components:
         - jaccard
     Vector:
       type: array
-      description: Point vector, aka embedding
+      description: A vector with a fixed number of dimensions
       minItems: 1
-      maxItems: 2000
+      maxItems: 4096
       items:
         type: number
-    PointMetadata:
+    PointAsObject:
       type: object
-      description: JSON serialisable point metadata
+      description: JSON serialisable point data
+      properties:
+        _id:
+          type: string
+          format: uuid
+    FailedPoints:
+      type: array
+      description: >-
+        A list of points that failed to insert. Each point has an id and an
+        error message. For example, if the error is "not found", the point does
+        not exist in the collection.
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+            format: uuid
+          error:
+            type: string
 # ---------------------------
+# Collection endpoint objects
     CreateCollectionRequest:
       type: object
       properties:
@@ -644,6 +505,316 @@ components:
           $ref: '#/components/schemas/CollectionId'
         indexSchema:
           $ref: '#/components/schemas/IndexSchema'
+    ListCollectionResponse:
+      type: object
+      properties:
+        collections:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                $ref: '#/components/schemas/CollectionId'
+    GetCollectionResponse:
+      type: object
+      properties:
+        id:
+          $ref: '#/components/schemas/CollectionId'
+        indexSchema:
+          $ref: '#/components/schemas/IndexSchema'
+        shards:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+                format: uuid
+              pointCount:
+                type: number
+# ---------------------------
+# Points endpoint objects
+    InsertPointsRequest:
+      type: object
+      required: [points]
+      properties:
+        points:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: '#/components/schemas/PointAsObject'
+    InsertPointsResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: A message indicating the result of the operation
+        failedRanges:
+          type: array
+          description: >-
+            A list of ranges of points that failed to insert. Each range has a
+            start and an end index.  The end index is exclusive. For example, if
+            the range is [0, 2], the first two points failed to insert.
+          items:
+            type: object
+            properties:
+              shardId:
+                type: string
+                format: uuid
+              start:
+                type: integer
+              end:
+                type: integer
+              error:
+                type: string
+    UpdatePointsRequest:
+      type: object
+      required: [points]
+      properties:
+        points:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/PointAsObject'
+    UpdatePointsResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: A message indicating the result of the operation
+        failedPoints:
+          $ref: '#/components/schemas/FailedPoints'
+    DeletePointsRequest:
+      type: object
+      required: [ids]
+      properties:
+        ids:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            format: uuid
+    DeletePointsResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: A message indicating the result of the operation
+        failedPoints:
+          $ref: '#/components/schemas/FailedPoints'
+# ---------------------------
+# Search objects
+    SearchPointsResponse:
+      type: object
+      properties:
+        points:
+          type: array
+          items:
+            $ref: '#/components/schemas/PointAsObject'
+    SearchRequest:
+      type: object
+      required: [query, limit]
+      properties:
+        query:
+          $ref: '#/components/schemas/Query'
+        select:
+          type: array
+          description: >-
+            A list of properties to return in the search results. If not
+            provided, all properties are returned.
+          items:
+            type: string
+        sort:
+          type: array
+          description: >-
+            A list of sort options for the search results. The search results are
+            sorted by the first sort option, then the second, and so on.
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/SortOption'
+        offset:
+          type: number
+          description: The number of points to skip in the search results
+          minimum: 0
+          default: 0
+        limit:
+          type: number
+          description: Maximum number of points to return
+          minimum: 1
+          maximum: 100
+          default: 10
+    Query:
+      type: object
+      description: >-
+        A query object that can be used to perform search. The query object can
+        contain multiple filters, each with a property and a value. Use _and and
+        _or to combine queries.
+      required: [property]
+      properties:
+        property:
+          type: string
+        vectorFlat:
+          $ref: '#/components/schemas/SearchVectorFlatOptions'
+        vectorVamana:
+          $ref: '#/components/schemas/SearchVectorVamanaOptions'
+        text:
+          $ref: '#/components/schemas/SearchTextOptions'
+        string:
+          $ref: '#/components/schemas/SearchStringOptions'
+        integer:
+          $ref: '#/components/schemas/SearchNumberOptions'
+        float:
+          $ref: '#/components/schemas/SearchNumberOptions'
+        stringArray:
+          $ref: '#/components/schemas/SearchStringArrayOptions'
+        _and:
+          type: array
+          items:
+            $ref: '#/components/schemas/Query'
+        _or:
+          type: array
+          items:
+            $ref: '#/components/schemas/Query'
+    SortOption:
+      type: object
+      description: >-
+        Sort options for search results. The field is the property to sort by and
+        the order is the direction to sort in.
+      required: [property, order]
+      properties:
+        property:
+          type: string
+        order:
+          type: string
+          enum: [asc, desc]
+    SearchVectorVamanaOptions:
+      type: object
+      description: >-
+        Options for searching vectors with Vamana indexing. The larger the
+        search size the longer the search will take.
+      required: [vector, operator, searchSize, limit]
+      properties:
+        vector:
+          $ref: '#/components/schemas/Vector'
+        operator:
+          type: string
+          enum: [near]
+        searchSize:
+          type: number
+          description: >-
+            Determines the scope of the greedy search algorithm. The higher the
+            value, the more exhaustive the search.
+          minimum: 25
+          maximum: 75
+          default: 75
+        limit:
+          type: number
+          description: Maximum number of points to search
+          minimum: 1
+          maximum: 75
+          default: 10
+        filter:
+          $ref: '#/components/schemas/Query'
+        weight:
+          type: number
+          description: >-
+            The weight of the vector search, the higher the value, the more
+            important the vector search is.
+          default: 1
+    SearchVectorFlatOptions:
+      type: object
+      description: >-
+        Options for searching vectors with flat indexing.
+      required: [vector, operator, limit]
+      properties:
+        vector:
+          $ref: '#/components/schemas/Vector'
+        operator:
+          type: string
+          enum: [near]
+        limit:
+          type: number
+          description: Maximum number of points to search
+          minimum: 1
+          maximum: 75
+          default: 10
+        filter:
+          $ref: '#/components/schemas/Query'
+        weight:
+          type: number
+          description: >-
+            The weight of the vector search, the higher the value, the more
+            important the vector search is.
+          default: 1
+    SearchTextOptions:
+      type: object
+      description: >-
+        Text search options, the value is the text to search for. The weight
+        determines the hybrid search weighting.
+      required: [value, operator, limit]
+      properties:
+        value:
+          type: string
+        operator:
+          type: string
+          enum: [containsAll, containsAny]
+        limit:
+          type: number
+          description: Maximum number of points to search
+          minimum: 1
+          maximum: 75
+          default: 10
+        filter:
+          $ref: '#/components/schemas/Query'
+        weight:
+          type: number
+          description: >-
+            The weight of the text search, the higher the value, the more
+            important the text search is.
+          default: 1
+    SearchStringOptions:
+      type: object
+      description: >-
+        Options for searching strings. The operator determines how the search is
+        performed. The value is a string to search for.
+      required: [value, operator]
+      properties:
+        value:
+          type: string
+        operator:
+          type: string
+          enum: [startsWith, equals, notEquals, greaterThan, greaterThanOrEquals, lessThan, lessThanOrEquals, inRange]
+        endValue:
+          type: string
+    SearchNumberOptions:
+      type: object
+      description: >-
+        Options for searching numbers. The operator determines how the search is
+        performed. The value is a number to search for, endValue is used for
+        range queries.
+      required: [value, operator]
+      properties:
+        value:
+          type: number
+        operator:
+          type: string
+          enum: [equals, notEquals, greaterThan, greaterThanOrEquals, lessThan, lessThanOrEquals, inRange]
+        endValue:
+          type: number
+    SearchStringArrayOptions:
+      type: object
+      description: >-
+        Options for searching string arrays. The operator determines how the
+        search is performed. The value is an array of strings to search for.
+      required: [value, operator]
+      properties:
+        value:
+          type: array
+          items:
+            type: string
+        operator:
+          type: string
+          enum: [containsAll, containsAny]
 # ---------------------------
 # Index schema objects
     IndexSchema:
