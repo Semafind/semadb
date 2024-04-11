@@ -37,8 +37,8 @@ const POINTSBUCKETKEY = "points"
 const INTERNALBUCKETKEY = "internal"
 
 // ---------------------------
+// Internal bucket keys
 var POINTCOUNTKEY = []byte("pointCount")
-
 var FREENODEIDSKEY = []byte("freeNodeIds")
 var NEXTFREENODEIDKEY = []byte("nextFreeNodeId")
 
@@ -390,6 +390,10 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 		for i, r := range finalResults {
 			// This fills with selected properties {"name": ...}
 			finalResults[i].DecodedData = make(models.PointAsMap)
+			if len(r.Point.Data) == 0 {
+				// No data to select from
+				continue
+			}
 			// E.g. ["name", "age"]
 			for _, p := range searchRequest.Select {
 				// E.g. p = "name"
