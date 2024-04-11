@@ -95,7 +95,7 @@ X-Plan-Id: {{package}}
         {
             "_id": "{{pointId}}",
             "vector": [6, 7],
-            "metadata": "_delete",
+            "foo": "_delete",
             "meta2": "Celebrimbor"
         }
     ]
