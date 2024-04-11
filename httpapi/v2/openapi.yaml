@@ -680,13 +680,13 @@ components:
       description: >-
         Sort options for search results. The field is the property to sort by and
         the order is the direction to sort in.
-      required: [property, order]
+      required: [property, descending]
       properties:
         property:
           type: string
-        order:
-          type: string
-          enum: [asc, desc]
+        descending:
+          type: boolean
+          default: false
     SearchVectorVamanaOptions:
       type: object
       description: >-

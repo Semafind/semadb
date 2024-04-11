@@ -15,7 +15,7 @@ import "fmt"
 type SearchRequest struct {
 	Query  Query        `json:"query" binding:"required"`
 	Select []string     `json:"select"`
-	Sort   []SortOption `json:"sort"`
+	Sort   []SortOption `json:"sort" binding:"max=10,dive"`
 	Offset int          `json:"offset" binding:"min=0"`
 	Limit  int          `json:"limit" binding:"required,min=1,max=100"`
 }
@@ -108,9 +108,9 @@ type SearchResult struct {
 	DecodedData PointAsMap
 	// Internal NodeId is not exposed to the client
 	NodeId uint64 `json:"-" msgpack:"-"`
-	/* Pointers are used to differentiate between zero values and unset values. A
-	 * distance or score of 0 could be valid. */
-	// Computed from vector indices, lower is better
+	// Pointers are used to differentiate between zero values and unset values.
+	// A distance or score of 0 could be valid.  Computed from vector indices,
+	// lower is better
 	Distance *float32 `json:"_distance,omitempty" msgpack:"_distance,omitempty"`
 	// Computed from generic indices, higher is better
 	Score *float32 `json:"_score,omitempty" msgpack:"_score,omitempty"`
