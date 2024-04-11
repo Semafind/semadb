@@ -25,7 +25,7 @@ info:
 # ---------------------------
 servers:
   - url: https://semadb.semafind.com/v1
-    description: Production server
+    description: SemaDB Cloud Public Beta
 # ---------------------------
 tags:
 - name: Collection

@@ -24,8 +24,8 @@ info:
     url: https://www.apache.org/licenses/LICENSE-2.0.html
 # ---------------------------
 servers:
-  - url: https://semadb.semafind.com/v1
-    description: Production server
+  - url: https://semadb.semafind.com/v2
+    description: SemaDB Cloud Public Beta
 # ---------------------------
 tags:
 - name: Collection
@@ -70,11 +70,12 @@ paths:
                   indexSchema:
                     myvector:
                       type: vectorVamana
-                      vectorSize: 2
-                      distanceMetric: euclidean
-                      searchSize: 75
-                      degreeBound: 64
-                      alpha: 1.2
+                      vectorVamana:
+                        vectorSize: 2
+                        distanceMetric: euclidean
+                        searchSize: 75
+                        degreeBound: 64
+                        alpha: 1.2
       responses:
         '200':
           $ref: '#/components/responses/SuccessfulMessageResponse'
@@ -141,14 +142,15 @@ paths:
                     indexSchema:
                       myvector:
                         type: vectorVamana
-                        vectorSize: 2
-                        distanceMetric: euclidean
-                        searchSize: 75
-                        degreeBound: 64
-                        alpha: 1.2
+                        vectorVamana:
+                          vectorSize: 2
+                          distanceMetric: euclidean
+                          searchSize: 75
+                          degreeBound: 64
+                          alpha: 1.2
                     shards:
                       - id: fff3a226-b9f8-4375-8dbd-1a240e000705
-                        pointCount: 1000
+                        pointCount: 42
         '503':
           $ref: '#/components/responses/ErrorMessageResponse'
           description: Some downstream components may be temporarily unavailable
@@ -209,7 +211,7 @@ paths:
                       foo: bar
                       externalId: 42
                     - _id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-                      vector: [3.4, 2.4]
+                      myvector: [3.4, 2.4]
                       externalId: 43
       responses:
         '200':
@@ -271,12 +273,9 @@ paths:
                 description: A sample list of points to update
                 value:
                   points:
-                    - id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-                      vector: [4.2, 2.4]
-                    - id: 3fa85f64-5717-4562-b3fc-2c963f66afa7
-                      vector: [1.2, 3.4]
-                      metadata:
-                        externalId: 42
+                    - _id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+                      myvector: [4.2, 2.4]
+                      wizard: harry
       responses:
         '200':
           description: Updated points
@@ -322,7 +321,6 @@ paths:
                 value:
                   ids:
                     - 3fa85f64-5717-4562-b3fc-2c963f66afa6
-                    - 3fa85f64-5717-4562-b3fc-2c963f66afa7
       responses:
         '200':
           description: Deleted points
