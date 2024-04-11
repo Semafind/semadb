@@ -28,8 +28,6 @@ type Shard struct {
 }
 
 // ---------------------------
-const CURRENTSHARDVERSION = 1
-
 /* Points store the actual data points, graphIndex stores the similarity graph
  * and internal stores the shard metadata such as point count. We partition like
  * this because graph traversal is read-heavy operation, if everything is bundled
@@ -39,12 +37,10 @@ const POINTSBUCKETKEY = "points"
 const INTERNALBUCKETKEY = "internal"
 
 // ---------------------------
-var STARTIDKEY = []byte("startId")
 var POINTCOUNTKEY = []byte("pointCount")
 
 var FREENODEIDSKEY = []byte("freeNodeIds")
 var NEXTFREENODEIDKEY = []byte("nextFreeNodeId")
-var SHARDVERSIONKEY = []byte("shardVersion")
 
 // ---------------------------
 const DELETEVALUE = "_delete"

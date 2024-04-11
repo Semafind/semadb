@@ -18,13 +18,7 @@ import (
 )
 
 // ---------------------------
-const CURRRENTNODEVERSION = 1
-
-var INTERNALBUCKETKEY = "internal"
 var USERCOLSBUCKETKEY = "userCollections"
-
-// ---------------------------
-var NODEVERSIONKEY = []byte("clusterNodeVersion")
 
 // ---------------------------
 
