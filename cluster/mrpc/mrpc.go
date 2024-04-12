@@ -30,7 +30,10 @@ func DialHTTP(network, address string) (*rpc.Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	io.WriteString(conn, "CONNECT "+rpc.DefaultRPCPath+" HTTP/1.0\n\n")
+	if _, err := io.WriteString(conn, "CONNECT "+rpc.DefaultRPCPath+" HTTP/1.0\n\n"); err != nil {
+		conn.Close()
+		return nil, err
+	}
 
 	// Require successful HTTP response
 	// before switching to RPC protocol.
@@ -58,7 +61,9 @@ func NewHTTPServer(addr string, rpcServer *rpc.Server) *http.Server {
 		if r.Method != "CONNECT" {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.WriteHeader(http.StatusMethodNotAllowed)
-			io.WriteString(w, "405 must CONNECT\n")
+			if _, err := io.WriteString(w, "405 must CONNECT\n"); err != nil {
+				log.Error().Str("remoteAddr", r.RemoteAddr).Err(err).Msg("rpc server wrong method")
+			}
 			return
 		}
 		conn, _, err := w.(http.Hijacker).Hijack()
@@ -66,7 +71,11 @@ func NewHTTPServer(addr string, rpcServer *rpc.Server) *http.Server {
 			log.Error().Str("remoteAddr", r.RemoteAddr).Err(err).Msg("rpc hijacking")
 			return
 		}
-		io.WriteString(conn, "HTTP/1.0 "+connected+"\n\n")
+		if _, err := io.WriteString(conn, "HTTP/1.0 "+connected+"\n\n"); err != nil {
+			log.Error().Str("remoteAddr", r.RemoteAddr).Err(err).Msg("rpc server connection")
+			conn.Close()
+			return
+		}
 		codec := NewMsgpackCodec(conn)
 		rpcServer.ServeCodec(codec)
 	}
