@@ -54,7 +54,9 @@ func main() {
 		log.Fatal().Err(err).Msg("Failed to create cluster state")
 	}
 	clusterNode.RegisterMetrics(reg)
-	clusterNode.Serve()
+	if err := clusterNode.Serve(); err != nil {
+		log.Fatal().Err(err).Msg("Failed to start cluster node")
+	}
 	// ---------------------------
 	httpServer := httpapi.RunHTTPServer(clusterNode, cfg.HttpApi, reg)
 	// ---------------------------

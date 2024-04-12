@@ -138,11 +138,13 @@ func openNodeDB(dbPath string) (diskstore.DiskStore, error) {
 
 // ---------------------------
 
-func (c *ClusterNode) Serve() {
+func (c *ClusterNode) Serve() error {
 	// ---------------------------
 	// Setup RPC server
 	rpcMainServer := rpc.NewServer()
-	rpcMainServer.Register(c)
+	if err := rpcMainServer.Register(c); err != nil {
+		return fmt.Errorf("could not register rpc server: %w", err)
+	}
 	rpcServer := mrpc.NewHTTPServer(c.cfg.RpcHost+":"+strconv.Itoa(c.cfg.RpcPort), rpcMainServer)
 	// ---------------------------
 	go func() {
@@ -168,7 +170,7 @@ func (c *ClusterNode) Serve() {
 	// ---------------------------
 	// Setup periodic node database backups
 	if c.cfg.BackupFrequency <= 0 {
-		return
+		return nil
 	}
 	c.bgWaitGroup.Add(1)
 	go func() {
@@ -191,6 +193,7 @@ func (c *ClusterNode) Serve() {
 			}
 		}
 	}()
+	return nil
 }
 
 func (c *ClusterNode) Close() error {
