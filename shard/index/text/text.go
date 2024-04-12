@@ -211,7 +211,9 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 			}
 			setItem.isDirty = setItem.set.CheckedRemove(ad.Id) || setItem.isDirty
 		}
-		index.docCache.Delete(ad.Id)
+		if err := index.docCache.Delete(ad.Id); err != nil {
+			return fmt.Errorf("error deleting doc cache item: %w", err)
+		}
 		index.numDocs--
 	// ---------------------------
 	case exists && ad.Length > 0:

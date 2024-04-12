@@ -60,7 +60,8 @@ func (ps plainStore) Set(id uint64, vector []float32) (VectorStorePoint, error) 
 		id:     id,
 		Vector: vector,
 	}
-	return point, ps.items.Put(id, point)
+	ps.items.Put(id, point)
+	return point, nil
 }
 
 func (ps plainStore) Delete(ids ...uint64) error {

@@ -164,7 +164,8 @@ func (pq *productQuantizer) Set(id uint64, vector []float32) (VectorStorePoint, 
 		Vector:      vector,
 		CentroidIds: pq.encode(vector),
 	}
-	return point, pq.items.Put(id, point)
+	pq.items.Put(id, point)
+	return point, nil
 }
 
 func (pq *productQuantizer) Delete(ids ...uint64) error {

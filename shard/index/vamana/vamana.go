@@ -115,9 +115,7 @@ func (v *IndexVamana) setupStartNode() error {
 	startNode := &graphNode{
 		Id: STARTID,
 	}
-	if err := v.nodeStore.Put(STARTID, startNode); err != nil {
-		return fmt.Errorf("could not put start node: %w", err)
-	}
+	v.nodeStore.Put(STARTID, startNode)
 	return nil
 }
 
@@ -225,8 +223,12 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pointQueue <-chan 
 	 * potentially happening. Again we don't expect to have large number of
 	 * deletions so this is single threaded. When a node is marked, it then
 	 * gets deleted during a flush. */
-	v.vecStore.Delete(deletedPointsIds...)
-	v.nodeStore.Delete(deletedPointsIds...)
+	if err := v.vecStore.Delete(deletedPointsIds...); err != nil {
+		return fmt.Errorf("could not delete points from vector store: %w", err)
+	}
+	if err := v.nodeStore.Delete(deletedPointsIds...); err != nil {
+		return fmt.Errorf("could not delete points from node store: %w", err)
+	}
 	// ---------------------------
 	/* The updated nodes are now re-inserted into the graph. We do this under the
 	 * assumption that change the vector of a point will change its neighbours so

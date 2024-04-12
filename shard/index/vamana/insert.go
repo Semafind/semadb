@@ -28,9 +28,7 @@ func (v *IndexVamana) insertSinglePoint(change IndexVectorChange) error {
 	// edges that other goroutines might use to visit this node.
 	nodeA := &graphNode{Id: change.Id}
 	v.robustPrune(nodeA, visitedSet)
-	if err := v.nodeStore.Put(change.Id, nodeA); err != nil {
-		return fmt.Errorf("could not set node: %w", err)
-	}
+	v.nodeStore.Put(change.Id, nodeA)
 	// ---------------------------
 	// Add the bi-directional edges, suppose A is being added and has A -> B and
 	// A -> C. Then we attempt to add edges from B and C back to A.

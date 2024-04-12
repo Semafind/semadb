@@ -134,7 +134,8 @@ func (bq *binaryQuantizer) Set(id uint64, vector []float32) (VectorStorePoint, e
 		Vector:       vector,
 		BinaryVector: bq.encode(vector),
 	}
-	return point, bq.items.Put(id, point)
+	bq.items.Put(id, point)
+	return point, nil
 }
 
 func (bq *binaryQuantizer) Delete(ids ...uint64) error {
