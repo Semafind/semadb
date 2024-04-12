@@ -329,6 +329,12 @@ func (index *indexText) Search(options models.SearchTextOptions, filter *roaring
 		finalSet = roaring64.And(finalSet, filter)
 	}
 	// ---------------------------
+	// Hybrid score weight
+	weight := float32(1)
+	if options.Weight != nil {
+		weight = *options.Weight
+	}
+	// ---------------------------
 	// Get the documents and rank them using tf-idf
 	results := make([]models.SearchResult, 0, finalSet.GetCardinality())
 	it := finalSet.Iterator()
@@ -362,8 +368,9 @@ func (index *indexText) Search(options models.SearchTextOptions, filter *roaring
 		}
 		// ---------------------------
 		sr := models.SearchResult{
-			NodeId: docId,
-			Score:  &score,
+			NodeId:      docId,
+			Score:       &score,
+			HybridScore: score * weight,
 		}
 		results = append(results, sr)
 	}
@@ -371,21 +378,6 @@ func (index *indexText) Search(options models.SearchTextOptions, filter *roaring
 	slices.SortFunc(results, func(a, b models.SearchResult) int {
 		return cmp.Compare(*b.Score, *a.Score)
 	})
-	// ---------------------------
-	/* Calculate hybrid score, recall that it is normalised between 0 and 1 with
-	 * a weight. */
-	weight := float32(1)
-	if options.Weight != nil {
-		weight = *options.Weight
-	}
-	minScore := *results[len(results)-1].Score
-	maxScore := *results[0].Score
-	if maxScore == minScore {
-		maxScore += 1
-	}
-	for i := range results {
-		results[i].HybridScore = (*results[i].Score - minScore) / (maxScore - minScore) * weight
-	}
 	// ---------------------------
 	if len(results) > options.Limit {
 		finalSet.Clear()

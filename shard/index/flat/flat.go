@@ -76,6 +76,11 @@ func (inf IndexFlat) InsertUpdateDelete(ctx context.Context, points <-chan vaman
 func (inf IndexFlat) Search(ctx context.Context, options models.SearchVectorFlatOptions, filter *roaring64.Bitmap) (*roaring64.Bitmap, []models.SearchResult, error) {
 	distFn := inf.vecStore.DistanceFromFloat(options.Vector)
 	// ---------------------------
+	var weight float32 = 1
+	if options.Weight != nil {
+		weight = *options.Weight
+	}
+	// ---------------------------
 	/* We used to use multiple workers to scan through the vector store, but for
 	 * individual requests coming it adds too much overhead and the gain a low,
 	 * around 10 queries per second. So to not suffocate the CPU across requests
@@ -100,6 +105,9 @@ func (inf IndexFlat) Search(ctx context.Context, options models.SearchVectorFlat
 		sr := models.SearchResult{
 			NodeId:   point.Id(),
 			Distance: &dist,
+			// We -1 multiply so that the sort order is correct, lower distance
+			// higher score
+			HybridScore: (-1 * weight * dist),
 		}
 		if len(res) < cap(res) {
 			res = append(res, sr)
@@ -116,22 +124,9 @@ func (inf IndexFlat) Search(ctx context.Context, options models.SearchVectorFlat
 	}
 	log.Debug().Dur("elapsed", time.Since(startTime)).Msg("search flat")
 	// ---------------------------
-	var weight float32 = 1
-	if options.Weight != nil {
-		weight = *options.Weight
-	}
-	// ---------------------------
-	// Used for normalised hybrid score
-	maxDist := *res[len(res)-1].Distance
-	minDist := *res[0].Distance
-	if maxDist == minDist {
-		maxDist += 1
-	}
-	// ---------------------------
 	rSet := roaring64.New()
-	for i, r := range res {
+	for _, r := range res {
 		rSet.Add(r.NodeId)
-		res[i].HybridScore = (1 - (*r.Distance-minDist)/(maxDist-minDist)) * weight
 	}
 	return rSet, res, nil
 }
