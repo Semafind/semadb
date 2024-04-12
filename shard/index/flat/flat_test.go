@@ -131,7 +131,7 @@ func Test_Search(t *testing.T) {
 }
 
 func Test_Recall(t *testing.T) {
-	distFnNames := []string{models.DistanceCosine, models.DistanceEuclidean, models.DistanceDot}
+	distFnNames := []string{models.DistanceCosine, models.DistanceEuclidean, models.DistanceDot, models.DistanceHaversine}
 	for _, distFnName := range distFnNames {
 		testName := fmt.Sprintf("distFn=%s", distFnName)
 		t.Run(testName, func(t *testing.T) {

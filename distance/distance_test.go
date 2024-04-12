@@ -76,6 +76,16 @@ func TestJaccardDistance(t *testing.T) {
 	require.Equal(t, float32(0.0), dist)
 }
 
+func TestHaversineDistance(t *testing.T) {
+	// Airport example from
+	// https://scikit-learn.org/stable/modules/generated/sklearn.metrics.pairwise.haversine_distances.html
+	x := []float32{-34.83333, -58.5166646}
+	y := []float32{49.0083899664, 2.53844117956}
+	dist := haversineDistance(x, y)
+	dist /= 1000 // in km
+	require.InDelta(t, 11099.54, dist, 0.01)
+}
+
 // ---------------------------
 
 var benchTable = []struct {

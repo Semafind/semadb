@@ -2,6 +2,7 @@ package distance
 
 import (
 	"fmt"
+	"math"
 	"math/bits"
 
 	"github.com/rs/zerolog/log"
@@ -34,6 +35,24 @@ func dotProductDistance(x, y []float32) float32 {
 
 func cosineDistance(x, y []float32) float32 {
 	return 1 - dotProductImpl(x, y)
+}
+
+const degToRad = math.Pi / 180
+
+// Earth radius in meters
+const earthRadius = 6371000
+
+// Computes the haversine distance between two points on the Earth's surface. It
+// assumes [lat, long] coordinates in degrees.
+// Formula credit: https://scikit-learn.org/stable/modules/generated/sklearn.metrics.pairwise.haversine_distances.html
+func haversineDistance(x, y []float32) float32 {
+	latx, lonx, laty, lony := float64(x[0])*degToRad, float64(x[1])*degToRad, float64(y[0])*degToRad, float64(y[1])*degToRad
+	dlat, dlon := latx-laty, lonx-lony
+	// Please see the formula in the link above for more details.
+	sinDlat, sinDlon := math.Sin(dlat/2), math.Sin(dlon/2)
+	a := sinDlat*sinDlat + math.Cos(latx)*math.Cos(laty)*sinDlon*sinDlon
+	c := 2 * math.Asin(math.Sqrt(a))
+	return float32(earthRadius * c)
 }
 
 func hammingDistance(x, y []uint64) float32 {
@@ -69,6 +88,8 @@ func GetFloatDistanceFn(name string) (FloatDistFunc, error) {
 		return dotProductDistance, nil
 	case models.DistanceCosine:
 		return cosineDistance, nil
+	case models.DistanceHaversine:
+		return haversineDistance, nil
 	default:
 		return nil, fmt.Errorf("unknown float32 distance function: %s", name)
 	}

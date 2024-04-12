@@ -466,6 +466,7 @@ components:
         - dot
         - hamming
         - jaccard
+        - haversine
     Vector:
       type: array
       description: A vector with a fixed number of dimensions

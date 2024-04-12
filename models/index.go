@@ -1,6 +1,8 @@
 package models
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // Defines the index schema for a collection, each index type is a map of property names
 // to index parameters. The index parameters are different for each index type.
@@ -13,9 +15,15 @@ func (s IndexSchema) Validate() error {
 			if v.VectorFlat == nil {
 				return fmt.Errorf("vectorFlat parameters not provided for property %s", k)
 			}
+			if v.VectorFlat.DistanceMetric == DistanceHaversine && v.VectorFlat.VectorSize != 2 {
+				return fmt.Errorf("haversine distance metric requires vector size 2 for property %s, got %d", k, v.VectorFlat.VectorSize)
+			}
 		case IndexTypeVectorVamana:
 			if v.VectorVamana == nil {
 				return fmt.Errorf("vectorVamana parameters not provided for property %s", k)
+			}
+			if v.VectorVamana.DistanceMetric == DistanceHaversine && v.VectorVamana.VectorSize != 2 {
+				return fmt.Errorf("haversine distance metric requires vector size 2 for property %s, got %d", k, v.VectorVamana.VectorSize)
 			}
 		case IndexTypeText:
 			if v.Text == nil {
@@ -184,13 +192,13 @@ func (s IndexSchema) CheckCompatibleMap(m PointAsMap) error {
 
 type IndexVectorFlatParameters struct {
 	VectorSize     uint       `json:"vectorSize" binding:"required,min=1,max=4096"`
-	DistanceMetric string     `json:"distanceMetric" binding:"required,oneof=euclidean cosine dot hamming jaccard"`
+	DistanceMetric string     `json:"distanceMetric" binding:"required,oneof=euclidean cosine dot hamming jaccard haversine"`
 	Quantizer      *Quantizer `json:"quantizer,omitempty"`
 }
 
 type IndexVectorVamanaParameters struct {
 	VectorSize     uint       `json:"vectorSize" binding:"required,min=1,max=4096"`
-	DistanceMetric string     `json:"distanceMetric" binding:"required,oneof=euclidean cosine dot hamming jaccard"`
+	DistanceMetric string     `json:"distanceMetric" binding:"required,oneof=euclidean cosine dot hamming jaccard haversine"`
 	SearchSize     int        `json:"searchSize" binding:"min=25,max=75"`
 	DegreeBound    int        `json:"degreeBound" binding:"min=32,max=64"`
 	Alpha          float32    `json:"alpha" binding:"min=1.1,max=1.5"`

@@ -230,52 +230,70 @@ func Test_CreateCollection(t *testing.T) {
 func Test_CreateCollectionInvalidSchema(t *testing.T) {
 	router := setupTestRouter(t, clusterNodeState{})
 	// ---------------------------
-	// Missing vector parameters
-	reqBody := v2.CreateCollectionRequest{
-		Id: "testy",
-		IndexSchema: models.IndexSchema{
-			"vector": {
-				Type: "vectorVamana",
-			},
-		},
-	}
-	resp := makeRequest(t, router, "POST", "/v1/collections", reqBody, nil)
-	require.Equal(t, http.StatusBadRequest, resp)
-	// ---------------------------
-	// Wrong distance metric
-	reqBody = v2.CreateCollectionRequest{
-		Id: "testy",
-		IndexSchema: models.IndexSchema{
-			"vector": {
-				Type: "vectorFlat",
-				VectorFlat: &models.IndexVectorFlatParameters{
-					VectorSize:     2,
-					DistanceMetric: "gandalf",
+	tests := []struct {
+		Name   string
+		Schema models.IndexSchema
+	}{
+		{
+			"Missing vector parameters",
+			models.IndexSchema{
+				"vector": {
+					Type: "vectorVamana",
 				},
 			},
 		},
-	}
-	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody, nil)
-	require.Equal(t, http.StatusBadRequest, resp)
-	// ---------------------------
-	// Wrong quantizer type
-	reqBody = v2.CreateCollectionRequest{
-		Id: "testy",
-		IndexSchema: models.IndexSchema{
-			"vector": {
-				Type: "vectorFlat",
-				VectorFlat: &models.IndexVectorFlatParameters{
-					VectorSize:     2,
-					DistanceMetric: "euclidean",
-					Quantizer: &models.Quantizer{
-						Type: "random",
+		{
+			"Wrong distance metric",
+			models.IndexSchema{
+				"vector": {
+					Type: "vectorFlat",
+					VectorFlat: &models.IndexVectorFlatParameters{
+						VectorSize:     2,
+						DistanceMetric: "gandalf",
+					},
+				},
+			},
+		},
+		{
+			"Wrong quantizer type",
+			models.IndexSchema{
+				"vector": {
+					Type: "vectorFlat",
+					VectorFlat: &models.IndexVectorFlatParameters{
+						VectorSize:     2,
+						DistanceMetric: "euclidean",
+						Quantizer: &models.Quantizer{
+							Type: "random",
+						},
+					},
+				},
+			},
+		},
+		{
+			"Wrong haversine size",
+			models.IndexSchema{
+				"vector": {
+					Type: "vectorFlat",
+					VectorFlat: &models.IndexVectorFlatParameters{
+						VectorSize:     3,
+						DistanceMetric: "haversine",
 					},
 				},
 			},
 		},
 	}
-	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody, nil)
-	require.Equal(t, http.StatusBadRequest, resp)
+	// ---------------------------
+	for _, test := range tests {
+		t.Run(test.Name, func(t *testing.T) {
+			t.Parallel()
+			reqBody := v2.CreateCollectionRequest{
+				Id:          "testy",
+				IndexSchema: test.Schema,
+			}
+			resp := makeRequest(t, router, "POST", "/v1/collections", reqBody, nil)
+			require.Equal(t, http.StatusBadRequest, resp)
+		})
+	}
 }
 
 func Test_ListCollections(t *testing.T) {
