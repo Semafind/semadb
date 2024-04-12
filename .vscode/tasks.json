@@ -2,22 +2,9 @@
 	"version": "2.0.0",
 	"tasks": [
 		{
-			"type": "go",
-			"label": "go: test package",
-			"command": "test",
-			"args": [
-				"${fileDirname}"
-			],
-			"problemMatcher": [
-				"$go"
-			],
-			"group": "test",
-			"detail": "cd /home/nuric/semadb; go test ${fileDirname}"
-		},
-		{
 			"type": "shell",
-			"label": "go: test race shard",
-			"command": "go clean -testcache && go test -race ./shard",
+			"label": "go: test race",
+			"command": "go clean -testcache && go test -race ./...",
 		},
 		{
 			"type": "shell",
@@ -47,6 +34,26 @@
 				"./..."
 			],
 			"problemMatcher": []
+		},
+		{
+			"type": "shell",
+			"label": "golangci-lint podman",
+			"command": "podman",
+			"args": [
+				"run",
+				"--rm", // Remove container after running
+				"-v", // Mount current directory to /app in container
+				"${workspaceFolder}:/app:Z",
+				"-w", // Set working directory in container
+				"/app",
+				"golangci/golangci-lint:v1.57.2", // Image to use
+				"golangci-lint", // Command to run
+				"run", // Additional argument for golangci-lint
+				"-v" // Additional argument for golangci-lint (might be empty)
+			],
+			"problemMatcher": [
+				"$go"
+			]
 		},
 		{
 			"type": "shell",
