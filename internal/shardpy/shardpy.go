@@ -151,7 +151,9 @@ func startProfile() {
 	}
 	profileFile, _ := os.Create(fpath)
 	fmt.Println("Starting profile - ", fpath)
-	pprof.StartCPUProfile(profileFile)
+	if err := pprof.StartCPUProfile(profileFile); err != nil {
+		log.Fatal(err)
+	}
 }
 
 //export stopProfile
