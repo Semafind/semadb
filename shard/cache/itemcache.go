@@ -157,11 +157,10 @@ func (ic *ItemCache[K, T]) Count() int {
 
 // Put an item in the cache, it will be marked as dirty and written to the bucket
 // on the next Flush.
-func (ic *ItemCache[K, T]) Put(id K, item T) error {
+func (ic *ItemCache[K, T]) Put(id K, item T) {
 	ic.itemsMu.Lock()
 	defer ic.itemsMu.Unlock()
 	ic.items[id] = &itemCacheElem[K, T]{value: item, IsDirty: true}
-	return nil
 }
 
 // Delete an item from the cache, it will be marked as deleted and written to the

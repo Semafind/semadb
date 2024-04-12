@@ -45,7 +45,7 @@ func seedBucketWithDummy(t *testing.T, bucket diskstore.Bucket, items ...dummySt
 	t.Helper()
 	c := cache.NewItemCache[uint64, dummyStorable](bucket)
 	for i, item := range items {
-		require.NoError(t, c.Put(uint64(i), item))
+		c.Put(uint64(i), item)
 	}
 	require.NoError(t, c.Flush())
 }
@@ -82,8 +82,7 @@ func TestItemCache_GetMany(t *testing.T) {
 func TestItemCache_Put(t *testing.T) {
 	c := cache.NewItemCache[uint64, dummyStorable](diskstore.NewMemBucket(false))
 	d := dummyStorable{43}
-	err := c.Put(43, d)
-	require.NoError(t, err)
+	c.Put(43, d)
 	d2, err := c.Get(43)
 	require.NoError(t, err)
 	require.EqualValues(t, d, d2)
@@ -96,7 +95,7 @@ func TestItemCache_Delete(t *testing.T) {
 	c := cache.NewItemCache[uint64, dummyStorable](bucket)
 	// Delete existing item in cache
 	d2 := dummyStorable{43}
-	require.NoError(t, c.Put(43, d2))
+	c.Put(43, d2)
 	require.Equal(t, 2, c.Count())
 	require.NoError(t, c.Delete(43))
 	require.Equal(t, 1, c.Count())
@@ -119,7 +118,7 @@ func TestItemCache_Flush(t *testing.T) {
 	seedBucketWithDummy(t, bucket, dummyStorable{42})
 	c := cache.NewItemCache[uint64, dummyStorable](bucket)
 	d := dummyStorable{43}
-	require.NoError(t, c.Put(43, d))
+	c.Put(43, d)
 	require.NoError(t, c.Delete(0))
 	require.NoError(t, c.Flush())
 	require.Equal(t, 1, c.Count())
@@ -135,18 +134,16 @@ func TestItemCache_ForEach(t *testing.T) {
 	bucket := diskstore.NewMemBucket(false)
 	c := cache.NewItemCache[uint64, dummyStorable](bucket)
 	// Add some items
-	err := c.Put(43, dummyStorable{43})
-	require.NoError(t, err)
+	c.Put(43, dummyStorable{43})
 	// Add and delete, should not show up
-	err = c.Put(44, dummyStorable{44})
-	require.NoError(t, err)
+	c.Put(44, dummyStorable{44})
 	require.NoError(t, c.Delete(44))
 	require.NoError(t, c.Flush())
 	// Extra item in bucket, should show up
 	d1 := dummyStorable{42}
 	d1.WriteTo(42, bucket)
 	ids := make([]uint64, 0)
-	err = c.ForEach(func(id uint64, item dummyStorable) error {
+	err := c.ForEach(func(id uint64, item dummyStorable) error {
 		ids = append(ids, id)
 		return nil
 	})
