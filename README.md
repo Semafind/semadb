@@ -9,6 +9,9 @@
 [![Docker Build](https://github.com/Semafind/semadb/actions/workflows/build-docker.yaml/badge.svg)](https://github.com/Semafind/semadb/actions/workflows/build-docker.yaml)
 [![Build Test](https://github.com/Semafind/semadb/actions/workflows/build-test.yaml/badge.svg)](https://github.com/Semafind/semadb/actions/workflows/build-test.yaml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/semafind/semadb)](https://goreportcard.com/report/github.com/semafind/semadb)
+![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/Semafind/semadb)
+![GitHub License](https://img.shields.io/github/license/Semafind/semadb)
+
 
 SemaDB is a multi-index, multi-vector, document-based vector database / search engine. It is designed to offer a clear and easy-to-use JSON RESTful API. It original components of SemaDB were built for a knowledge-management project at [Semafind](https://www.semafind.com/) before it was developed into a standalone project. The goal is to provide a simple, modern, and efficient search engine that can be used in a variety of applications.
 
