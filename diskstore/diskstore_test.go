@@ -298,7 +298,7 @@ func Test_WriteReadMultiple(t *testing.T) {
 	}
 }
 
-func Test_Persistance(t *testing.T) {
+func Test_Persistence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
 	ds := tempDiskStore(t, path, false)
 	err := ds.Write(func(bm diskstore.BucketManager) error {

@@ -15,7 +15,7 @@ import (
 func (c *ClusterNode) CreateCollection(collection models.Collection) error {
 	// ---------------------------
 	// The collection information is stored in the user cluster node. We
-	// construct the appropiate request and route it.
+	// construct the appropriate request and route it.
 	rpcReq := RPCCreateCollectionRequest{
 		RPCRequestArgs: RPCRequestArgs{
 			Source: c.MyHostname,
@@ -152,7 +152,7 @@ func (c *ClusterNode) DeleteCollection(col models.Collection) ([]string, error) 
 			}
 			deleteShardResponse := RPCDeleteCollectionShardsResponse{}
 			if err := c.RPCDeleteCollectionShards(&deleteShardRequest, &deleteShardResponse); err != nil {
-				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Msg("Could not delete collecion shards")
+				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Msg("Could not delete collection shards")
 			} else {
 				mu.Lock()
 				deletedShardIds = append(deletedShardIds, deleteShardResponse.DeletedShardIds...)
@@ -184,7 +184,7 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 		return nil, fmt.Errorf("could not get shards: %w", err)
 	}
 	// ---------------------------
-	// Check collecton quota
+	// Check collection quota
 	totalPoints := int64(0)
 	for _, shard := range shards {
 		totalPoints += shard.PointCount
@@ -201,7 +201,7 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 	// Distribute points to shards
 	shardAssignments, err := distributePoints(shards, points, c.cfg.MaxShardSize, c.cfg.MaxShardPointCount, func() (string, error) {
 		// ---------------------------
-		// Create new shard for collecion as requested by poins distribution
+		// Create new shard for collection as requested by points distribution
 		rpcRequest := RPCCreateShardRequest{
 			RPCRequestArgs: RPCRequestArgs{
 				Source: c.MyHostname,
@@ -477,7 +477,7 @@ func (c *ClusterNode) DeletePoints(col models.Collection, pointIds []uuid.UUID) 
 	// participate. This is because we don't have a table of point ids to shard
 	// ids, so we need every shard to check if it has the point.
 	//
-	// The shard operation returns which ids succeded and this function returns
+	// The shard operation returns which ids succeeded and this function returns
 	// which ones failed to notify the client upstream. This is because it is
 	// more efficient to just let shards return what succeeded instead of a long
 	// list of points that failed.
