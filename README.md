@@ -1,5 +1,5 @@
 <p align="center">
-  <img height="100" src="https://raw.githubusercontent.com/Semafind/semadb/main/docs/logo.svg" alt="SemaDB">
+  <img src="https://raw.githubusercontent.com/Semafind/semadb/main/docs/logo.svg" alt="SemaDB" style="height: 200px;"/>
 </p>
 
 <p align="center">
