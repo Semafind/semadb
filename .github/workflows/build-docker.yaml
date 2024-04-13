@@ -8,6 +8,7 @@ on:
       - 'v*'
     paths-ignore:
       - '**.md'
+      - 'docs/**'
 
 # https://docs.github.com/en/actions/publishing-packages/publishing-docker-images
 
