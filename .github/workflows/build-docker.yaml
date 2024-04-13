@@ -6,6 +6,8 @@ on:
       - main
     tags:
       - 'v*'
+    paths-ignore:
+      - '**.md'
 
 # https://docs.github.com/en/actions/publishing-packages/publishing-docker-images
 
