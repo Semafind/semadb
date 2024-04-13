@@ -1,4 +1,14 @@
-# SemaDB
+<p align="center">
+  <img height="100" src="https://raw.githubusercontent.com/Semafind/semadb/main/docs/logo.svg" alt="SemaDB">
+</p>
+
+<p align="center">
+  <b>No fuss multi-index hybrid vector database / search engine</b>
+</p>
+
+[![Docker Build](https://github.com/Semafind/semadb/actions/workflows/build-docker.yaml/badge.svg)](https://github.com/Semafind/semadb/actions/workflows/build-docker.yaml)
+[![Build Test](https://github.com/Semafind/semadb/actions/workflows/build-test.yaml/badge.svg)](https://github.com/Semafind/semadb/actions/workflows/build-test.yaml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/semafind/semadb)](https://goreportcard.com/report/github.com/semafind/semadb)
 
 SemaDB is a multi-index, multi-vector, document-based vector database / search engine. It is designed to offer a clear and easy-to-use JSON RESTful API. It original components of SemaDB were built for a knowledge-management project at [Semafind](https://www.semafind.com/) before it was developed into a standalone project. The goal is to provide a simple, modern, and efficient search engine that can be used in a variety of applications.
 
@@ -8,15 +18,17 @@ SemaDB is a multi-index, multi-vector, document-based vector database / search e
 
 - **Vector search**: leverage the power of vector search to find similar items and build AI applications. SemaDB uses the graph-based [Vamana algorithm](https://proceedings.neurips.cc/paper_files/paper/2019/file/09853c7fb1d3f8ee67a61b6bf4a7f8e6-Paper.pdf) to perform efficient approximate nearest neighbour search.
 - **Keyword / text search**: search for documents based on keywords or phrases, categories, tags etc.
+- **Geo indices**: search for documents based on their location either via latitude and longitude or [geo hashes](https://en.wikipedia.org/wiki/Geohash).
 - **Multi-vector search**: search across multiple vectors at the same time for a single document each with own index.
-- **Quantized vector search**: use binary or product quantization to reduce memory usage.
+- **Quantized vector search**: use quantizers to change internal vector representations to reduce memory usage.
 - **Hybrid search**: combine vector and keyword search to find the most relevant documents in a single search request. Use weights to adjust the importance of each search type.
 - **Filter search**: filter search results based on other queries or metadata.
-- **Hybrid, filter, multi-vector, multi-index search**: combine all the above search types in a single query. For example, "find me restaurants within 5km of my location (geo index) that are open now (inverted index), have a rating of 4 or more (integer index), and serve a dish similar to this image (vector search) and have a similar description to this text (vector search)".
+- **Hybrid, filter, multi-vector, multi-index search**: combine all the above search types in a single query. For example, "find me the nearest restaurants (geo index) that are open now (inverted index), have a rating of 4 or more (integer index), and serve a dish similar to this image (vector search) and have a similar description to this text (vector search)".
 - **Simple REST API**: fully JSON based, restful API for interacting with the database. No need to learn a new query language, install custom clients or libraries.
 - **Real-time**: changes are visible immediately and search results are returned in milliseconds, even for large datasets.
 - **Single binary**: the entire database is contained in a single binary. No need to install additional dependencies or services.
 - **Multiple deployment modes**: standalone, container, or cloud. SemaDB can be deployed in a variety of ways to suit your needs.
+- **Prometheus metrics**: monitor the health of SemaDB with metrics such as number of searched points, latency of search, number of requests etc.
 - **Cluster mode**: where the data is distributed to multiple servers and search is offloaded to all participating machines.
 - **Automatic-sharding**: data is automatically sharded across multiple servers based on a hashing algorithm.
 
@@ -38,6 +50,16 @@ After you have a server running, you can use the [samples](httpapi/v2/samples.ht
 
 ### Docker & Podman
 
+You can run the latest version of SemaDB using the following repository container image:
+
+```bash
+docker run -it --rm -v ./config:/config -e SEMADB_CONFIG=/config/singleServer.yaml -p 8081:8081 ghcr.io/semafind/semadb:main
+# If using podman
+podman run -it --rm -v ./config:/config:Z -e SEMADB_CONFIG=/config/singleServer.yaml -p 8081:8081 ghcr.io/semafind/semadb:main
+```
+
+which will run the main branch. There are also tagged versions for specific releases. See the [container registry](https://github.com/Semafind/semadb/pkgs/container/semadb) of the repository.
+
 You can locally build and run the container image using:
 
 ```bash
@@ -50,6 +72,11 @@ podman run -it --rm -v ./config:/config:Z -e SEMADB_CONFIG=/config/singleServer.
 ```
 
 Please note that when using docker, the hostname and whitelisting of IPs may need to be adjusted depending on the network configuration of docker. Leaving hostname as a blank string and setting whitelisting to `'*'` opens up SemaDB to every connection as done in the `singleServer.yaml` configuration.
+
+## Contributing
+
+Contributions are welcome! Please read the [contributing guide](CONTRIBUTING.md) file for more information. The contributing guide also contains information about the architecture of SemaDB and how to get started with development.
+
 
 ## Search Algorithm 🔍
 
@@ -87,7 +114,7 @@ Version 1 (v1) is the original pure-vector search implementation of SemaDB. Vers
 
 **No write high availability**: SemaDB is optimised for search heavy workloads. Collection and point write operations require all involved (servers that have been distributed data) to participate. In the search path, failures can be tolerated because it is a Stochastic search and occasional drops in performance due to unavailable shards can be acceptable. We offload maintaining a healthy system across physical server failures to a container orchestration tool such as Kubernetes. We assume that the configured state of SemaDB will be actively maintained and as a result do not contain any peer discovery or consensus algorithms in the design. This design choice again simplifies the architecture of SemaDB and aids with rapid development. Original designs included consensus mechanisms such as [Raft](https://raft.github.io/) and a fully self-contained distributed system with peer discovery, but this was deemed overkill.
 
-### Related Projects
+## Related Projects
 
 There are many open-source vector search and search engine projects out there. It may be helpful to compare SemaDB with some of them to see if one fits your use case better:
 
