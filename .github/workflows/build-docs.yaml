@@ -37,15 +37,16 @@ jobs:
 
       - name: Copy existing readme
         run: cp README.md docs/content/_index.md
-
       - name: Build website
+        working-directory: docs
         run: hugo
+
       - name: Setup pages
         uses: actions/configure-pages@v5
       - name: Upload pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./public
+          path: ./docs/public
   deploy:
     needs: build
     runs-on: ubuntu-latest
