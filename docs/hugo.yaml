@@ -1,0 +1,29 @@
+baseURL: "https://semafind.github.io/semadb"
+languageCode: "en-gb"
+timeZone: "Europe/London"
+title: "SemaDB"
+
+themes: github.com/alex-shpak/hugo-book
+
+module:
+  imports:
+    - path: github.com/alex-shpak/hugo-book
+
+# enableGitInfo: true
+
+menu:
+  # before: []
+  after:
+    - name: "Github"
+      url: "https://github.com/Semafind/semadb"
+      weight: 10
+    - name: "Semafind"
+      url: "https://semafind.com"
+      weight: 20
+
+params:
+  BookTheme: auto
+  BookLogo: "logo.svg"
+  BookRepo: https://github.com/Semafind/semadb
+  BookCommitPath: commit
+  BookEditPath: edit/main/docs

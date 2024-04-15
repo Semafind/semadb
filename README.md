@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/Semafind/semadb/main/docs/logo.svg" alt="SemaDB" style="height: 200px;"/>
+  <img src="https://raw.githubusercontent.com/Semafind/semadb/main/docs/static/logowithtext.svg" alt="SemaDB" style="height: 200px;"/>
 </p>
 
 <p align="center">
@@ -34,8 +34,8 @@ SemaDB is a multi-index, multi-vector, document-based vector database / search e
 - **Prometheus metrics**: monitor the health of SemaDB with metrics such as number of searched points, latency of search, number of requests etc.
 - **Cluster mode**: where the data is distributed to multiple servers and search is offloaded to all participating machines.
 - **Automatic-sharding**: data is automatically sharded across multiple servers based on a hashing algorithm.
+- **Legible source code**: the goal is to allow anyone pick a random file and hopefully understand what is going on. Some files have more comments than code.
 
-> **Legible source code**: the goal is to allow anyone pick a random file and hopefully understand what is going on. Some files have more comments than code.
 
 ## Getting Started
 
