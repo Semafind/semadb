@@ -2,10 +2,34 @@
 
 A single cluster node represents a server in the SemaDB deployment. The `ClusterNode` struct is a self-contained entity and encapsulates the RPC communication to other servers. The client to data journey is covered by the following critical files:
 
-- **clusternode.go**: sets up a cluster node instance handle all init and closing functions as well as some background functions like the RPC server and backup functionality.
-- **actions.go**: is the public facing API of the cluster node. It mostly mirrors what you would expect a user to be able to do such as creating a collection and inserting points. It also contains some extra functions such as getting shard info.
-- **rpchandlers.go**: is the internal facing API. Each cluster node may communicate with other cluster nodes over the RPC network to complete a task depending on the *rendezvous hashing* used. Internal routing between nodes is handled in each function transparently to make it clear what is going on.
-- **shardmgr.go**: opens and provides instances of shards to complete the jobs. It ensures that a shard cannot be unloaded whilst being used etc. It also currently manages automatic backups of shards.
+- [clusternode.go](clusternode.go): sets up a cluster node instance to handle all init and closing functions as well as some background functions like the RPC server and backup functionality.
+- [actions.go](actions.go): is the public facing API of the cluster node. It mostly mirrors what you would expect a user to be able to do such as creating a collection and inserting points. It also contains some extra functions such as getting shard info.
+- [rpchandlers.go](rpchandlers.go): is the internal facing RPC API. Each cluster node may communicate with other cluster nodes over the RPC network to complete a task depending on the *rendezvous hashing* used. Internal routing between nodes is handled in each function transparently to make it clear what is going on.
+- [shardmgr.go](shardmgr.go): opens and provides instances of shards to complete the jobs. It ensures that a shard cannot be unloaded whilst being used etc. It also currently manages automatic backups of shards.
+
+```mermaid
+---
+title: SemaDB Cluster Nodes
+---
+flowchart TD
+    subgraph ClusterNodeA
+    Actions --> RPCHandlers(["RPC Handlers"])
+    RPCHandlers --> ShardManager["Shard Manager"]
+    RPCHandlers --> NodeDB("NodeDB")
+    ShardManager --> Shard1(Shard 1)
+    ShardManager --> Shard2(Shard 2)
+    ShardManager --> Shard3(Shard 3)
+    end
+
+    subgraph ClusterNodeB
+    ActionsB["Actions"] --> RPCHandlersB(["RPC Handlers"])
+    RPCHandlers -- RPC <--> RPCHandlersB
+    RPCHandlersB --> NodeDBB("Node DB")
+    RPCHandlersB --> ShardManagerB["Shard Manager"]
+    ShardManagerB --> Shard4(Shard 1)
+    ShardManagerB --> Shard5(Shard 2)
+    end
+```
 
 ## Critical paths
 
@@ -18,8 +42,7 @@ A single cluster node represents a server in the SemaDB deployment. The `Cluster
 
 The node itself makes use of a key-value store for:
 
-- `<userId>/<collectionId>` store the `models.Collection` object. It is assumed at this point this cluster node is responsible or should have copies of the collection entry. Since the collection name / id  is part of the key, we therefore restrict what the user can provide as a collection name in the HTTP API. The alternative is to have an internal UUID with a mapping between user collection names and UUIDs, or just ask the user live with UUIDs they might not be able to remember which collection was which.
-- `clusterNodeVersion` is just an integer specifying the current storage layout.
+- `<userId>/<collectionId>` stores the `models.Collection` object. It is assumed at this point this cluster node is responsible or should have copies of the collection entry. Since the collection name / id  is part of the key, we therefore restrict what the user can provide as a collection name in the HTTP API. The alternative is to have an internal UUID with a mapping between user collection names and UUIDs, or just ask the user to live with UUIDs they might not be able to remember which collection was which.
 
 ## Design choices
 
