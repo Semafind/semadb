@@ -16,7 +16,7 @@ on:
 
 jobs:
   Test:
-    timeout-minutes: 10
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,4 +33,4 @@ jobs:
       - name: Lint
         run: go vet
       - name: Test
-        run: go test -v ./...
+        run: go test -timeout 1m ./...
