@@ -38,7 +38,10 @@ func setupLogging(cfg config.ConfigMap) {
 // ---------------------------
 
 func main() {
-	cfg := config.LoadConfig()
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to load configuration")
+	}
 	// ---------------------------
 	setupLogging(cfg)
 	// ---------------------------

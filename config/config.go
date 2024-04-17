@@ -1,15 +1,17 @@
 package config
 
 import (
+	"fmt"
 	"os"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi"
 	"gopkg.in/yaml.v3"
 )
 
 // ---------------------------
+
+const SEMADB_CONFIG = "SEMADB_CONFIG"
 
 type ConfigMap struct {
 	// Global debug flag
@@ -22,22 +24,22 @@ type ConfigMap struct {
 	HttpApi httpapi.HttpApiConfig `yaml:"httpApi"`
 }
 
-func LoadConfig() ConfigMap {
+func LoadConfig() (ConfigMap, error) {
 	configMap := ConfigMap{}
 	// Load the file path from the environment variable
-	cFilePath, ok := os.LookupEnv("SEMADB_CONFIG")
+	cFilePath, ok := os.LookupEnv(SEMADB_CONFIG)
 	if !ok {
-		log.Fatal().Msg("SEMADB_CONFIG environment variable is not set")
+		return configMap, fmt.Errorf("config environment variable %s is not set", SEMADB_CONFIG)
 	}
 	// Parse the config file
 	cFile, err := os.Open(cFilePath)
 	if err != nil {
-		log.Fatal().Err(err).Str("path", cFilePath).Msg("Failed to open config file")
+		return configMap, fmt.Errorf("failed to open config file %s: %w", cFilePath, err)
 	} else {
 		decoder := yaml.NewDecoder(cFile)
 		if err := decoder.Decode(&configMap); err != nil {
-			log.Fatal().Err(err).Msg("Failed to parse config file")
+			return configMap, fmt.Errorf("failed to parse config file %s: %w", cFilePath, err)
 		}
 	}
-	return configMap
+	return configMap, nil
 }
