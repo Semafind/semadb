@@ -125,8 +125,10 @@ func Test_ConcurrentCUD(t *testing.T) {
 		wg.Done()
 	}()
 	// ---------------------------
-	wg.Wait()
-	close(in)
+	go func() {
+		wg.Wait()
+		close(in)
+	}()
 	require.NoError(t, <-errC)
 	checkConnectivity(t, inv.nodeStore, 75)
 }
