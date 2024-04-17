@@ -254,8 +254,10 @@ func Test_CRUD(t *testing.T) {
 		wg.Done()
 	}()
 	// ---------------------------
-	wg.Wait()
-	close(out)
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
 	require.NoError(t, <-errC)
 	// ---------------------------
 	checkDocCount(t, b, 100)
