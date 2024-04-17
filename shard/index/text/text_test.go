@@ -207,17 +207,24 @@ func Test_CRUD(t *testing.T) {
 		Analyser: "standard",
 	})
 	require.NoError(t, err)
+	// ---------------------------
+	// Pre-insert some documents
 	out := make(chan text.Document)
 	errC := index.InsertUpdateDelete(context.Background(), out)
-	// ---------------------------
-	for i := 0; i < 100; i++ {
-		// Insert
-		out <- text.Document{
-			Id:   uint64(i),
-			Text: "hello world " + fmt.Sprint(i),
+	go func() {
+		for i := 0; i < 100; i++ {
+			// Insert
+			out <- text.Document{
+				Id:   uint64(i),
+				Text: "hello world " + fmt.Sprint(i),
+			}
 		}
-	}
+		close(out)
+	}()
+	require.NoError(t, <-errC)
 	// ---------------------------
+	out = make(chan text.Document)
+	errC = index.InsertUpdateDelete(context.Background(), out)
 	var wg sync.WaitGroup
 	wg.Add(3)
 	// Insert

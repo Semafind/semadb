@@ -182,6 +182,9 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 	exists := err != cache.ErrNotFound
 	switch {
 	// ---------------------------
+	case !exists && ad.Length == 0:
+		// Skip, nothing to do
+	// ---------------------------
 	case !exists && ad.Length > 0:
 		// Insert
 		terms := make(map[string]Term)
@@ -249,7 +252,7 @@ func (index *indexText) processAnalysedDoc(ad analysedDocument) error {
 		index.docCache.Put(ad.Id, docItem)
 	// ---------------------------
 	default:
-		return fmt.Errorf("unexpected state: exists: %v, ad.Frequencies: %v", exists, ad.Frequencies)
+		return fmt.Errorf("unexpected state: exists: %v, analysed doc: %+v", exists, ad)
 	}
 	return nil
 }
