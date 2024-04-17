@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/rs/zerolog"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/distance"
@@ -131,6 +132,7 @@ func Test_Search(t *testing.T) {
 }
 
 func Test_Recall(t *testing.T) {
+	zerolog.SetGlobalLevel(zerolog.Disabled)
 	distFnNames := []string{models.DistanceCosine, models.DistanceEuclidean, models.DistanceDot, models.DistanceHaversine}
 	for _, distFnName := range distFnNames {
 		testName := fmt.Sprintf("distFn=%s", distFnName)
@@ -175,8 +177,14 @@ func Test_Recall(t *testing.T) {
 			require.EqualValues(t, 10, rSet.GetCardinality())
 			require.Len(t, results, 10)
 			for i, res := range results {
-				require.Equal(t, groundTruth[i].NodeId, res.NodeId)
-				require.Equal(t, groundTruth[i].Distance, res.Distance)
+				require.Equal(t, *groundTruth[i].Distance, *res.Distance)
+				// The ordering might not be exact if the distances are the
+				// same, maybe one after or one before
+				if groundTruth[i].NodeId != res.NodeId && i > 0 && i < len(results)-1 {
+					nextId := results[i+1].NodeId
+					prevId := results[i-1].NodeId
+					require.True(t, groundTruth[i].NodeId == nextId || groundTruth[i].NodeId == prevId)
+				}
 			}
 		})
 	}
