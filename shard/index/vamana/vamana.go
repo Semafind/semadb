@@ -151,9 +151,16 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pointQueue <-chan 
 			err = fmt.Errorf("cannot modify point with start id: %d", STARTID)
 			return
 		}
+		if point.Id == 0 {
+			err = fmt.Errorf("invalid point id: %d", point.Id)
+			return
+		}
 		// What operation is this?
 		exists := v.vecStore.Exists(point.Id)
 		switch {
+		case !exists && point.Vector == nil:
+			// Skip, nothing to do
+			skip = true
 		case !exists && point.Vector != nil:
 			// Insert
 			if point.Id > v.maxNodeId.Load() {

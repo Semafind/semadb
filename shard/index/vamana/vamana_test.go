@@ -80,11 +80,11 @@ func Test_InvalidIdInsert(t *testing.T) {
 	// ---------------------------
 	// Insert invalid id
 	ctx := context.Background()
-	in := utils.ProduceWithContext(ctx, []IndexVectorChange{{Id: 0, Vector: nil}})
+	in := utils.ProduceWithContext(ctx, []IndexVectorChange{{Id: 0, Vector: []float32{0.5, 0.5}}})
 	errC := inv.InsertUpdateDelete(ctx, in)
 	require.Error(t, <-errC)
 	// ---------------------------
-	in = utils.ProduceWithContext(ctx, []IndexVectorChange{{Id: 1, Vector: nil}})
+	in = utils.ProduceWithContext(ctx, []IndexVectorChange{{Id: 1, Vector: []float32{0.5, 0.5}}})
 	errC = inv.InsertUpdateDelete(ctx, in)
 	require.Error(t, <-errC)
 }
@@ -95,10 +95,16 @@ func Test_ConcurrentCUD(t *testing.T) {
 	// Pre-insert
 	in := make(chan IndexVectorChange)
 	errC := inv.InsertUpdateDelete(context.Background(), in)
-	for _, rp := range randPoints(50, 0) {
-		in <- rp
-	}
+	go func() {
+		for _, rp := range randPoints(50, 0) {
+			in <- rp
+		}
+		close(in)
+	}()
+	require.NoError(t, <-errC)
 	// ---------------------------
+	in = make(chan IndexVectorChange)
+	errC = inv.InsertUpdateDelete(context.Background(), in)
 	var wg sync.WaitGroup
 	wg.Add(3)
 	// Insert more
