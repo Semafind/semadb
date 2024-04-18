@@ -21,6 +21,12 @@ menu:
       url: "https://semafind.com"
       weight: 20
 
+markup:
+  tableOfContents:
+    endLevel: 4
+    ordered: false
+    startLevel: 1
+
 params:
   BookTheme: auto
   BookLogo: "logo.svg"

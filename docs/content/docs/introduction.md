@@ -3,6 +3,8 @@ title: Introduction
 weight: 1
 ---
 
+# Introduction
+
 Traditional databases are fantastic tools for storing and retrieving structured data, the kind neatly organized into rows and columns. But what happens when your data isn't so easily defined? Think of images, audio clips, or complex text descriptions—this type of unstructured data requires a different approach. That's where vector databases and vector search engines come into play.
 
 [SemaDB](https://semadb.com) fills this gap by providing a powerful, open-source vector database that can handle complex data types and perform similarity searches. This guide will help you understand the core concepts behind vector databases, how they differ from traditional relational databases, and the exciting use cases they enable.
