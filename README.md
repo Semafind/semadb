@@ -6,8 +6,9 @@
   <b>No fuss multi-index hybrid vector database / search engine</b>
 </p>
 
-[![Docker Build](https://github.com/Semafind/semadb/actions/workflows/build-docker.yaml/badge.svg)](https://github.com/Semafind/semadb/actions/workflows/build-docker.yaml)
+[![Build Docker](https://github.com/Semafind/semadb/actions/workflows/build-docker.yaml/badge.svg)](https://github.com/Semafind/semadb/actions/workflows/build-docker.yaml)
 [![Build Test](https://github.com/Semafind/semadb/actions/workflows/build-test.yaml/badge.svg)](https://github.com/Semafind/semadb/actions/workflows/build-test.yaml)
+[![Build Docs](https://github.com/Semafind/semadb/actions/workflows/build-docs.yaml/badge.svg)](https://github.com/Semafind/semadb/actions/workflows/build-docs.yaml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/semafind/semadb)](https://goreportcard.com/report/github.com/semafind/semadb)
 ![GitHub Issues or Pull Requests](https://img.shields.io/github/issues/Semafind/semadb)
 ![GitHub License](https://img.shields.io/github/license/Semafind/semadb)
