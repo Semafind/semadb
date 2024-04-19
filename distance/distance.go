@@ -14,6 +14,8 @@ import (
 type FloatDistFunc func(x, y []float32) float32
 type BitDistFunc func(x, y []uint64) float32
 
+// Euclidean distance actually computes the squared euclidean distance for efficiency. This should not affect the
+// results of the nearest neighbour search as the square root is monotonic.
 var euclideanDistance FloatDistFunc = squaredEuclideanDistancePureGo
 var dotProductImpl FloatDistFunc = dotProductPureGo
 
