@@ -13,7 +13,7 @@ Traditional databases are fantastic tools for storing and retrieving structured 
 
 At the heart of a vector database lies the concept of "embeddings." Embeddings are numerical representations of data. Advanced machine learning algorithms can transform text, images, and other complex data types into these numerical vectors. These vectors live in a multi-dimensional space, where similar items tend to cluster together.
 
-{{<mermaid>}}
+```mermaid
 ---
 title: Vector search pipeline
 ---
@@ -23,7 +23,7 @@ graph LR
     NeuralNet --> Embedding["Numerical Vectors"]
     Embedding --> SemaDB[(SemaDB)]
     SemaDB --> Results[Most Similar Items]
-{{</mermaid>}}
+```
 
 SemaDB allows you to add structured metadata such as tags, categories, or timestamps to these vectors. This metadata can help you filter and organize your data, making it easier to search and retrieve. It also allows you to perform different types of searches:
 
