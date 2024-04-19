@@ -35,6 +35,7 @@ SemaDB is a multi-index, multi-vector, document-based vector database / search e
 - **Prometheus metrics**: monitor the health of SemaDB with metrics such as number of searched points, latency of search, number of requests etc.
 - **Cluster mode**: where the data is distributed to multiple servers and search is offloaded to all participating machines.
 - **Automatic-sharding**: data is automatically sharded across multiple servers based on a hashing algorithm.
+- **Multi-tenancy**: multiple users with different plans can use the same SemaDB instance. Each user can have their own collections and indices.
 - **Legible source code**: the goal is to allow anyone pick a random file and hopefully understand what is going on. Some files have more comments than code.
 
 
