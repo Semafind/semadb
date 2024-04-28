@@ -41,3 +41,9 @@ So how do we get around this? We usually have a in-memory cache that offers fast
 The in-memory implementation may look like a pre-cursor to a cache but the actual shard level cache stores decoded point data. Caches are for objects whereas diskstore is key value byte slices. This is important because encoding or decoding large vectors often is a considerable overhead.
 
 But wait, there is also an automatic cache for bbolt file. The file pages of a bbolt database are cached by the operating system. The OS caches pages read from and written to the file, so we get that for free and actually have no control over it.
+
+## Design choices
+
+We chose [bbolt](https://github.com/etcd-io/bbolt) for its simplicity and performance on read heavy workloads. Alternatives such as [badger](https://github.com/dgraph-io/badger) were also considered and initially used but eventually with a clearer API and a similar performance on our workload, bbolt was preferred instead. One can presumably swap out the storage layer with minimal changes to the codebase.
+
+Finally, a custom flat offset based file was considered, similar to the original Vamana paper. But this was deemed too tricky for CRUD operations. It works well for indexing once and searching many times but with CRUD, the file would have empty regions for deleted data and a map of empty slots. In that case, it slowly starts to resemble a B+ tree which is why a key-value store based on B+ like bbolt chosen.
