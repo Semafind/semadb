@@ -27,7 +27,7 @@ The following parameters are relevant:
 
 ### Binary Vectors
 
-If you have binary vectors to start with and set at the [index schema]({{< ref "indexing" >}})) level a [binary distance metric]({{< ref "distance" >}}), then SemaDB automatically enables binary quantisation with threshold set to 0.5 and the corresponding distance metric.
+If you have binary vectors to start with and set a [binary distance metric]({{< ref "distance" >}}) at the [index schema]({{< ref "indexing" >}}) level, then SemaDB automatically enables binary quantisation with threshold set to 0.5 and the corresponding distance metric.
 
 When inserting or searching, you need to ensure that the vectors are still in floating point format, e.g. `[0.0, 1.0, 0.0, 1.0]`. The server will automatically convert the vectors to binary format when storing them using the 0.5 threshold.
 
