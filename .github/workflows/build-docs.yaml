@@ -31,6 +31,14 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
+    # Compile redoc
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'latest'
+      - run: npx @redocly/cli build-docs openapi.yaml 
+        working-directory: httpapi/v2
+      - run: mv httpapi/v2/redoc-static.html docs/static/api-reference.html
+    # Compile hugo website
       - uses: actions/checkout@v4
       - name: Setup Hugo
         run: sudo snap install hugo

@@ -13,7 +13,7 @@ info:
     recommendation systems, and anomaly detection. They are particularly
     well-suited for tasks involving unstructured data, such as text, images, and
     audio.
-  version: 0.1.0
+  version: 2.0.0
   termsOfService: https://www.semafind.com/termsofservice
   contact:
     name: Semafind
