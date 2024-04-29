@@ -16,6 +16,8 @@ The following distance metrics are supported in SemaDB:
 - `dot`: The negated dot product between two vectors, i.e. -dot(v1, v2). It is negated so smaller values are closer. Bear in mind, this is not a proper distance metric since it doesn't satisfy the triangle inequality and has negative values.
 - `haversine`: The [Haversine distance](https://en.wikipedia.org/wiki/Haversine_formula) between two vectors. This is the distance between two points on Earth. It is used for geospatial data and the **vectors must be in the form of [latitude, longitude]** pairs in degrees. The distance is returned in meters.
 
+> For normalised vectors, the squared euclidean distance is proportional to the cosine distance, i.e. euclidean^2 = 2(1-cosine(x,y)). So, using squared euclidean distance is a good default choice.
+
 The distance metric to use besides `haversine` depends on the use case. If you are unsure, `euclidean` is a good default choice because it is a proper metric and doesn't require normalisation.
 
 ## Binary
