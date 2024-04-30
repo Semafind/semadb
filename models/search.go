@@ -44,12 +44,14 @@ func (q Query) Validate(schema IndexSchema) error {
 				return err
 			}
 		}
+		return nil
 	case "_or":
 		for _, subQuery := range q.Or {
 			if err := subQuery.Validate(schema); err != nil {
 				return err
 			}
 		}
+		return nil
 	}
 	// Handle base case
 	value, ok := schema[q.Property]
