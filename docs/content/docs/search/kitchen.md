@@ -1,5 +1,5 @@
 ---
-title: Kitchen Sink
+title: 🚿 Kitchen Sink
 weight: 100
 ---
 

@@ -1,4 +1,5 @@
 ---
+title: ⚙ Configuration
 weight: 50
 ---
 

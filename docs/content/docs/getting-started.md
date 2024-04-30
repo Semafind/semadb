@@ -1,5 +1,5 @@
 ---
-title: Getting Started
+title: ⚡ Getting Started
 weight: 10
 ---
 
