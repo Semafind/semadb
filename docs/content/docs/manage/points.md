@@ -78,13 +78,14 @@ You can update points in a collection by making a **PUT request** to the `/colle
         4.2,
         2.4
       ],
-      "wizard": "harry"
+      "wizard": "harry",
+      "foo": "_delete"
     }
   ]
 }
 ```
 
-The response is similar to the insert operation and you are encouraged to check the result to see if parts of the update failed.
+You may use the special value `_delete` to remove a field from a point. The response is similar to the insert operation and you are encouraged to check the result to see if parts of the update failed.
 
 ## Delete
 
