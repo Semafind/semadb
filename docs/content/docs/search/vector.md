@@ -8,6 +8,33 @@ Vector search is a powerful way to search for points in a collection based on th
 
 SemaDB currently covers [two vector index types]({{< ref "/docs/concepts/indexing" >}}) each with similar but slightly different search parameters.
 
+## _distance
+
+When performing vector search results, SemaDB will attempt to attach the distance to the query and automatically sort the results:
+
+```json
+{
+  "points": [
+    {
+      "_distance": 0,
+      "_hybridScore": -0,
+      "_id": "faefe2b1-cf85-48db-9621-94b833ee9cc9",
+      "description": "A product",
+      "price": 100
+    },
+    {
+      "_distance": 314402.94,
+      // Since we don't have a hybrid query, the hybrid score is the same as the distance
+      // It is negated to have higher scores indicate better matches
+      "_hybridScore": -314402.94,
+      "_id": "d2e3ebb5-149a-46e4-8b3f-cd6c38530da3",
+      "description": "Another product",
+      "price": 200
+    }
+  ]
+}
+```
+
 ## Flat Index
 
 The flat index is a simple index that stores the vectors in a flat array. This is the most basic form of vector search and is useful when you have a small number of vectors. The search parameters for the flat index are:
