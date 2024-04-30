@@ -1,11 +1,23 @@
+# -------------------------------
 # Configuration for SemaDB
+# -------------------------------
+# Enable debug mode, makes things more verbose and logs more information
+# the &GLOBAL_DEBUG is a YAML anchor, it is used to reference the value
+# in other parts of the configuration file.
 debug: &GLOBAL_DEBUG true
+# Enable pretty log output, makes logs more readable. Otherwise they are output
+# in JSON format for easier parsing by log aggregators
 prettyLogOutput: true
+# -------------------------------
+# The cluster node configuration
 clusterNode:
   # -------------------------------
   # Root directory refers to the start of the filesystem where all data is stored
   rootDir: &ROOT_DIR ./dump/singleServer
-  # List of known servers at the beginning
+  # List of known servers at the beginning. If you are running a single server,
+  # it should be the hostname and port of the server itself. If it is a cluster,
+  # it should be the hostname and port of all the servers in the cluster.
+  # Important: The port refers to the RPC port defined below
   servers:
     - localhost:11001
   # -------------------------------
@@ -16,24 +28,38 @@ clusterNode:
   rpcTimeout: 300 # seconds
   rpcRetries: 2
   # -------------------------------
-  # Node database parameters
+  # Node database parameters. This database usually store collection
+  # information. The backup creates a local copy in the same filesystem.
   backupFrequency: 3600 # 1 hour
   backupCount: 3
   # -------------------------------
-  # Maximum size of shards in bytes
+  # Maximum size of shards in bytes. Either the shard size is reached or the
+  # shard point count is reached. These parameters are used when distributing
+  # points to shards automatically. If you want a single shard, then set these
+  # to something really high.
   maxShardSize: 2147483648 # 2GiB
-  maxShardPointCount: 250000 # 250k
-  # Maximum number of points to search
+  maxShardPointCount: 100000 # 100K
+  # Maximum limit on search queries to avoid large results sets. It's a
+  # precaution mainly, can be safely set to higher limit because the search
+  # request limits are applied as well.
   maxSearchLimit: 75
   # -------------------------------
   # Shard manager configuration
   shardManager:
     rootDir: *ROOT_DIR
-    # Shard timeout in seconds
+    # Shard timeout in seconds. After this period the shard database file is
+    # closed and any shared in-memory decoded cache is released. Note that the
+    # operating system cache holding the database file pages are untouched and
+    # may still report high memory usage.
     shardTimeout: 300 # 5 minutes
-    # Maximum shared shard cache in bytes
+    # Maximum shared shard cache in bytes. This size is shared amongst all the
+    # shards and their indices. If the size is reached, least recently used
+    # cache entries are evicted until the size is below the limit. This only
+    # occurs after operations are complete and during an operation it may exceed
+    # this limit to operate safely.
     maxCacheSize: 1073741824 # 1GiB
 # -------------------------------
+# The user facing HTTP API configuration
 httpApi:
   debug: *GLOBAL_DEBUG
   # HTTP Parameters
@@ -42,15 +68,26 @@ httpApi:
   enableMetrics: true
   metricsHttpHost: ""
   metricsHttpPort: 8091
+  # The secret string that is used to authenticate the proxy requests. If the
+  # secret is empty, then the check is disabled. Use this to prevent unauthorized
+  # access to the HTTP API.
   proxySecret: ""
+  # Alongside or instead of the secret, you can use IP whitelisting to allow
+  # only certain IPs to access the HTTP API. Either list all the IPs or set to
+  # ['*'] to allow all IPs.
   whiteListIPs:
-    - '*'
-  # User Plans
+    - "*"
+  # User Plans are mainly used for rate limiting and to enforce quotas. It isn't
+  # designed to monetize the service which may require subscriptions and payment
+  # gateways. Here we are just interested in putting some safeguards in place
+  # before someone accidentally or intentionally abuses the service, e.g. by
+  # creating too many collections.
   userPlans:
     BASIC:
       name: Basic Plan
       maxCollections: 1
-      maxCollectionPointCount: 2000000 # 2M
+      maxCollectionPointCount: 1000000 # 1M
+      # This is after the point is encoded and includes any vector fields.
       maxPointSize: 1024 # 1KiB
       shardBackupFrequency: 3600 # 1 hour
       shardBackupCount: 2

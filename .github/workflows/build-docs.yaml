@@ -45,6 +45,9 @@ jobs:
 
       - name: Copy existing readme
         run: cp README.md docs/content/_index.md
+      - name: Copy configuration
+        run: sed -i -e '/__REPLACE__/{r config/singleServer.yaml' -e 'd}' docs/content/docs/configuration.md
+
       - name: Build website
         working-directory: docs
         run: hugo
