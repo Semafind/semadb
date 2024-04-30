@@ -391,10 +391,16 @@ paths:
                   description: A sample response with two points
                   value:
                     points:
-                      - _id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-                        myvector: [4.2, 2.4]
-                      - id: 3fa85f64-5717-4562-b3fc-2c963f66afa7
-                        foo: bar
+                      - _id: "faefe2b1-cf85-48db-9621-94b833ee9cc9"
+                        _distance: 0
+                        _hybridScore: -0,
+                        description: "A product"
+                        price: 100
+                      - _id: "d2e3ebb5-149a-46e4-8b3f-cd6c38530da3"
+                        _distance: 314402.94,
+                        _hybridScore: -314402.94
+                        description: "Another product"
+                        price: 200
 # ---------------------------
 components:
   parameters:
