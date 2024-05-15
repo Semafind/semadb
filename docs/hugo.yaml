@@ -9,7 +9,13 @@ module:
   imports:
     - path: github.com/alex-shpak/hugo-book
 
-# enableGitInfo: true
+services:
+  googleAnalytics:
+    ID: "__REPLACE_GA_ID__"
+
+privacy:
+  googleAnalytics:
+    respectDoNotTrack: true
 
 menu:
   # before: []

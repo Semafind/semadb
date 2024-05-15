@@ -48,6 +48,10 @@ jobs:
       - name: Copy configuration
         run: sed -i -e '/__REPLACE__/{r config/singleServer.yaml' -e 'd}' docs/content/docs/configuration.md
 
+      - name: Add GA ID from repo variables
+        if: ${{ vars.DOCS_GA_ID }}
+        run: sed -i "s/__REPLACE_GA_ID__/${{ vars.DOCS_GA_ID }}/" docs/hugo.yaml
+
       - name: Build website
         working-directory: docs
         run: hugo
