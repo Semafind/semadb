@@ -132,13 +132,41 @@ func TestManager_ScrappedCache(t *testing.T) {
 		dummy.value = 42
 		return ErrOops
 	})
-	assert.True(t, errors.Is(err, ErrOops))
+	require.ErrorIs(t, err, ErrOops)
+	require.Len(t, m.sharedCaches, 0)
 	// We shouldn't see the writes at all
 	err = tx.With("test", true, newDummyCachable(10, nil), func(c Cachable) error {
 		assert.Fail(t, "shouldn't be here")
 		return nil
 	})
-	assert.Error(t, err)
+	require.Error(t, err)
+	require.Len(t, m.sharedCaches, 0)
+}
+
+func TestManager_ScrappedExistingCache(t *testing.T) {
+	m := NewManager(-1)
+	tx := m.NewTransaction()
+	// First write creates a shared cache
+	err := tx.With("test", false, newDummyCachable(10, nil), func(c Cachable) error {
+		dummy := c.(*dummyCachable)
+		dummy.value = 42
+		return nil
+	})
+	require.NoError(t, err)
+	// Second write fails on existing cache
+	err = tx.With("test", false, newDummyCachable(10, nil), func(c Cachable) error {
+		dummy := c.(*dummyCachable)
+		dummy.value = 43
+		return ErrOops
+	})
+	require.ErrorIs(t, err, ErrOops)
+	require.Len(t, m.sharedCaches, 0)
+	// We shouldn't see the writes at all
+	err = tx.With("test", true, newDummyCachable(10, nil), func(c Cachable) error {
+		assert.Fail(t, "shouldn't be here")
+		return nil
+	})
+	require.Error(t, err)
 	require.Len(t, m.sharedCaches, 0)
 }
 
