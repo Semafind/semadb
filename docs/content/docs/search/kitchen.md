@@ -96,10 +96,12 @@ The actual query would look like:
         ]
     },
     "select": ["title", "description", "price"],
-    "sort": {
+    "sort": [
+        {
         "field": "price",
         "descending": false // ascending order
-    },
+        }
+    ],
     "limit": 5
 }
 ```

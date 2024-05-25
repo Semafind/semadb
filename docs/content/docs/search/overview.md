@@ -46,10 +46,12 @@ Here is a full single query example:
         }
     },
     "select": ["description", "price"],
-    "sort": {
+    "sort": [
+      {
         "field": "price",
         "descending": false // ascending order
-    },
+      }
+    ],
     "limit": 5
 }
 ```
