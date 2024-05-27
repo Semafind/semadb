@@ -19,7 +19,7 @@ jobs:
         # We can adjust which platforms we are targeting but we mainly expect
         # linux/amd64 to be the default
         goos: [linux]
-        goarch: [amd64, arm64]
+        goarch: [amd64] #, arm64]
     steps:
       - uses: actions/checkout@v4
       - uses: wangyoucao577/go-release-action@v1
