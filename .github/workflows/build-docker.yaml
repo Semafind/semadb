@@ -20,6 +20,12 @@ jobs:
   Build-Publish:
     timeout-minutes: 20
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
     permissions:
       contents: read
       packages: write
@@ -47,7 +53,7 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64, linux/arm64
+          platforms: ${{ matrix.platform }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
       - name: Remove old packages
