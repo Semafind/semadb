@@ -1,4 +1,5 @@
 FROM golang:1.22.2-bookworm as build
+LABEL org.opencontainers.image.description "No fuss multi-index hybrid vector database / search engine"
 
 WORKDIR /app
 
