@@ -16,7 +16,7 @@
 
 SemaDB is a multi-index, multi-vector, document-based vector database / search engine. It is designed to offer a clear and easy-to-use JSON RESTful API. It original components of SemaDB were built for a knowledge-management project at [Semafind](https://www.semafind.com/) before it was developed into a standalone project. The goal is to provide a simple, modern, and efficient search engine that can be used in a variety of applications.
 
-> Looking for a hosted solution? [SemaDB Cloud Beta](https://www.semafind.com/products/semadb) is available on [RapidAPI](https://rapidapi.com/semafind-semadb/api/semadb).
+> Looking for a hosted solution? [SemaDB Cloud Beta](https://www.semafind.com/semadb) is available on [RapidAPI](https://rapidapi.com/semafind-semadb/api/semadb).
 
 ## Features ⚡
 
