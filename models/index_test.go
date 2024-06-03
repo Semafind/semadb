@@ -1,6 +1,7 @@
 package models_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/semafind/semadb/models"
@@ -92,18 +93,125 @@ func TestIndexSchema_CheckCompatibleMap(t *testing.T) {
 				},
 			},
 		},
+		"nested.propInteger": models.IndexSchemaValue{
+			Type: models.IndexTypeInteger,
+		},
 	}
 	// ---------------------------
-	// Here is a matching map
-	m := models.PointAsMap{
-		"propVectorFlat":   []any{1.0, 2.0},
-		"propVectorVamana": []any{1.0, 2.0},
-		"propText":         "hello world",
-		"propString":       "hello",
-		"propInteger":      1,
-		"propFloat":        1.1,
-		"propStringArray":  []any{"hello", "world"},
+	tests := []struct {
+		name       string
+		jsonString string
+		fail       bool
+	}{
+		{
+			name:       "Valid Vector Flat",
+			jsonString: `{"propVectorFlat": [1.0, 2.0]}`,
+			fail:       false,
+		},
+		{
+			name:       "Invalid Size Vector Flat",
+			jsonString: `{"propVectorFlat": [1.0]}`,
+			fail:       true,
+		},
+		{
+			name:       "Invalid Type Vector Flat",
+			jsonString: `{"propVectorFlat": "string"}`,
+			fail:       true,
+		},
+		{
+			name:       "Valid Vector Vamana",
+			jsonString: `{"propVectorVamana": [1.0, 2.0]}`,
+			fail:       false,
+		},
+		{
+			name:       "Invalid Size Vector Vamana",
+			jsonString: `{"propVectorVamana": [1.0]}`,
+			fail:       true,
+		},
+		{
+			name:       "Invalid Type Vector Vamana",
+			jsonString: `{"propVectorVamana": "string"}`,
+			fail:       true,
+		},
+		{
+			name:       "Valid Text",
+			jsonString: `{"propText": "text"}`,
+			fail:       false,
+		},
+		{
+			name:       "Invalid Type Text",
+			jsonString: `{"propText": 1}`,
+			fail:       true,
+		},
+		{
+			name:       "Valid String",
+			jsonString: `{"propString": "string"}`,
+			fail:       false,
+		},
+		{
+			name:       "Invalid Type String",
+			jsonString: `{"propString": 1}`,
+			fail:       true,
+		},
+		{
+			name:       "Valid Integer",
+			jsonString: `{"propInteger": 1}`,
+			fail:       false,
+		},
+		{
+			name:       "Invalid Type Integer",
+			jsonString: `{"propInteger": "string"}`,
+			fail:       true,
+		},
+		{
+			name:       "Valid Float",
+			jsonString: `{"propFloat": 1.0}`,
+			fail:       false,
+		},
+		{
+			name:       "Invalid Type Float",
+			jsonString: `{"propFloat": "string"}`,
+			fail:       true,
+		},
+		{
+			name:       "Valid String Array",
+			jsonString: `{"propStringArray": ["string1", "string2"]}`,
+			fail:       false,
+		},
+		{
+			name:       "Invalid Type String Array",
+			jsonString: `{"propStringArray": "string"}`,
+			fail:       true,
+		},
+		{
+			name:       "Valid Nested Integer",
+			jsonString: `{"nested": {"propInteger": 1}}`,
+			fail:       false,
+		},
+		{
+			name:       "Invalid Nested Type Integer",
+			jsonString: `{"nested": {"propInteger": "string"}}`,
+			fail:       true,
+		},
+		{
+			name:       "Invalid Nested Type",
+			jsonString: `{"nested": 42}`,
+			fail:       true,
+		},
 	}
-	err := schema.CheckCompatibleMap(m)
-	require.NoError(t, err)
+	// ---------------------------
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var m models.PointAsMap
+			err := json.Unmarshal([]byte(tt.jsonString), &m)
+			require.NoError(t, err)
+			err = schema.CheckCompatibleMap(m)
+			if tt.fail {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+	// ---------------------------
 }
