@@ -36,6 +36,16 @@ var sampleIndexSchema = models.IndexSchema{
 			DistanceMetric: "euclidean",
 		},
 	},
+	"nested.vector": models.IndexSchemaValue{
+		Type: models.IndexTypeVectorVamana,
+		VectorVamana: &models.IndexVectorVamanaParameters{
+			VectorSize:     2,
+			DistanceMetric: "euclidean",
+			SearchSize:     75,
+			DegreeBound:    64,
+			Alpha:          1.2,
+		},
+	},
 	"description": models.IndexSchemaValue{
 		Type: models.IndexTypeText,
 		Text: &models.IndexTextParameters{
@@ -277,6 +287,10 @@ func randPointsAsMap(size int) []models.PointAsMap {
 			"labels":      []string{fmt.Sprintf("label1 %d", i), fmt.Sprintf("label2 %d", i+1)},
 			"size":        i,
 			"price":       fi + 0.5,
+			"nested": models.PointAsMap{
+				"vector": randVector,
+				"size":   i,
+			},
 		}
 		if rand.Float32() < 0.5 {
 			pointData["extra"] = fmt.Sprintf("extra %d", i%5)

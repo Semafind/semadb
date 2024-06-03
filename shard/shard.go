@@ -406,10 +406,19 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 					// Didn't find anything for this property
 					continue
 				}
-				// This means {"property": value} e.g. {"name": "james"}
+				// ---------------------------
+				// We originally implemented nested fields to create nested maps
+				// and populate accordingly but it adds extra for loops and
+				// complexity. It also entangles the sorting code below as well.
+				// For now, a select field such as "nested.field" will comes
+				// back flattened, e.g. {"nested.field": value} as opposed to
+				// {"nested": {"field": value}}.
+				// ---------------------------
+				// Assign the value to final decoded data. This makes
+				// {"property": value} e.g. {"name": "james"}
 				finalResults[i].DecodedData[p] = res[0]
 			}
-			// We erase data information as it is not needed anymore, saves us
+			// We erase data information as it is not needed any more, saves us
 			// from transmitting it
 			finalResults[i].Data = nil
 		}

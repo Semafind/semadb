@@ -54,6 +54,38 @@ func TestSearch_Select(t *testing.T) {
 	}
 }
 
+func TestSearch_NestedField(t *testing.T) {
+	// ---------------------------
+	s := tempShard(t)
+	points := randPoints(10)
+	err := s.InsertPoints(points)
+	require.NoError(t, err)
+	// ---------------------------
+	sr := models.SearchRequest{
+		Query: models.Query{
+			Property: "nested.vector",
+			VectorVamana: &models.SearchVectorVamanaOptions{
+				Vector:     getVector(points[3]),
+				SearchSize: 75,
+				Limit:      5,
+				Operator:   "near",
+			},
+		},
+		Select: []string{"nested.vector", "nested.size", "nested"},
+	}
+	s.InsertPoints(points)
+	res, err := s.SearchPoints(sr)
+	require.NoError(t, err)
+	require.Len(t, res, 5)
+	require.Equal(t, points[3].Id, res[0].Point.Id)
+	require.EqualValues(t, 0, *res[0].Distance)
+	// We're expecting something like {"nested.vector": [0.0, 1.0, 2.0, 3.0, 4.0], "nested.size": 3, "nested": {...}}
+	require.Len(t, res[0].DecodedData, 3)
+	require.Len(t, res[0].DecodedData["nested"], 2)
+	require.EqualValues(t, 3, res[0].DecodedData["nested.size"])
+	require.NoError(t, s.Close())
+}
+
 func TestSearch_Sort(t *testing.T) {
 	// ---------------------------
 	s := tempShard(t)
