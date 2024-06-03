@@ -87,6 +87,8 @@ You can update points in a collection by making a **PUT request** to the `/colle
 
 You may use the special value `_delete` to remove a field from a point. The response is similar to the insert operation and you are encouraged to check the result to see if parts of the update failed.
 
+> Updates perform a *shallow merge* of the fields. This means that if you have a nested object in a point, you need to provide the entire object in the update. If you only provide a field in the nested object, the rest of the fields in the nested object will be removed.
+
 ## Delete
 
 DELETE: `/collections/{id}/points`
