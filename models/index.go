@@ -2,6 +2,7 @@ package models
 
 import (
 	"fmt"
+	"strings"
 )
 
 // Defines the index schema for a collection, each index type is a map of property names
@@ -90,17 +91,56 @@ func convertToVector(v any) ([]float32, error) {
 }
 
 // Check if a given map is compatible with the index schema
-func (s IndexSchema) CheckCompatibleMap(m PointAsMap) error {
+func (s IndexSchema) CheckCompatibleMap(pointMap PointAsMap) error {
 	// We will go through each index field, check if the map has them, is of
 	// right type and any extra checks needed
 	// ---------------------------
-	// For example, k="age" and v=42
-	for k, v := range m {
-		schema, ok := s[k]
-		if !ok {
-			// This property is not in the indexed schema
+	for property, schema := range s {
+		// Let's the value of the property in the map.
+		// Handle nested properties such as "nested.field"
+		parts := strings.Split(property, ".")
+		// m is the map, could be nested. k is the key of the property v is the
+		// value of the property. For example, if property is "nested.field", m
+		// is the map of "nested" and k is "field". It if is a flat property, m
+		// is the map of the root and k is the property name.
+		m := pointMap
+		k := ""
+		var v any
+		// ---------------------------
+		skip := false
+		for i, part := range parts {
+			partValue, ok := m[part]
+			if !ok {
+				// This property is not in the map
+				skip = true
+				break
+			}
+			if i == len(parts)-1 {
+				v = partValue
+				k = part
+			} else {
+				// Can we nest further?
+				if nested, ok := partValue.(PointAsMap); ok {
+					m = nested
+					continue
+				}
+				// Despite defined as the same type, the above type assertion
+				// does not cover this case. We assert again. Internally we use
+				// PointAsMap but something like json decoding returns
+				// map[string]any.
+				if nested, ok := partValue.(map[string]any); ok {
+					m = nested
+					continue
+				}
+				return fmt.Errorf("expected nested map for property %s, got %T", part, partValue)
+			}
+		}
+		// ---------------------------
+		if skip {
+			// This property is not in the map.
 			continue
 		}
+		// ---------------------------
 		switch schema.Type {
 		case IndexTypeVectorFlat:
 			vector, err := convertToVector(v)
