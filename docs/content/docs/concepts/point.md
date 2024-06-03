@@ -13,7 +13,13 @@ A point, document is the smallest unit of data in SemaDB. It is a JSON object th
     "country": "Scotland",
     "areaCode": 0131,
     "population": 500000,
-    "embedding": [0.1, 0.2, 0.3, 0.4, 0.5,]
+    "embedding": [0.1, 0.2, 0.3, 0.4, 0.5],
+    "tags": ["capital", "historic", "tourist"],
+    "link": "https://en.wikipedia.org/wiki/Edinburgh",
+    "location": {
+        "coordinates": [55.953251, -3.188267],
+        "map": "https://www.openstreetmap.org/?mlat=55.953251&mlon=-3.188267"
+    }
 }
 ```
 

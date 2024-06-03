@@ -20,7 +20,7 @@ graph TD
     Field3 -->|Index Type| IndexType(...)
 ```
 
-> A [point or document]({{< ref "point" >}}) can have extra fields beyond those that are indexed. A common use case is adding metadata to a point. You can also leave an indexed field blank of a point to remove it from search results.
+> A [point or document]({{< ref "point" >}}) can and often have extra fields beyond those that are indexed. A common use case is adding metadata to a point. You can also leave an indexed field blank of a point to remove it from search results, i.e. skip indexing.
 
 This page discusses the various index types SemaDB has. **For detailed information on index parameters, please refer to the [API Reference](/api-reference.html).**
 
@@ -49,13 +49,13 @@ Here is an example of an index schema for a collection e-commerce products. This
             }
         },
         "category": {
-            "type": "string"
+            "type": "string",
             "string": {
                 "caseSensitive": false
             }
         },
         "labels": {
-            "type": "stringArray"
+            "type": "stringArray",
             "stringArray": {
                 "caseSensitive": false
             }
@@ -65,6 +65,12 @@ Here is an example of an index schema for a collection e-commerce products. This
         },
         "price": {
             "type": "float"
+        },
+        "dates.created": {
+            "type": "string",
+            "string": {
+                "caseSensitive": false
+            }
         }
     }
 }
@@ -81,7 +87,11 @@ with an example point:
     "category": "electronics",
     "labels": ["new", "sale"],
     "size": 10,
-    "price": 100.0
+    "price": 100.0,
+    "dates": {
+        "created": "2021-01-01",
+        "updated": "2021-01-02"
+    }
 }
 ```
 

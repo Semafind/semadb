@@ -11,7 +11,7 @@ To search for points / documents in SemaDB, we make a post request to the search
 The overall request consists of the following parts:
 
 - **Query**: What to search for and how? This can be a text query, a vector query, or a hybrid query.
-- **Select** (optional): What fields to return in the search results. It is often common to not return all fields in the search results, especially vector fields.
+- **Select** (optional): What fields to return in the search results. It is often common to not return all fields in the search results, especially vector fields. You can select nested fields using the dot notation such as `nested.field` but they will be returned flattened to the top level for ease of access.
 - **Sort** (optional): How to sort the search results. This can be based on a field or a distance from a vector. Any sort fields must be *selected* first.
 - **Offset** (optional): How many results to skip from the beginning of the overall search results.
 - **Limit**: How many results to return from the search results.
