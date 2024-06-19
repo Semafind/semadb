@@ -86,6 +86,42 @@ func TestSearch_NestedField(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
+func TestSearch_NestedFieldSort(t *testing.T) {
+	// ---------------------------
+	s := tempShard(t)
+	points := randPoints(10)
+	err := s.InsertPoints(points)
+	require.NoError(t, err)
+	// ---------------------------
+	sr := models.SearchRequest{
+		Query: models.Query{
+			Property: "nested.vector",
+			VectorVamana: &models.SearchVectorVamanaOptions{
+				Vector:     getVector(points[3]),
+				SearchSize: 75,
+				Limit:      5,
+				Operator:   "near",
+			},
+		},
+		Select: []string{"nested.size"},
+		Sort: []models.SortOption{
+			{Property: "nested.size", Descending: true},
+		},
+	}
+	s.InsertPoints(points)
+	res, err := s.SearchPoints(sr)
+	require.NoError(t, err)
+	require.Len(t, res, 5)
+	require.EqualValues(t, 0, *res[0].Distance)
+	// Check if the results are sorted in descending order
+	for i := 0; i < 5; i++ {
+		for j := i + 1; j < 5; j++ {
+			require.GreaterOrEqual(t, res[i].DecodedData["nested.size"], res[j].DecodedData["nested.size"])
+		}
+	}
+	require.NoError(t, s.Close())
+}
+
 func TestSearch_Sort(t *testing.T) {
 	// ---------------------------
 	s := tempShard(t)
