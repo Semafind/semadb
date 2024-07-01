@@ -22,8 +22,9 @@ clusterNode:
     - localhost:11001
   # -------------------------------
   # RPC Parameters
+  # The full RPC address is constructed as rpcHost + rpcDomain + ":" + rpcPort
   rpcHost: localhost
-  rpcDomain: ""
+  rpcDomain: "" # With preceding dot, e.g. ".example.com"
   rpcPort: 11001
   rpcTimeout: 300 # seconds
   rpcRetries: 2
