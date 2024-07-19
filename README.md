@@ -58,9 +58,9 @@ After you have a server running, you can use the [samples](httpapi/v2/samples.ht
 You can run the latest version of SemaDB using the following repository container image:
 
 ```bash
-docker run -it --rm -v ./config:/config -e SEMADB_CONFIG=/config/singleServer.yaml -p 8081:8081 ghcr.io/semafind/semadb:main
+docker run -it --rm -v ./config:/config -e SEMADB_CONFIG=/config/singleServer.yaml -v ./data:/data -p 8081:8081 ghcr.io/semafind/semadb:main
 # If using podman
-podman run -it --rm -v ./config:/config:Z -e SEMADB_CONFIG=/config/singleServer.yaml -p 8081:8081 ghcr.io/semafind/semadb:main
+podman run -it --rm -v ./config:/config:Z -e SEMADB_CONFIG=/config/singleServer.yaml -v ./data:/data:Z -p 8081:8081 ghcr.io/semafind/semadb:main
 ```
 
 which will run the main branch. There are also tagged versions for specific releases. See the [container registry](https://github.com/Semafind/semadb/pkgs/container/semadb) of the repository stable and production ready versions.
@@ -69,12 +69,14 @@ You can locally build and run the container image using:
 
 ```bash
 docker build -t semadb ./
-docker run -it --rm -v ./config:/config -e SEMADB_CONFIG=/config/singleServer.yaml -p 8081:8081 semadb
+docker run -it --rm -v ./config:/config -e SEMADB_CONFIG=/config/singleServer.yaml -v ./data:/data -p 8081:8081 semadb
 # If using podman
 podman build -t semadb ./
 # The :Z argument relabels to access: see https://github.com/containers/podman/issues/3683
-podman run -it --rm -v ./config:/config:Z -e SEMADB_CONFIG=/config/singleServer.yaml -p 8081:8081 semadb
+podman run -it --rm -v ./config:/config:Z -e SEMADB_CONFIG=/config/singleServer.yaml -v ./data:/data:Z -p 8081:8081 semadb
 ```
+
+**Data Persistence:** SemaDB stores data in a directory on disk which is specified in the configuration file as `rootDir`. By default, the data directory is `./data` and the `semadb` executable is located at `/` giving `/data` as the mount point in the container.
 
 Please note that when using docker, the hostname and whitelisting of IPs may need to be adjusted depending on the network configuration of docker. Leaving hostname as a blank string and setting whitelisting to `'*'` opens up SemaDB to every connection as done in the `singleServer.yaml` configuration.
 
