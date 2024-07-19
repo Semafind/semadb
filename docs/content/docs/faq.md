@@ -7,7 +7,7 @@ weight: 50
 
 ## What is SemaDB?
 
-SemaDB is a search engine that allows you to search for items in a large dataset. It originated from searching vector similarity search and it is designed to be fast, accurate and easy to use.
+SemaDB is a search engine that allows you to search for items in a large dataset. It originated from vectors similarity search and grew to more complex query types. It is designed to be fast, accurate and easy to use.
 
 ## What is vector similarity search?
 
