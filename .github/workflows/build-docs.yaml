@@ -34,8 +34,6 @@ jobs:
       - uses: actions/checkout@v4
     # Compile redoc
       - uses: actions/setup-node@v4
-        with:
-          node-version: 'latest'
       - run: npx @redocly/cli build-docs openapi.yaml 
         working-directory: httpapi/v2
       - run: mv httpapi/v2/redoc-static.html docs/static/api-reference.html
