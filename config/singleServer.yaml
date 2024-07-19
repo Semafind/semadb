@@ -13,7 +13,7 @@ prettyLogOutput: true
 clusterNode:
   # -------------------------------
   # Root directory refers to the start of the filesystem where all data is stored
-  rootDir: &ROOT_DIR ./dump/singleServer
+  rootDir: &ROOT_DIR ./data
   # List of known servers at the beginning. If you are running a single server,
   # it should be the hostname and port of the server itself. If it is a cluster,
   # it should be the hostname and port of all the servers in the cluster.
