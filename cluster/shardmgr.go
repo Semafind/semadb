@@ -41,6 +41,8 @@ type ShardManager struct {
 	cacheManager *cache.Manager
 }
 
+const USERCOLSDIR = "userCollections"
+
 func NewShardManager(config ShardManagerConfig) *ShardManager {
 	logger := log.With().Str("component", "shardManager").Logger()
 	return &ShardManager{
@@ -55,7 +57,7 @@ func NewShardManager(config ShardManagerConfig) *ShardManager {
 // returned from the local cache. The shard is unloaded after a timeout if it is
 // not used.
 func (sm *ShardManager) loadShard(collection models.Collection, shardId string) (*loadedShard, error) {
-	shardDir := filepath.Join(sm.cfg.RootDir, "userCollections", collection.UserId, collection.Id, shardId)
+	shardDir := filepath.Join(sm.cfg.RootDir, USERCOLSDIR, collection.UserId, collection.Id, shardId)
 	sm.logger.Debug().Str("shardDir", shardDir).Msg("LoadShard")
 	sm.shardLock.Lock()
 	defer sm.shardLock.Unlock()
@@ -183,7 +185,7 @@ func (sm *ShardManager) DeleteCollectionShards(collection models.Collection) ([]
 	// something goes wrong with the deletion of a shard. This is because the
 	// deletion of the collection makes these shards inaccessible anyway. It is
 	// a cleanup problem if a shard is not deleted.
-	collectionDir := filepath.Join(sm.cfg.RootDir, "userCollections", collection.UserId, collection.Id)
+	collectionDir := filepath.Join(sm.cfg.RootDir, USERCOLSDIR, collection.UserId, collection.Id)
 	// List all shards in the collection directory if it exists
 	if _, err := os.Stat(collectionDir); os.IsNotExist(err) {
 		log.Debug().Str("collectionDir", collectionDir).Msg("Collection directory does not exist, skipping shard deletion")
