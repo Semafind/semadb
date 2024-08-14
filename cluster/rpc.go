@@ -49,10 +49,22 @@ func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply a
 		c.metrics.rpcRequestCount.WithLabelValues(remoteFn).Inc()
 	}()
 	// ---------------------------
+	var retryErr error
 	for i := 0; i < c.cfg.RpcRetries; i++ {
+		// ---------------------------
+		if i > 0 {
+			// Exponential backoff and minimum 2 second delay, so we start 2
+			// seconds, 4 seconds, 8 seconds, etc.
+			delay := time.Duration(1<<uint(i)) * time.Second
+			c.logger.Error().Dur("delay", delay).Err(retryErr).Str("destination", destination).Int("attempt", i+1).Msg("Retrying rpc call")
+			time.Sleep(delay)
+		}
+		retryErr = nil
+		// ---------------------------
 		client, err := c.rpcClient(destination)
 		if err != nil {
-			return fmt.Errorf("failed to get client: %v", err)
+			retryErr = fmt.Errorf("failed to get client: %v", err)
+			continue
 		}
 		// Make request with timeout
 		rpcCall := client.Go(remoteFn, args, reply, nil)
@@ -81,12 +93,13 @@ func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply a
 				// case ErrNotFound.Error():
 				// 	finalErr = ErrNotFound
 				// }
-				return fmt.Errorf("failed to call %v: %w", remoteFn, finalErr)
+				retryErr = fmt.Errorf("failed to call %v: %w", remoteFn, finalErr)
+				continue
 			}
 			return nil
 		case <-timeout.C:
-			return fmt.Errorf(remoteFn+" timed out: %w", ErrTimeout)
+			retryErr = fmt.Errorf(remoteFn+" timed out: %w", ErrTimeout)
 		}
 	}
-	return nil
+	return retryErr
 }
