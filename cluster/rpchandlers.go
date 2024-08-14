@@ -32,6 +32,41 @@ import (
 
 // ---------------------------
 
+type RPCSetNodeKeyValueRequest struct {
+	RPCRequestArgs
+	Bucket    string
+	KeyValues map[string][]byte
+}
+
+type RPCSetNodeKeyValueResponse struct {
+	Count int
+}
+
+func (c *ClusterNode) RPCSetNodeKeyValue(args *RPCSetNodeKeyValueRequest, reply *RPCSetNodeKeyValueResponse) error {
+	c.logger.Debug().Int("kvCount", len(args.KeyValues)).Str("Bucket", args.Bucket).Msg("RPCSetNodeKeyValue")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCSetNodeKeyValue", args, reply)
+	}
+	count := 0
+	err := c.nodedb.Write(func(bm diskstore.BucketManager) error {
+		b, err := bm.Get(args.Bucket)
+		if err != nil {
+			return fmt.Errorf("could not get write bucket %s: %w", args.Bucket, err)
+		}
+		for key, value := range args.KeyValues {
+			if err := b.Put([]byte(key), value); err != nil {
+				return fmt.Errorf("could not put key %s: %w", key, err)
+			}
+			count++
+		}
+		return nil
+	})
+	reply.Count = count
+	return err
+}
+
+// ---------------------------
+
 type RPCCreateCollectionRequest struct {
 	RPCRequestArgs
 	Collection models.Collection
