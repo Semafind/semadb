@@ -93,8 +93,7 @@ func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply a
 				// case ErrNotFound.Error():
 				// 	finalErr = ErrNotFound
 				// }
-				retryErr = fmt.Errorf("failed to call %v: %w", remoteFn, finalErr)
-				continue
+				return fmt.Errorf("failed to call %v: %w", remoteFn, finalErr)
 			}
 			return nil
 		case <-timeout.C:
