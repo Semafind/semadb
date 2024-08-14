@@ -59,6 +59,9 @@ func main() {
 	if err := clusterNode.Serve(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to start cluster node")
 	}
+	if err := clusterNode.Sync(); err != nil {
+		log.Fatal().Err(err).Msg("Failed to sync cluster node")
+	}
 	// ---------------------------
 	httpServer := httpapi.RunHTTPServer(clusterNode, cfg.HttpApi, reg)
 	// ---------------------------
