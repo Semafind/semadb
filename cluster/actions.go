@@ -130,16 +130,18 @@ func (c *ClusterNode) DeleteCollection(col models.Collection) ([]string, error) 
 	}
 	// ---------------------------
 	// Delete all shards as a best effort service
-	targetServers := make([]string, 0, len(col.ShardIds))
+	// targetServers := make([]string, 0, len(col.ShardIds))
+	targetServers := make(map[string]struct{})
 	for _, shardId := range col.ShardIds {
-		targetServers = append(targetServers, RendezvousHash(shardId, c.Servers, 1)[0])
+		destination := RendezvousHash(shardId, c.Servers, 1)[0]
+		targetServers[destination] = struct{}{}
 	}
 	// ---------------------------
 	// Contact all shard servers
 	deletedShardIds := make([]string, 0, len(col.ShardIds))
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	for _, targetServer := range targetServers {
+	for targetServer := range targetServers {
 		wg.Add(1)
 		// ---------------------------
 		go func(tServer string) {
