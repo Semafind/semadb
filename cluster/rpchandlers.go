@@ -2,6 +2,8 @@ package cluster
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/diskstore"
@@ -63,6 +65,62 @@ func (c *ClusterNode) RPCSetNodeKeyValue(args *RPCSetNodeKeyValueRequest, reply 
 	})
 	reply.Count = count
 	return err
+}
+
+// ---------------------------
+
+type RPCSendShardRequest struct {
+	RPCRequestArgs
+	UserId       string
+	CollectionId string
+	ShardId      string
+	ChunkIndex   int
+	ChunkData    []byte
+}
+
+type RPCSendShardResponse struct {
+	BytesWritten int
+	Checksum     uint64 // only used if EOF
+}
+
+func (c *ClusterNode) RPCSendShard(args *RPCSendShardRequest, reply *RPCSendShardResponse) error {
+	c.logger.Debug().Str("userId", args.UserId).Str("collectionId", args.CollectionId).Str("shardId", args.ShardId).Int("chunkIndex", args.ChunkIndex).Int("chunkSize", len(args.ChunkData)).Msg("RPCSendShard")
+	if args.Dest != c.MyHostname {
+		return c.internalRoute("ClusterNode.RPCSendShard", args, reply)
+	}
+	// ---------------------------
+	shardPath := filepath.Join(c.cfg.ShardManager.RootDir, USERCOLSDIR, args.UserId, args.CollectionId, args.ShardId, "sharddb.bbolt")
+	if args.ChunkIndex == 0 {
+		if err := os.MkdirAll(filepath.Dir(shardPath), 0755); err != nil {
+			return fmt.Errorf("could not create shard directory: %w", err)
+		}
+	}
+	// Append to shard file, create if it doesn't exist
+	// Does this generate a lot of syscalls? If so, we can switch to buffered
+	// writers but we need to keep track of the file descriptor across RPC
+	// calls. Let's see if this is a problem first, we can optimize later.
+	f, err := os.OpenFile(shardPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("could not open shard file: %w", err)
+	}
+	defer f.Close()
+	n, err := f.Write(args.ChunkData)
+	if err != nil {
+		return fmt.Errorf("could not write shard file: %w", err)
+	}
+	reply.BytesWritten = n
+	// ---------------------------
+	// Compute final checksum
+	if args.ChunkIndex > 0 && len(args.ChunkData) == 0 {
+		f.Close()
+		checksum, err := FileHash(shardPath)
+		if err != nil {
+			return fmt.Errorf("could not compute shard checksum: %w", err)
+		}
+		reply.Checksum = checksum
+	}
+	// ---------------------------
+	return nil
 }
 
 // ---------------------------
