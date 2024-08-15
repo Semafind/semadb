@@ -80,6 +80,11 @@ func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply a
 					delete(c.rpcClients, destination)
 					c.rpcClientsMu.Unlock()
 					c.logger.Debug().Str("destination", destination).Msg("Removed dead client")
+					// We don't count this as a retry because the client was
+					// shutdown and no request was actually made. This may occur
+					// if a previous remote call returned an error and the
+					// connection state is unknown.
+					i--
 					continue
 				}
 				// The method's return value, if non-nil, is passed back as a string that the client sees as if created by errors.New
