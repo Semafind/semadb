@@ -2,8 +2,12 @@ package cluster
 
 import (
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/semafind/semadb/diskstore"
 )
@@ -18,12 +22,6 @@ func (c *ClusterNode) syncUserCollections() error {
 	// on other servers.
 	// ---------------------------
 	c.logger.Info().Msg("starting user entry sync")
-	if len(c.Servers) == 1 && c.Servers[0] == c.MyHostname {
-		// We are the only server, so no need to sync anything.
-		c.logger.Info().Msg("no other servers to sync user entries with")
-		return nil
-	}
-	// ---------------------------
 	postage := make(map[string]RPCSetNodeKeyValueRequest, len(c.Servers))
 	// ---------------------------
 	err := c.nodedb.Read(func(bm diskstore.BucketManager) error {
@@ -119,11 +117,167 @@ func (c *ClusterNode) syncUserCollections() error {
 		}
 	}
 	// ---------------------------
-	c.logger.Info().Int("postageCount", len(postage)).Msg("finished user entry sync")
+	c.logger.Info().Int("contactedServers", len(postage)).Msg("finished user entry sync")
+	return nil
+}
+
+const CHUNKSIZE = 8 * 1024 * 1024 // 8MB
+
+func (c *ClusterNode) sendShardFile(destination string, path string) error {
+	c.logger.Debug().Str("path", path).Str("destination", destination).Msg("sending shard")
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("failed to open shard file: %w", err)
+	}
+	defer f.Close()
+	// ---------------------------
+	// Send the file in chunks
+	startTime := time.Now()
+	buf := make([]byte, CHUNKSIZE)
+	shardDir := filepath.Dir(path)
+	shardId := filepath.Base(shardDir)
+	colDir := filepath.Dir(shardDir)
+	colId := filepath.Base(colDir)
+	userDir := filepath.Dir(colDir)
+	userId := filepath.Base(userDir)
+	for i := 0; ; i++ {
+		// At the end of a file, read returns 0 bytes and io.EOF
+		n, err := f.Read(buf)
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("failed to read shard file: %w", err)
+		}
+		req := RPCSendShardRequest{
+			RPCRequestArgs: RPCRequestArgs{
+				Source: c.MyHostname,
+				Dest:   destination,
+			},
+			ShardId:      shardId,
+			CollectionId: colId,
+			UserId:       userId,
+			ChunkIndex:   i,
+			ChunkData:    buf[:n],
+		}
+		rpcResp := RPCSendShardResponse{}
+		if err := c.RPCSendShard(&req, &rpcResp); err != nil {
+			return fmt.Errorf("failed to send shard file chunk: %w", err)
+		}
+		if rpcResp.BytesWritten != n {
+			return fmt.Errorf("failed to send all shard file chunk: %w", err)
+		}
+		if err == io.EOF {
+			f.Close()
+			// Time to check if everything went well
+			checksum, err := FileHash(path)
+			if err != nil {
+				return fmt.Errorf("failed to compute checksum of shard file: %w", err)
+			}
+			if checksum != rpcResp.Checksum {
+				return fmt.Errorf("checksum mismatch after sending shard file: %w", err)
+			}
+			// Good, good so far. We know we have the file safely
+			// delivered, we can now clean up the shard directory.
+			dirPath := filepath.Dir(path)
+			if err := os.RemoveAll(dirPath); err != nil {
+				return fmt.Errorf("failed to remove shard directory after sync: %w", err)
+			}
+			// Delete parent directories if they are empty
+			dirPath = filepath.Dir(dirPath)
+			for {
+				// This will error if the directory is not empty
+				if err := os.Remove(dirPath); err != nil {
+					break
+				}
+				// Delete up the directory tree
+				dirPath = filepath.Dir(dirPath)
+			}
+			// We're done
+			break
+		}
+	}
+	c.logger.Debug().Dur("duration", time.Since(startTime)).Str("path", path).Str("destination", destination).Msg("sent shard")
+	return nil
+}
+
+func (c *ClusterNode) syncShards() error {
+	// This sync function assumes the rest of the services are not running, so
+	// we have full control over the shards. Otherwise, we must consult the
+	// shard manager to block any opening of shards etc while we are syncing.
+	// ---------------------------
+	// Shards are stored by the shard manager currently under a path like
+	// rootDir/userCollections/userId/collectionId/shardId/sharddb.bbolt
+	// e.g. /data/userCollections/alice/mycollection/00a9e56b-c882-4991-babf-29aacf6fc681/sharddb.bbolt
+	// ---------------------------
+	c.logger.Info().Msg("starting shard sync")
+	// ---------------------------
+	shardDir := filepath.Join(c.cfg.ShardManager.RootDir, USERCOLSDIR) // This would be /data/userCollections
+	shardPaths := make([]string, 0)
+	filepath.Walk(shardDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return fmt.Errorf("failed to walk shard directory: %w", err)
+		}
+		if filepath.Base(path) == "sharddb.bbolt" {
+			shardPaths = append(shardPaths, path)
+		}
+		return nil
+	})
+	// ---------------------------
+	// Destination to a list of shard paths
+	postage := make(map[string][]string, len(c.Servers))
+	// ---------------------------
+	c.logger.Debug().Int("count", len(shardPaths)).Msg("found shards to sync")
+	for _, path := range shardPaths {
+		shardId := filepath.Base(filepath.Dir(path)) // the UUID of the shard
+		destination := RendezvousHash(shardId, c.Servers, 1)[0]
+		if destination == c.MyHostname {
+			continue
+		}
+		// This shard needs to go, be gone shard!
+		postage[destination] = append(postage[destination], path)
+	}
+	// ---------------------------
+	// Time to create some traffic, we'll create one worker per destination to
+	// not overload the network or the target server.
+	var wg sync.WaitGroup
+	errs := make(chan error, len(postage))
+	for dest, paths := range postage {
+		wg.Add(1)
+		go func(dest string, paths []string) {
+			defer wg.Done()
+			for _, path := range paths {
+				if err := c.sendShardFile(dest, path); err != nil {
+					errs <- err
+					return
+				}
+			}
+		}(dest, paths)
+	}
+	go func() {
+		wg.Wait()
+		close(errs)
+	}()
+	// Check for errors
+	for err := range errs {
+		if err != nil {
+			return fmt.Errorf("failed to send shards: %w", err)
+		}
+	}
+	// ---------------------------
+	c.logger.Info().Int("contactedServers", len(postage)).Msg("finished shard sync")
 	return nil
 }
 
 func (c *ClusterNode) Sync() error {
+	if len(c.Servers) == 1 && c.Servers[0] == c.MyHostname {
+		// We are the only server, so no need to sync anything.
+		c.logger.Info().Msg("no other servers to sync user entries with")
+		return nil
+	}
 	c.logger.Info().Strs("servers", c.Servers).Str("myhostname", c.MyHostname).Msg("syncing cluster node state")
-	return c.syncUserCollections()
+	if err := c.syncUserCollections(); err != nil {
+		return fmt.Errorf("failed to sync user collections: %w", err)
+	}
+	if err := c.syncShards(); err != nil {
+		return fmt.Errorf("failed to sync shards: %w", err)
+	}
+	return nil
 }
