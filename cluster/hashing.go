@@ -2,6 +2,8 @@ package cluster
 
 import (
 	"cmp"
+	"io"
+	"os"
 	"slices"
 
 	"github.com/cespare/xxhash"
@@ -34,4 +36,19 @@ func RendezvousHash(key string, servers []string, topK int) []string {
 		res[i] = scores[i].Server
 	}
 	return res
+}
+
+// Computes the hash of a file at a given path.
+func FileHash(path string) (uint64, error) {
+	// ---------------------------
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, err
+	}
+	defer f.Close()
+	h := xxhash.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return 0, err
+	}
+	return h.Sum64(), nil
 }
