@@ -160,6 +160,7 @@ Finally some quick notes:
 - [x] Filter search, e.g. filter by a field
 - [x] Hybrid search 
 - [x] Vector quantisation, specifically product and binary quantisation
+- [x] Re-distribution of data on startup
 - [ ] More documentation to make it easier for new comers
 - [ ] Automatic horizontal scaling or serverless approach by splitting storage and compute
 - [ ] Shard and user collection replication
