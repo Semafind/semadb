@@ -264,3 +264,92 @@ func TestSearch_Or(t *testing.T) {
 	require.Equal(t, uint64(42), results[0].NodeId)
 	require.Equal(t, uint64(43), results[1].NodeId)
 }
+
+func TestSearch_Hybrid(t *testing.T) {
+	store, _ := diskstore.Open("")
+	cacheM := cache.NewManager(-1)
+	populateIndex(t, store, cacheM)
+	// ---------------------------
+	// This test combines vector and text search
+	weight := float32(0.5)
+	q := models.Query{
+		Property: "_or",
+		// These two queries create an overlap
+		Or: []models.Query{
+			{
+				Property: "vector",
+				VectorVamana: &models.SearchVectorVamanaOptions{
+					Vector:     []float32{42, 43},
+					SearchSize: 75,
+					Limit:      5,
+					Weight:     &weight,
+				},
+			},
+			{
+				Property: "description",
+				Text: &models.SearchTextOptions{
+					Value:    "description 42",
+					Operator: models.OperatorContainsAny,
+					Limit:    5,
+					Weight:   &weight,
+				},
+			},
+		},
+	}
+	// ---------------------------
+	rSet, results := performSearch(t, store, cacheM, q)
+	expectedSet := roaring64.BitmapOf(2, 3, 4, 5, 40, 41, 42, 43, 44)
+	require.True(t, rSet.Equals(expectedSet), "expected %s", expectedSet.String())
+	require.Len(t, results, 9)
+	// Check sorting on the results
+	for i := 0; i < len(results)-1; i++ {
+		require.True(t, expectedSet.Contains(results[i].NodeId))
+		require.GreaterOrEqual(t, results[i].HybridScore, results[i+1].HybridScore)
+	}
+	require.Equal(t, uint64(42), results[0].NodeId)
+}
+
+func TestSearch_OrVector(t *testing.T) {
+	store, _ := diskstore.Open("")
+	cacheM := cache.NewManager(-1)
+	populateIndex(t, store, cacheM)
+	// ---------------------------
+	// This test combines two vector searches with different weights
+	weight := float32(0.5)
+	q := models.Query{
+		Property: "_or",
+		// These two queries create an overlap
+		Or: []models.Query{
+			{
+				Property: "vector",
+				VectorVamana: &models.SearchVectorVamanaOptions{
+					Vector:     []float32{42, 43},
+					SearchSize: 75,
+					Limit:      5,
+					Weight:     &weight,
+				},
+			},
+			{
+				Property: "flat",
+				VectorFlat: &models.SearchVectorFlatOptions{
+					Vector: []float32{42, 43},
+					Limit:  5,
+					Weight: &weight,
+				},
+			},
+		},
+	}
+	// ---------------------------
+	rSet, results := performSearch(t, store, cacheM, q)
+	expectedSet := roaring64.BitmapOf(40, 41, 42, 43, 44)
+	require.True(t, rSet.Equals(expectedSet), "expected %s", expectedSet.String())
+	require.Len(t, results, 5)
+	// Check sorting on the results
+	for i := 0; i < len(results)-1; i++ {
+		require.True(t, expectedSet.Contains(results[i].NodeId))
+		require.GreaterOrEqual(t, results[i].HybridScore, results[i+1].HybridScore)
+		// Weight is 0.5 and the results are the same, so the hybrid score should be the same
+		require.Equal(t, results[i].HybridScore, -*results[i].Distance)
+	}
+	require.Equal(t, uint64(42), results[0].NodeId)
+}
