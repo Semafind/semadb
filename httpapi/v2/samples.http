@@ -77,7 +77,10 @@ X-Plan-Id: {{package}}
             "foo": "bar"
         },
         {
-            "vector": [3, 4]
+            "vector": [3, 4],
+            "nested": {
+                "foo": "bar"
+            }
         }
     ]
 }
@@ -119,6 +122,11 @@ X-Plan-Id: {{package}}
             "limit": 10 
         }
     },
+    "select": ["*"],
+    "sort": [{
+        "property": "nested",
+        "descending": true
+    }],
     "limit": 10
 }
 
