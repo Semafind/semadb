@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -354,7 +355,7 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 		// ---------------------------
 		// Backfill point UUID and data
 		for _, r := range results {
-			sp, err := GetPointByNodeId(bPoints, r.NodeId)
+			sp, err := GetPointByNodeId(bPoints, r.NodeId, len(searchRequest.Select) > 0)
 			if err != nil {
 				return fmt.Errorf("could not get point by node id %d: %w", r.NodeId, err)
 			}
@@ -366,7 +367,7 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 		it := rSet.Iterator()
 		for it.HasNext() {
 			nodeId := it.Next()
-			sp, err := GetPointByNodeId(bPoints, nodeId)
+			sp, err := GetPointByNodeId(bPoints, nodeId, len(searchRequest.Select) > 0)
 			if err != nil {
 				return fmt.Errorf("could not get point by node id %d: %w", nodeId, err)
 			}
@@ -381,8 +382,12 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 	}
 	cacheTx.Commit(false)
 	// ---------------------------
-	// Select and sort
-	if len(searchRequest.Select) > 0 {
+	/* Select and sort, if we have * (star) then we don't need to do anything and
+	 * let upstream handle decoding the whole data point. Otherwise we need to
+	 * selectively decode the required properties. Note that we are allowing
+	 * sorting after selecting star. So if there is something to sort even if
+	 * select star is given we need to decode the lot. */
+	if (len(searchRequest.Select) > 0 && searchRequest.Select[0] != "*") || len(searchRequest.Sort) > 0 {
 		selectSortStart := time.Now()
 		/* We are selecting only a subset of the point data. We need to partial
 		 * decode and re-encode the point data. */
@@ -396,8 +401,14 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 			}
 			// E.g. ["name", "age"]
 			for _, p := range searchRequest.Select {
-				// E.g. p = "name"
+				// E.g. p = "name" or "*" (star)
 				dec.Reset(bytes.NewReader(r.Point.Data))
+				if p == "*" {
+					if err := dec.Decode(&finalResults[i].DecodedData); err != nil {
+						return nil, fmt.Errorf("could not decode all point data: %w", err)
+					}
+					break
+				}
 				res, err := dec.Query(p)
 				if err != nil {
 					return nil, fmt.Errorf("could not select point data, %s: %w", p, err)
@@ -407,16 +418,40 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 					continue
 				}
 				// ---------------------------
-				// We originally implemented nested fields to create nested maps
-				// and populate accordingly but it adds extra for loops and
-				// complexity. It also entangles the sorting code below as well.
-				// For now, a select field such as "nested.field" will comes
-				// back flattened, e.g. {"nested.field": value} as opposed to
-				// {"nested": {"field": value}}.
+				/* We originally implemented nested fields to create nested maps
+				 * and populate accordingly but it adds extra for loops and
+				 * complexity. It also entangles the sorting code below as well.
+				 * For now, a select field such as "nested.field" will comes
+				 * back flattened, e.g. {"nested.field": value} as opposed to
+				 * {"nested": {"field": value}}.
+				 *
+				 * UPDATE: We have decided to implemented the nested fields as it
+				 * is more consistent with how the data is inputted. That is, the
+				 * user gives us nested fields but upon retrieval we used to
+				 * flatten it. This was confusing and we had implemented it as
+				 * expanding nested fields originally, so we are going back to
+				 * how things were. */
 				// ---------------------------
 				// Assign the value to final decoded data. This makes
 				// {"property": value} e.g. {"name": "james"}
-				finalResults[i].DecodedData[p] = res[0]
+				segments := strings.Split(p, ".")
+				// e.g. segments = ["nested", "field"] or ["name"]
+				current := finalResults[i].DecodedData
+				for j, s := range segments {
+					if j == len(segments)-1 {
+						current[s] = res[0]
+						break
+					}
+					// If the nested field does not exist, we create it
+					if _, ok := current[s]; !ok {
+						current[s] = make(map[string]any)
+					}
+					var ok bool
+					current, ok = current[s].(map[string]any)
+					if !ok {
+						return nil, fmt.Errorf("could not access nested property when selecting: %s", p)
+					}
+				}
 			}
 			// We erase data information as it is not needed any more, saves us
 			// from transmitting it
@@ -430,6 +465,8 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 		// ---------------------------
 		s.logger.Debug().Str("duration", time.Since(selectSortStart).String()).Msg("Search - Select Sort")
 	}
+	/* End of select sort, if we skipped it then the encoded data is transmitted,
+	 * otherwise DecodedData is populated and sent instead. */
 	// ---------------------------
 	// Offset and limit
 	if searchRequest.Limit == 0 {
