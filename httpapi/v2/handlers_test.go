@@ -540,7 +540,8 @@ func Test_UpdatePoints(t *testing.T) {
 				Operator: models.OperatorEquals,
 			},
 		},
-		Limit: 10,
+		Select: []string{"*"},
+		Limit:  10,
 	}
 	var searchResp v2.SearchPointsResponse
 	resp = makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr, &searchResp)
@@ -646,7 +647,8 @@ func Test_SearchPoints(t *testing.T) {
 				Limit:    10,
 			},
 		},
-		Limit: 10,
+		Select: []string{"description"},
+		Limit:  10,
 	}
 	var respBody v2.SearchPointsResponse
 	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr, &respBody)

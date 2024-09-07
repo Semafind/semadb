@@ -355,7 +355,8 @@ func searchRequest(p models.Point, limit int) models.SearchRequest {
 				Operator:   "near",
 			},
 		},
-		Limit: limit,
+		Select: []string{"*"},
+		Limit:  limit,
 	}
 }
 

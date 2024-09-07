@@ -93,7 +93,7 @@ func GetPointByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (ShardPo
 	return sp, nil
 }
 
-func GetPointByNodeId(bucket diskstore.ReadOnlyBucket, nodeId uint64) (ShardPoint, error) {
+func GetPointByNodeId(bucket diskstore.ReadOnlyBucket, nodeId uint64, withData bool) (ShardPoint, error) {
 	pointIdBytes := bucket.Get(conversion.NodeKey(nodeId, 'i'))
 	if pointIdBytes == nil {
 		return ShardPoint{}, ErrPointDoesNotExist
@@ -102,7 +102,10 @@ func GetPointByNodeId(bucket diskstore.ReadOnlyBucket, nodeId uint64) (ShardPoin
 	if err != nil {
 		return ShardPoint{}, fmt.Errorf("could not parse point id: %w", err)
 	}
-	data := bucket.Get(conversion.NodeKey(nodeId, 'd'))
+	var data []byte
+	if withData {
+		data = bucket.Get(conversion.NodeKey(nodeId, 'd'))
+	}
 	sp := ShardPoint{
 		Point: models.Point{
 			Id:   pointId,

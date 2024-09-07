@@ -24,6 +24,63 @@ if rand.Float32() < 0.5 {
 }
 */
 
+func TestSearch_SelectNone(t *testing.T) {
+	// ---------------------------
+	s := tempShard(t)
+	points := randPoints(100)
+	err := s.InsertPoints(points)
+	require.NoError(t, err)
+	// ---------------------------
+	sr := models.SearchRequest{
+		Query: models.Query{
+			Property: "size",
+			Integer: &models.SearchIntegerOptions{
+				Value:    10,
+				EndValue: 15,
+				Operator: models.OperatorInRange,
+			},
+		},
+	}
+	res, err := s.SearchPoints(sr)
+	require.NoError(t, err)
+	require.Len(t, res, 6)
+	for i := 0; i < len(res); i++ {
+		require.Nil(t, res[i].Data)
+		require.Nil(t, res[i].Distance)
+		require.Nil(t, res[i].Score)
+		require.Nil(t, res[i].DecodedData)
+	}
+}
+
+func TestSearch_SelectStar(t *testing.T) {
+	// ---------------------------
+	s := tempShard(t)
+	points := randPoints(100)
+	err := s.InsertPoints(points)
+	require.NoError(t, err)
+	// ---------------------------
+	sr := models.SearchRequest{
+		Query: models.Query{
+			Property: "size",
+			Integer: &models.SearchIntegerOptions{
+				Value:    10,
+				EndValue: 15,
+				Operator: models.OperatorInRange,
+			},
+		},
+		Select: []string{"*"},
+	}
+	res, err := s.SearchPoints(sr)
+	require.NoError(t, err)
+	require.Len(t, res, 6)
+	for i := 0; i < len(res); i++ {
+		require.NotNil(t, res[i].Data)
+		require.Nil(t, res[i].Distance)
+		require.Nil(t, res[i].Score)
+		require.Nil(t, res[i].DecodedData)
+	}
+}
+
 func TestSearch_Select(t *testing.T) {
 	// ---------------------------
 	s := tempShard(t)
@@ -54,7 +111,7 @@ func TestSearch_Select(t *testing.T) {
 	}
 }
 
-func TestSearch_NestedField(t *testing.T) {
+func TestSearch_SelectNestedField(t *testing.T) {
 	// ---------------------------
 	s := tempShard(t)
 	points := randPoints(10)
@@ -71,7 +128,7 @@ func TestSearch_NestedField(t *testing.T) {
 				Operator:   "near",
 			},
 		},
-		Select: []string{"nested.vector", "nested.size", "nested"},
+		Select: []string{"nested.vector", "nested.size", "nested", "nested.size"},
 	}
 	s.InsertPoints(points)
 	res, err := s.SearchPoints(sr)
@@ -79,14 +136,52 @@ func TestSearch_NestedField(t *testing.T) {
 	require.Len(t, res, 5)
 	require.Equal(t, points[3].Id, res[0].Point.Id)
 	require.EqualValues(t, 0, *res[0].Distance)
-	// We're expecting something like {"nested.vector": [0.0, 1.0, 2.0, 3.0, 4.0], "nested.size": 3, "nested": {...}}
-	require.Len(t, res[0].DecodedData, 3)
+	// We're expecting something like {"nested": {"vector": [0.0, 1.0, 2.0, 3.0, 4.0], "size": 3}}
+	require.Len(t, res[0].DecodedData, 1)
 	require.Len(t, res[0].DecodedData["nested"], 2)
-	require.EqualValues(t, 3, res[0].DecodedData["nested.size"])
+	require.EqualValues(t, 3, res[0].DecodedData["nested"].(map[string]interface{})["size"])
 	require.NoError(t, s.Close())
 }
 
-func TestSearch_NestedFieldSort(t *testing.T) {
+func TestSearch_SelectStarNestedFieldSort(t *testing.T) {
+	// ---------------------------
+	s := tempShard(t)
+	points := randPoints(10)
+	err := s.InsertPoints(points)
+	require.NoError(t, err)
+	// ---------------------------
+	sr := models.SearchRequest{
+		Query: models.Query{
+			Property: "nested.vector",
+			VectorVamana: &models.SearchVectorVamanaOptions{
+				Vector:     getVector(points[3]),
+				SearchSize: 75,
+				Limit:      5,
+				Operator:   "near",
+			},
+		},
+		Select: []string{"*"},
+		Sort: []models.SortOption{
+			{Property: "nested.size", Descending: true},
+		},
+	}
+	s.InsertPoints(points)
+	res, err := s.SearchPoints(sr)
+	require.NoError(t, err)
+	require.Len(t, res, 5)
+	require.EqualValues(t, 0, *res[0].Distance)
+	// Check if the results are sorted in descending order
+	for i := 0; i < 5; i++ {
+		for j := i + 1; j < 5; j++ {
+			iv := res[i].DecodedData["nested"].(map[string]interface{})["size"]
+			jv := res[j].DecodedData["nested"].(map[string]interface{})["size"]
+			require.GreaterOrEqual(t, iv, jv)
+		}
+	}
+	require.NoError(t, s.Close())
+}
+
+func TestSearch_SelectNestedFieldSort(t *testing.T) {
 	// ---------------------------
 	s := tempShard(t)
 	points := randPoints(10)
@@ -116,7 +211,9 @@ func TestSearch_NestedFieldSort(t *testing.T) {
 	// Check if the results are sorted in descending order
 	for i := 0; i < 5; i++ {
 		for j := i + 1; j < 5; j++ {
-			require.GreaterOrEqual(t, res[i].DecodedData["nested.size"], res[j].DecodedData["nested.size"])
+			iv := res[i].DecodedData["nested"].(map[string]interface{})["size"]
+			jv := res[j].DecodedData["nested"].(map[string]interface{})["size"]
+			require.GreaterOrEqual(t, iv, jv)
 		}
 	}
 	require.NoError(t, s.Close())
