@@ -15,6 +15,7 @@ import (
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index"
+	"github.com/semafind/semadb/shard/pointstore"
 	"github.com/semafind/semadb/utils"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -184,7 +185,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 			 * an error here to force the user to update the point instead which
 			 * handles the multiple shard case. */
 			var exists bool
-			if exists, err = CheckPointExists(bPoints, point.Id); err != nil {
+			if exists, err = pointstore.CheckPointExists(bPoints, point.Id); err != nil {
 				err = fmt.Errorf("could not check point existence: %w", err)
 				return
 			}
@@ -192,8 +193,8 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 				err = fmt.Errorf("point already exists: %s", point.Id.String())
 				return
 			}
-			sp := ShardPoint{Point: point, NodeId: nodeCounter.NextId()}
-			if err = SetPoint(bPoints, sp); err != nil {
+			sp := pointstore.ShardPoint{Point: point, NodeId: nodeCounter.NextId()}
+			if err = pointstore.SetPoint(bPoints, sp); err != nil {
 				err = fmt.Errorf("could not set point: %w", err)
 				return
 			}
@@ -255,8 +256,8 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 		pointsQ := utils.ProduceWithContext(ctx, points)
 		indexQ, indexQErrC := utils.TransformWithContext(ctx, pointsQ, func(point models.Point) (ipc index.IndexPointChange, skip bool, err error) {
 			// ---------------------------
-			sp, err := GetPointByUUID(pointsBucket, point.Id)
-			if err == ErrPointDoesNotExist {
+			sp, err := pointstore.GetPointByUUID(pointsBucket, point.Id)
+			if err == pointstore.ErrPointDoesNotExist {
 				// Point does not exist, we can skip it, it may reside in
 				// another shard. Updating non-existing points is a no-op.
 				skip = true
@@ -298,7 +299,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 			}
 			// ---------------------------
 			point.Data = finalNewData
-			if err = SetPoint(pointsBucket, ShardPoint{Point: point, NodeId: sp.NodeId}); err != nil {
+			if err = pointstore.SetPoint(pointsBucket, pointstore.ShardPoint{Point: point, NodeId: sp.NodeId}); err != nil {
 				err = fmt.Errorf("could not set updated point: %w", err)
 				return
 			}
@@ -355,7 +356,7 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 		// ---------------------------
 		// Backfill point UUID and data
 		for _, r := range results {
-			sp, err := GetPointByNodeId(bPoints, r.NodeId, len(searchRequest.Select) > 0)
+			sp, err := pointstore.GetPointByNodeId(bPoints, r.NodeId, len(searchRequest.Select) > 0)
 			if err != nil {
 				return fmt.Errorf("could not get point by node id %d: %w", r.NodeId, err)
 			}
@@ -367,7 +368,7 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 		it := rSet.Iterator()
 		for it.HasNext() {
 			nodeId := it.Next()
-			sp, err := GetPointByNodeId(bPoints, nodeId, len(searchRequest.Select) > 0)
+			sp, err := pointstore.GetPointByNodeId(bPoints, nodeId, len(searchRequest.Select) > 0)
 			if err != nil {
 				return fmt.Errorf("could not get point by node id %d: %w", nodeId, err)
 			}
@@ -505,8 +506,8 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		// ---------------------------
 		pointsQ := utils.ProduceWithContextMapKeys(ctx, deleteSet)
 		indexQ, indexQErrC := utils.TransformWithContext(ctx, pointsQ, func(pointId uuid.UUID) (ipc index.IndexPointChange, skip bool, err error) {
-			sp, err := GetPointByUUID(bPoints, pointId)
-			if err == ErrPointDoesNotExist {
+			sp, err := pointstore.GetPointByUUID(bPoints, pointId)
+			if err == pointstore.ErrPointDoesNotExist {
 				// Deleting a non-existing point is a no-op
 				skip = true
 				return
@@ -518,7 +519,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 			deletedIds = append(deletedIds, pointId)
 			nodeCounter.FreeId(sp.NodeId)
 			// ---------------------------
-			if err = DeletePoint(bPoints, pointId, sp.NodeId); err != nil {
+			if err = pointstore.DeletePoint(bPoints, pointId, sp.NodeId); err != nil {
 				err = fmt.Errorf("could not delete point %s: %w", pointId, err)
 				return
 			}
