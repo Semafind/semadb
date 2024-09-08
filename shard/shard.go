@@ -30,7 +30,7 @@ type Shard struct {
 }
 
 // ---------------------------
-const INTERNALBUCKETKEY = "internal"
+const INTERNALBUCKETNAME = "internal"
 
 // Internal bucket keys
 var POINTCOUNTKEY = []byte("pointCount")
@@ -109,7 +109,7 @@ func (s *Shard) Info() (si shardInfo, err error) {
 	si.Size = dbSize
 	// ---------------------------
 	err = s.db.Read(func(bm diskstore.BucketManager) error {
-		b, err := bm.Get(INTERNALBUCKETKEY)
+		b, err := bm.Get(INTERNALBUCKETNAME)
 		if err != nil {
 			return fmt.Errorf("could not read internal bucket: %w", err)
 		}
@@ -152,7 +152,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		if err != nil {
 			return fmt.Errorf("could not write points bucket: %w", err)
 		}
-		bInternal, err := bm.Get(INTERNALBUCKETKEY)
+		bInternal, err := bm.Get(INTERNALBUCKETNAME)
 		if err != nil {
 			return fmt.Errorf("could not write internal bucket: %w", err)
 		}
@@ -483,7 +483,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 		if err != nil {
 			return fmt.Errorf("could not get write points bucket: %w", err)
 		}
-		bInternal, err := bm.Get(INTERNALBUCKETKEY)
+		bInternal, err := bm.Get(INTERNALBUCKETNAME)
 		if err != nil {
 			return fmt.Errorf("could not get write internal bucket: %w", err)
 		}
