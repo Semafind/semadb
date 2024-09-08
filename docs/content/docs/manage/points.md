@@ -43,7 +43,9 @@ The inserted  points can have any fields so long as the total size of the encode
 }
 ```
 
-When it comes to the point `_id`, it is optional. If you don't provide it, SemaDB will generate a unique ID for the point. If you provide it, SemaDB will use the provided ID. **The provided `_id` must be unique**, SemaDB doesn't check for duplicates across collection shards but may detect duplicates if there is a single shard.
+When it comes to the point `_id`, it is optional. If you don't provide it, SemaDB will generate a unique ID for the point. If you provide it, SemaDB will use the provided ID.
+
+> **The provided `_id` must be unique**, SemaDB doesn't check for duplicates across collection shards but may detect duplicates if there is a single shard.
 
 If the collection has multiple shards, some may fail to insert the distributed points. In this case, SemaDB still commits the points to the shards that succeeded to avoid repeated work on subsequent requests. The response will contain the points that have failed:
 
@@ -62,6 +64,37 @@ If the collection has multiple shards, some may fail to insert the distributed p
 ```
 
 saying that the first two points failed to insert because at least one of them exists. In this case you have to retry the insert by addressing the failed points error message.
+
+## Get
+
+POST: `/collections/{id}/points/search`
+
+SemaDB leverages the [search API]({{< ref "/docs/search/overview" >}}) and uses the special `_id` property to get the points with the given UUIDs. This allows the same mechanism to be used inside search queries, for example for filtering. To get a point by its UUID you can either use a single string or an array of strings with the query:
+
+```json
+{
+    "query": {
+        "property": "_id",
+        // Either a single string
+        "string": {
+          "value": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+          "operator": "equals"
+        },
+        // Or an array of strings
+        "stringArray": {
+          "value": ["3fa85f64-5717-4562-b3fc-2c963f66afa6", "3fa85f64-5717-4562-b3fc-2c963f66afa7"],
+          "operator": "containsAny"
+        }
+        // But not both
+    },
+    "select": ["*"],
+    "limit": 10
+}
+```
+
+which will return the points with the given id(s). All other aspects of the query such as selecting fields, sorting and limiting still apply as usual.
+
+> The queries on `_id` field only perform exact matches so the operators are limited to `equals` and `containsAny`. If a point with the given ID doesn't exist it will be ignored to complete the search.
 
 ## Update
 
