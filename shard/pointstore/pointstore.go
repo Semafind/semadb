@@ -1,7 +1,9 @@
-package shard
+package pointstore
 
-/* You can think of points as an index on the UUIDs of the points. This is why it
- * is placed under the index package. */
+/* You can think of points as an index on the UUIDs of the points. It is a bit
+ * special because it is bidirectional. We can go from a point UUID to a node id
+ * and vice versa. Other indices like inverted etc are purely to map values to
+ * node Ids whereas points require a more careful treatment. */
 
 import (
 	"errors"
@@ -68,7 +70,7 @@ func CheckPointExists(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (bool,
 	return v != nil, nil
 }
 
-func GetPointNodeIdByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (uint64, error) {
+func getPointNodeIdByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (uint64, error) {
 	nodeIdBytes := bucket.Get(PointKey(pointId, 'i'))
 	if nodeIdBytes == nil {
 		return 0, ErrPointDoesNotExist
@@ -78,7 +80,7 @@ func GetPointNodeIdByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (u
 }
 
 func GetPointByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (ShardPoint, error) {
-	nodeId, err := GetPointNodeIdByUUID(bucket, pointId)
+	nodeId, err := getPointNodeIdByUUID(bucket, pointId)
 	if err != nil {
 		return ShardPoint{}, err
 	}

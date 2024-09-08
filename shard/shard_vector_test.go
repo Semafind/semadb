@@ -13,6 +13,7 @@ import (
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index/vamana"
+	"github.com/semafind/semadb/shard/pointstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmihailenco/msgpack/v5"
@@ -164,7 +165,7 @@ func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
 			if k[0] == 'n' && k[len(k)-1] == 'i' {
 				pointId := uuid.UUID(v)
 				nodeId := conversion.BytesToUint64(k[1 : len(k)-1])
-				reverseId := b.Get(PointKey(pointId, 'i'))
+				reverseId := b.Get(pointstore.PointKey(pointId, 'i'))
 				require.Equal(t, nodeId, conversion.BytesToUint64(reverseId))
 				nodeCount++
 			}
@@ -200,7 +201,7 @@ func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 		require.NoError(t, err)
 		// Check that the point ids are not in the database
 		for _, id := range pointIds {
-			nodeIdBytes := b.Get(PointKey(id, 'i'))
+			nodeIdBytes := b.Get(pointstore.PointKey(id, 'i'))
 			require.Nil(t, nodeIdBytes)
 		}
 		graphBucket, err := bm.Get(GRAPHINDEXBUCKETKEY)
