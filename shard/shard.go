@@ -30,15 +30,8 @@ type Shard struct {
 }
 
 // ---------------------------
-/* Points store the actual data points, graphIndex stores the similarity graph
- * and internal stores the shard metadata such as point count. We partition like
- * this because graph traversal is read-heavy operation, if everything is bundled
- * together, the disk cache pulls in more pages. It's also logically easier to
- * manage. */
-const POINTSBUCKETKEY = "points"
 const INTERNALBUCKETKEY = "internal"
 
-// ---------------------------
 // Internal bucket keys
 var POINTCOUNTKEY = []byte("pointCount")
 var FREENODEIDSKEY = []byte("freeNodeIds")
@@ -155,7 +148,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 	var txTime time.Time
 	cacheTx := s.cacheManager.NewTransaction()
 	err := s.db.Write(func(bm diskstore.BucketManager) error {
-		bPoints, err := bm.Get(POINTSBUCKETKEY)
+		bPoints, err := bm.Get(pointstore.POINTSBUCKETNAME)
 		if err != nil {
 			return fmt.Errorf("could not write points bucket: %w", err)
 		}
@@ -244,7 +237,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 	// ---------------------------
 	cacheTx := s.cacheManager.NewTransaction()
 	err := s.db.Write(func(bm diskstore.BucketManager) error {
-		pointsBucket, err := bm.Get(POINTSBUCKETKEY)
+		pointsBucket, err := bm.Get(pointstore.POINTSBUCKETNAME)
 		if err != nil {
 			return fmt.Errorf("could not get write points bucket: %w", err)
 		}
@@ -343,7 +336,7 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 	cacheTx := s.cacheManager.NewTransaction()
 	err := s.db.Read(func(bm diskstore.BucketManager) error {
 		// ---------------------------
-		bPoints, err := bm.Get(POINTSBUCKETKEY)
+		bPoints, err := bm.Get(pointstore.POINTSBUCKETNAME)
 		if err != nil {
 			return fmt.Errorf("could not get points bucket: %w", err)
 		}
@@ -486,7 +479,7 @@ func (s *Shard) DeletePoints(deleteSet map[uuid.UUID]struct{}) ([]uuid.UUID, err
 	// ---------------------------
 	cacheTx := s.cacheManager.NewTransaction()
 	err := s.db.Write(func(bm diskstore.BucketManager) error {
-		bPoints, err := bm.Get(POINTSBUCKETKEY)
+		bPoints, err := bm.Get(pointstore.POINTSBUCKETNAME)
 		if err != nil {
 			return fmt.Errorf("could not get write points bucket: %w", err)
 		}

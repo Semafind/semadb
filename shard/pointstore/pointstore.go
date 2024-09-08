@@ -15,6 +15,16 @@ import (
 	"github.com/semafind/semadb/models"
 )
 
+/* Points store the actual data points, graphIndex stores the similarity graph
+ * and internal stores the shard metadata such as point count. We partition like
+ * this because graph traversal is read-heavy operation, if everything is bundled
+ * together, the disk cache pulls in more pages. It's also logically easier to
+ * manage. Although there is this constant bucket name, the functions in this
+ * package require the bucket to be passed. While other packages know where to
+ * look for points, they inject the bucket dependency for the functions making it
+ * easier to test. */
+const POINTSBUCKETNAME = "points"
+
 var ErrPointDoesNotExist = errors.New("point does not exist")
 
 /* The reason we have a ShardPoint struct is because we need to store the node
