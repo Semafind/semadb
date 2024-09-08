@@ -52,6 +52,21 @@ func (q Query) Validate(schema IndexSchema) error {
 			}
 		}
 		return nil
+	case "_id":
+		// Either string with Equals operator or stringArray with ContainsAny operator
+		switch {
+		case q.String != nil:
+			if q.String.Operator != OperatorEquals {
+				return fmt.Errorf("invalid operator %s for %s, expected %s", q.String.Operator, q.Property, OperatorEquals)
+			}
+		case q.StringArray != nil:
+			if q.StringArray.Operator != OperatorContainsAny {
+				return fmt.Errorf("invalid operator %s for %s, expected %s", q.StringArray.Operator, q.Property, OperatorContainsAny)
+			}
+		default:
+			return fmt.Errorf("invalid query for _id, expected string or stringArray")
+		}
+		return nil
 	}
 	// Handle base case
 	value, ok := schema[q.Property]

@@ -5,10 +5,12 @@ import (
 	"testing"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/google/uuid"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index"
+	"github.com/semafind/semadb/shard/pointstore"
 	"github.com/semafind/semadb/utils"
 	"github.com/stretchr/testify/require"
 )
@@ -139,6 +141,106 @@ func TestSearch_Single(t *testing.T) {
 			require.Equal(t, 0, len(results), "got results for %s", propName)
 		}
 	}
+}
+
+func TestSearch_ById(t *testing.T) {
+	store, _ := diskstore.Open("")
+	cacheM := cache.NewManager(-1)
+	populateIndex(t, store, cacheM)
+	// ---------------------------
+	ids := "00000000-0000-0000-0000-000000000042"
+	// Non-existent ID
+	q := models.Query{
+		Property: "_id",
+		String: &models.SearchStringOptions{
+			Value:    ids,
+			Operator: models.OperatorEquals,
+		},
+	}
+	rSet, results := performSearch(t, store, cacheM, q)
+	require.True(t, rSet.IsEmpty())
+	require.Len(t, results, 0)
+	// ---------------------------
+	// We need to add the point UUIDS to the index
+	err := store.Write(func(bm diskstore.BucketManager) error {
+		b, err := bm.Get(pointstore.POINTSBUCKETNAME)
+		require.NoError(t, err)
+		err = pointstore.SetPoint(b, pointstore.ShardPoint{
+			Point: models.Point{
+				Id:   uuid.MustParse(ids),
+				Data: []byte("alohamora"),
+			},
+			NodeId: 47,
+		})
+		require.NoError(t, err)
+		return nil
+	})
+	require.NoError(t, err)
+	// ---------------------------
+	// Existing ID
+	rSet, results = performSearch(t, store, cacheM, q)
+	require.True(t, rSet.Contains(47))
+	require.Len(t, results, 0)
+	// ---------------------------
+	// With stringArray
+	q.StringArray = &models.SearchStringArrayOptions{
+		Value:    []string{ids},
+		Operator: models.OperatorContainsAny,
+	}
+	q.String = nil
+	rSet, results = performSearch(t, store, cacheM, q)
+	require.True(t, rSet.Contains(47))
+	require.Len(t, results, 0)
+}
+
+func TestSearch_FilterById(t *testing.T) {
+	store, _ := diskstore.Open("")
+	cacheM := cache.NewManager(-1)
+	populateIndex(t, store, cacheM)
+	// ---------------------------
+	ids := "00000000-0000-0000-0000-000000000042"
+	err := store.Write(func(bm diskstore.BucketManager) error {
+		b, err := bm.Get(pointstore.POINTSBUCKETNAME)
+		require.NoError(t, err)
+		err = pointstore.SetPoint(b, pointstore.ShardPoint{
+			Point: models.Point{
+				Id:   uuid.MustParse(ids),
+				Data: []byte("alohamora"),
+			},
+			NodeId: 47,
+		})
+		require.NoError(t, err)
+		return nil
+	})
+	require.NoError(t, err)
+	// ---------------------------
+	// Setup the filtering query
+	filterQ := models.Query{
+		Property: "_id",
+		String: &models.SearchStringOptions{
+			Value:    ids,
+			Operator: models.OperatorEquals,
+		},
+	}
+	// ---------------------------
+	// Actual query with filter
+	q := models.Query{
+		Property: "vector",
+		VectorVamana: &models.SearchVectorVamanaOptions{
+			Vector:     []float32{42, 43},
+			SearchSize: 75,
+			Limit:      10,
+			Filter:     &filterQ,
+		},
+	}
+	// This filter query effectively forces the search to consider only one
+	// point, namely the one with node ID 47
+	rSet, results := performSearch(t, store, cacheM, q)
+	require.True(t, rSet.Contains(47))
+	require.Len(t, results, 1)
+	// 50 = (47-42)^2 + (48-43)^2
+	require.Equal(t, float32(50), *results[0].Distance)
+
 }
 
 func TestSearch_FilterSpecific(t *testing.T) {
