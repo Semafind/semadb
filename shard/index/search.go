@@ -8,12 +8,14 @@ import (
 	"sync"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/google/uuid"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index/flat"
 	"github.com/semafind/semadb/shard/index/inverted"
 	"github.com/semafind/semadb/shard/index/text"
 	"github.com/semafind/semadb/shard/index/vamana"
+	"github.com/semafind/semadb/shard/pointstore"
 )
 
 func (im indexManager) Search(
@@ -29,6 +31,9 @@ func (im indexManager) Search(
 		return im.searchParallel(ctx, q.And, false)
 	case "_or":
 		return im.searchParallel(ctx, q.Or, true)
+	case "_id":
+		// This is a special case where we can directly return the node id
+		return im.searchById(q)
 	}
 	iparams, ok := im.indexSchema[q.Property]
 	if !ok {
@@ -161,6 +166,46 @@ func (im indexManager) Search(
 	default:
 		return nil, nil, fmt.Errorf("search not supported for property %s of type %s", q.Property, itype)
 	}
+}
+
+func (im indexManager) searchById(q models.Query) (*roaring64.Bitmap, []models.SearchResult, error) {
+	/* What we have here is a special case where we can directly return the node
+	 * id based on the passed _id query which is the UUID of the point(s). */
+	pointsBucket, err := im.bm.Get(pointstore.POINTSBUCKETNAME)
+	if err != nil {
+		return nil, nil, fmt.Errorf("could not read bucket %s for _id search: %w", pointstore.POINTSBUCKETNAME, err)
+	}
+	// ---------------------------
+	var ids []string
+	switch {
+	case q.String != nil:
+		if q.String.Operator != models.OperatorEquals {
+			return nil, nil, fmt.Errorf("only %s operator supported for %s", models.OperatorEquals, q.Property)
+		}
+		ids = []string{q.String.Value}
+	case q.StringArray != nil:
+		if q.StringArray.Operator != models.OperatorContainsAny {
+			return nil, nil, fmt.Errorf("only %s operator supported for %s", models.OperatorContainsAny, q.Property)
+		}
+		ids = q.StringArray.Value
+	default:
+		return nil, nil, fmt.Errorf("only string-equals and stringArray-containsAny queries supported for %s", q.Property)
+	}
+	// ---------------------------
+	rSet := roaring64.New()
+	for _, v := range ids {
+		parsedUUID, err := uuid.Parse(v)
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not parse UUID %s: %w", v, err)
+		}
+		nodeId, err := pointstore.GetPointNodeIdByUUID(pointsBucket, parsedUUID)
+		// If the point does not exist, we just skip it
+		if err == nil {
+			rSet.Add(nodeId)
+		}
+	}
+	// ---------------------------
+	return rSet, nil, nil
 }
 
 func (im indexManager) searchParallel(

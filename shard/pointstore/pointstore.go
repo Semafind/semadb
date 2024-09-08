@@ -80,7 +80,7 @@ func CheckPointExists(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (bool,
 	return v != nil, nil
 }
 
-func getPointNodeIdByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (uint64, error) {
+func GetPointNodeIdByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (uint64, error) {
 	nodeIdBytes := bucket.Get(PointKey(pointId, 'i'))
 	if nodeIdBytes == nil {
 		return 0, ErrPointDoesNotExist
@@ -90,7 +90,7 @@ func getPointNodeIdByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (u
 }
 
 func GetPointByUUID(bucket diskstore.ReadOnlyBucket, pointId uuid.UUID) (ShardPoint, error) {
-	nodeId, err := getPointNodeIdByUUID(bucket, pointId)
+	nodeId, err := GetPointNodeIdByUUID(bucket, pointId)
 	if err != nil {
 		return ShardPoint{}, err
 	}

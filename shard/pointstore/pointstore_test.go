@@ -47,6 +47,13 @@ func Test_CRUDPoint(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, exists)
 	// ---------------------------
+	nodeId, err := pointstore.GetPointNodeIdByUUID(b, p.Id)
+	require.NoError(t, err)
+	require.Equal(t, p.NodeId, nodeId)
+	_, err = pointstore.GetPointNodeIdByUUID(b, uuid.New())
+	require.Error(t, err)
+	require.Equal(t, pointstore.ErrPointDoesNotExist, err)
+	// ---------------------------
 	sp, err := pointstore.GetPointByUUID(b, p.Id)
 	require.NoError(t, err)
 	require.Equal(t, p.Id, sp.Id)
