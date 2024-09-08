@@ -159,7 +159,7 @@ func checkNodeIdPointIdMapping(t *testing.T, shard *Shard, expectedCount int) {
 	nodeCount := 0
 	pointCount := 0
 	shard.db.Read(func(bm diskstore.BucketManager) error {
-		b, err := bm.Get(POINTSBUCKETKEY)
+		b, err := bm.Get(pointstore.POINTSBUCKETNAME)
 		require.NoError(t, err)
 		b.ForEach(func(k, v []byte) error {
 			if k[0] == 'n' && k[len(k)-1] == 'i' {
@@ -197,7 +197,7 @@ func checkPointCount(t *testing.T, shard *Shard, expected int) {
 
 func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 	shard.db.Read(func(bm diskstore.BucketManager) error {
-		b, err := bm.Get(POINTSBUCKETKEY)
+		b, err := bm.Get(pointstore.POINTSBUCKETNAME)
 		require.NoError(t, err)
 		// Check that the point ids are not in the database
 		for _, id := range pointIds {
@@ -227,7 +227,7 @@ func checkNoReferences(t *testing.T, shard *Shard, pointIds ...uuid.UUID) {
 func checkMaxNodeId(t *testing.T, shard *Shard, expected int) {
 	var maxId uint64
 	shard.db.Read(func(bm diskstore.BucketManager) error {
-		b, err := bm.Get(POINTSBUCKETKEY)
+		b, err := bm.Get(pointstore.POINTSBUCKETNAME)
 		require.NoError(t, err)
 		b.ForEach(func(k, v []byte) error {
 			nodeId, ok := conversion.NodeIdFromKey(k, 'i')
