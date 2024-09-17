@@ -48,55 +48,58 @@ func TestIndexSchema_Validate_Haversine(t *testing.T) {
 	}
 }
 
-func TestIndexSchema_CheckCompatibleMap(t *testing.T) {
-	// Check if the schema is compatible with a map
-	// ---------------------------
-	// Here is a kitchen sink schema
-	schema := models.IndexSchema{
-		"propVectorFlat": models.IndexSchemaValue{
-			Type: models.IndexTypeVectorFlat,
-			VectorFlat: &models.IndexVectorFlatParameters{
-				DistanceMetric: models.DistanceEuclidean,
-				VectorSize:     2,
-			},
+// ---------------------------
+// Here is a kitchen sink schema
+var sampleSchema models.IndexSchema = models.IndexSchema{
+	"propVectorFlat": models.IndexSchemaValue{
+		Type: models.IndexTypeVectorFlat,
+		VectorFlat: &models.IndexVectorFlatParameters{
+			DistanceMetric: models.DistanceEuclidean,
+			VectorSize:     2,
 		},
-		"propVectorVamana": models.IndexSchemaValue{
-			Type: models.IndexTypeVectorVamana,
-			VectorVamana: &models.IndexVectorVamanaParameters{
-				DistanceMetric: models.DistanceEuclidean,
-				VectorSize:     2,
-			},
+	},
+	"propVectorVamana": models.IndexSchemaValue{
+		Type: models.IndexTypeVectorVamana,
+		VectorVamana: &models.IndexVectorVamanaParameters{
+			DistanceMetric: models.DistanceEuclidean,
+			VectorSize:     2,
 		},
-		"propText": models.IndexSchemaValue{
-			Type: models.IndexTypeText,
-			Text: &models.IndexTextParameters{
-				Analyser: "standard",
-			},
+	},
+	"propText": models.IndexSchemaValue{
+		Type: models.IndexTypeText,
+		Text: &models.IndexTextParameters{
+			Analyser: "standard",
 		},
-		"propString": models.IndexSchemaValue{
-			Type: models.IndexTypeString,
-			String: &models.IndexStringParameters{
+	},
+	"propString": models.IndexSchemaValue{
+		Type: models.IndexTypeString,
+		String: &models.IndexStringParameters{
+			CaseSensitive: false,
+		},
+	},
+	"propInteger": models.IndexSchemaValue{
+		Type: models.IndexTypeInteger,
+	},
+	"propFloat": models.IndexSchemaValue{
+		Type: models.IndexTypeFloat,
+	},
+	"propStringArray": models.IndexSchemaValue{
+		Type: models.IndexTypeStringArray,
+		StringArray: &models.IndexStringArrayParameters{
+			IndexStringParameters: models.IndexStringParameters{
 				CaseSensitive: false,
 			},
 		},
-		"propInteger": models.IndexSchemaValue{
-			Type: models.IndexTypeInteger,
-		},
-		"propFloat": models.IndexSchemaValue{
-			Type: models.IndexTypeFloat,
-		},
-		"propStringArray": models.IndexSchemaValue{
-			Type: models.IndexTypeStringArray,
-			StringArray: &models.IndexStringArrayParameters{
-				IndexStringParameters: models.IndexStringParameters{
-					CaseSensitive: false,
-				},
-			},
-		},
-		"nested.propInteger": models.IndexSchemaValue{
-			Type: models.IndexTypeInteger,
-		},
-	}
+	},
+	"nested.propInteger": models.IndexSchemaValue{
+		Type: models.IndexTypeInteger,
+	},
+}
+
+// ---------------------------
+
+func TestIndexSchema_CheckCompatibleMap(t *testing.T) {
+	// Check if the schema is compatible with a map
 	// ---------------------------
 	tests := []struct {
 		name       string
@@ -205,7 +208,7 @@ func TestIndexSchema_CheckCompatibleMap(t *testing.T) {
 			var m models.PointAsMap
 			err := json.Unmarshal([]byte(tt.jsonString), &m)
 			require.NoError(t, err)
-			err = schema.CheckCompatibleMap(m)
+			err = sampleSchema.CheckCompatibleMap(m)
 			if tt.fail {
 				require.Error(t, err)
 			} else {
