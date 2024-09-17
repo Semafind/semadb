@@ -1,6 +1,10 @@
 package models
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/google/uuid"
+)
 
 /* The search query design is based on the following key steps:
  *
@@ -59,9 +63,17 @@ func (q Query) Validate(schema IndexSchema) error {
 			if q.String.Operator != OperatorEquals {
 				return fmt.Errorf("invalid operator %s for %s, expected %s", q.String.Operator, q.Property, OperatorEquals)
 			}
+			if _, err := uuid.Parse(q.String.Value); err != nil {
+				return fmt.Errorf("invalid UUID %v for %s, %v", q.String.Value, q.Property, err)
+			}
 		case q.StringArray != nil:
 			if q.StringArray.Operator != OperatorContainsAny {
 				return fmt.Errorf("invalid operator %s for %s, expected %s", q.StringArray.Operator, q.Property, OperatorContainsAny)
+			}
+			for _, v := range q.StringArray.Value {
+				if _, err := uuid.Parse(v); err != nil {
+					return fmt.Errorf("invalid UUID %s for %s, %v", v, q.Property, err)
+				}
 			}
 		default:
 			return fmt.Errorf("invalid query for _id, expected string or stringArray")
@@ -82,6 +94,11 @@ func (q Query) Validate(schema IndexSchema) error {
 		if len(q.VectorFlat.Vector) != int(value.VectorFlat.VectorSize) {
 			return fmt.Errorf("vectorFlat query vector length mismatch for property %s, expected %d got %d", q.Property, value.VectorFlat.VectorSize, len(q.VectorFlat.Vector))
 		}
+		if q.VectorFlat.Filter != nil {
+			if err := q.VectorFlat.Filter.Validate(schema); err != nil {
+				return err
+			}
+		}
 	case IndexTypeVectorVamana:
 		if q.VectorVamana == nil {
 			return fmt.Errorf("vectorVamana query options not provided for property %s", q.Property)
@@ -92,9 +109,19 @@ func (q Query) Validate(schema IndexSchema) error {
 		if q.VectorVamana.SearchSize < q.VectorVamana.Limit {
 			return fmt.Errorf("searchSize must be greater than or equal to limit for property %s", q.Property)
 		}
+		if q.VectorVamana.Filter != nil {
+			if err := q.VectorVamana.Filter.Validate(schema); err != nil {
+				return err
+			}
+		}
 	case IndexTypeText:
 		if q.Text == nil {
 			return fmt.Errorf("text query options not provided for property %s", q.Property)
+		}
+		if q.Text.Filter != nil {
+			if err := q.Text.Filter.Validate(schema); err != nil {
+				return err
+			}
 		}
 	case IndexTypeString:
 		if q.String == nil {
