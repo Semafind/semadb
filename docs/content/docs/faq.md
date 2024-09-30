@@ -1,6 +1,6 @@
 ---
 title: ❓ FAQ
-weight: 50
+weight: 70
 ---
 
 # Frequently Asked Questions
