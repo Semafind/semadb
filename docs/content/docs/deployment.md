@@ -11,6 +11,8 @@ SemaDB can be deployed in a variety of ways, depending on your requirements and 
 
 You can run SemaDB as a standalone process, which is useful for development and small deployments. You can download the pre-built binaries from the [releases](https://github.com/Semafind/semadb/releases) or compile it yourself.
 
+> The pre-built binaries are for linux/amd64. If you need a different architecture, you can easily compile it yourself.
+
 ```bash
 git clone --depth=1 https://github.com/Semafind/semadb.git
 cd semadb
