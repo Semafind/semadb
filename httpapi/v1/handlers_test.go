@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
@@ -91,8 +90,7 @@ func setupClusterNode(t *testing.T, nodeS clusterNodeState) *cluster.ClusterNode
 	return cnode
 }
 
-func setupTestRouter(t *testing.T, nodeS clusterNodeState) *gin.Engine {
-	router := gin.New()
+func setupTestRouter(t *testing.T, nodeS clusterNodeState) http.Handler {
 	userPlans := map[string]models.UserPlan{
 		"BASIC": {
 			Name:                    "BASIC",
@@ -103,12 +101,12 @@ func setupTestRouter(t *testing.T, nodeS clusterNodeState) *gin.Engine {
 			ShardBackupCount:        3,
 		},
 	}
-	v1g := router.Group("/v1", middleware.AppHeaderMiddleware(userPlans))
-	v1.SetupV1Handlers(setupClusterNode(t, nodeS), v1g)
-	return router
+	handler := v1.SetupV1Handlers(setupClusterNode(t, nodeS))
+	handler = middleware.AppHeaderMiddleware(userPlans, handler)
+	return handler
 }
 
-func makeRequest(t *testing.T, router *gin.Engine, method string, endpoint string, body any) *httptest.ResponseRecorder {
+func makeRequest(t *testing.T, router http.Handler, method string, endpoint string, body any) *httptest.ResponseRecorder {
 	// ---------------------------
 	var bodyReader io.Reader
 	if body != nil {
@@ -129,7 +127,7 @@ func makeRequest(t *testing.T, router *gin.Engine, method string, endpoint strin
 
 func Test_pongHandler(t *testing.T) {
 	router := setupTestRouter(t, clusterNodeState{})
-	req, err := http.NewRequest("GET", "/v1/ping", nil)
+	req, err := http.NewRequest("GET", "/ping", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +140,7 @@ func Test_pongHandler(t *testing.T) {
 	w = httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, "{\"message\":\"pong from semadb\"}", w.Body.String())
+	require.Equal(t, "{\"message\":\"pong from semadb\"}\n", w.Body.String())
 }
 
 func Test_CreateCollection(t *testing.T) {
@@ -153,16 +151,16 @@ func Test_CreateCollection(t *testing.T) {
 		VectorSize:     128,
 		DistanceMetric: "euclidean",
 	}
-	resp := makeRequest(t, router, "POST", "/v1/collections", reqBody)
+	resp := makeRequest(t, router, "POST", "/collections", reqBody)
 	require.Equal(t, http.StatusOK, resp.Code)
 	// ---------------------------
 	// Duplicate request conflicts
-	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody)
+	resp = makeRequest(t, router, "POST", "/collections", reqBody)
 	require.Equal(t, http.StatusConflict, resp.Code)
 	// ---------------------------
 	// Extra request trigger quota limit
 	reqBody.Id = "testy2"
-	resp = makeRequest(t, router, "POST", "/v1/collections", reqBody)
+	resp = makeRequest(t, router, "POST", "/collections", reqBody)
 	require.Equal(t, http.StatusForbidden, resp.Code)
 }
 
@@ -188,7 +186,7 @@ func Test_ListCollections(t *testing.T) {
 	// ---------------------------
 	// Initially the user no collections
 	router := setupTestRouter(t, clusterNodeState{})
-	resp := makeRequest(t, router, "GET", "/v1/collections", nil)
+	resp := makeRequest(t, router, "GET", "/collections", nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	var respBody v1.ListCollectionsResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
@@ -204,7 +202,7 @@ func Test_ListCollections(t *testing.T) {
 		},
 	}
 	router = setupTestRouter(t, nodeS)
-	resp = makeRequest(t, router, "GET", "/v1/collections", nil)
+	resp = makeRequest(t, router, "GET", "/collections", nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	err = json.Unmarshal(resp.Body.Bytes(), &respBody)
 	require.NoError(t, err)
@@ -225,10 +223,10 @@ func Test_GetCollection(t *testing.T) {
 	router := setupTestRouter(t, nodeS)
 	// ---------------------------
 	// Unknown collection returns not found
-	resp := makeRequest(t, router, "GET", "/v1/collections/boromir", nil)
+	resp := makeRequest(t, router, "GET", "/collections/boromir", nil)
 	require.Equal(t, http.StatusNotFound, resp.Code)
 	// ---------------------------
-	resp = makeRequest(t, router, "GET", "/v1/collections/gandalf", nil)
+	resp = makeRequest(t, router, "GET", "/collections/gandalf", nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	var respBody v1.GetCollectionResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
@@ -250,14 +248,14 @@ func Test_DeleteCollection(t *testing.T) {
 	router := setupTestRouter(t, nodeS)
 	// ---------------------------
 	// Unknown collection returns not found
-	resp := makeRequest(t, router, "DELETE", "/v1/collections/boromir", nil)
+	resp := makeRequest(t, router, "DELETE", "/collections/boromir", nil)
 	require.Equal(t, http.StatusNotFound, resp.Code)
 	// ---------------------------
-	resp = makeRequest(t, router, "DELETE", "/v1/collections/gandalf", nil)
+	resp = makeRequest(t, router, "DELETE", "/collections/gandalf", nil)
 	require.Equal(t, http.StatusOK, resp.Code)
 	// ---------------------------
 	// Collection no longer exists
-	resp = makeRequest(t, router, "GET", "/v1/collections/gandalf", nil)
+	resp = makeRequest(t, router, "GET", "/collections/gandalf", nil)
 	require.Equal(t, http.StatusNotFound, resp.Code)
 }
 
@@ -299,7 +297,7 @@ func Test_InsertPoints(t *testing.T) {
 	// ---------------------------
 	for _, test := range tests {
 		t.Run(test.Name, func(t *testing.T) {
-			resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", test.Payload)
+			resp := makeRequest(t, router, "POST", "/collections/gandalf/points", test.Payload)
 			require.Equal(t, test.Code, resp.Code)
 		})
 	}
@@ -315,7 +313,7 @@ func Test_InsertPoints(t *testing.T) {
 			},
 		},
 	}
-	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points", reqBody)
+	resp := makeRequest(t, router, "POST", "/collections/gandalf/points", reqBody)
 	fmt.Println(resp)
 	require.Equal(t, http.StatusOK, resp.Code)
 	var respBody v1.InsertPointsResponse
@@ -323,7 +321,7 @@ func Test_InsertPoints(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, respBody.FailedRanges, 0)
 	// Adding more points triggers quota limit
-	resp = makeRequest(t, router, "POST", "/v1/collections/gandalf/points", reqBody)
+	resp = makeRequest(t, router, "POST", "/collections/gandalf/points", reqBody)
 	require.Equal(t, http.StatusForbidden, resp.Code)
 }
 
@@ -340,7 +338,7 @@ func Test_SearchPointsEmpty(t *testing.T) {
 	sr := v1.SearchPointsRequest{
 		Vector: []float32{1, 2},
 	}
-	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr)
+	resp := makeRequest(t, router, "POST", "/collections/gandalf/points/search", sr)
 	require.Equal(t, http.StatusOK, resp.Code)
 	var respBody v1.SearchPointsResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
@@ -377,7 +375,7 @@ func Test_SearchPoints(t *testing.T) {
 	sr := v1.SearchPointsRequest{
 		Vector: []float32{1, 2},
 	}
-	resp := makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr)
+	resp := makeRequest(t, router, "POST", "/collections/gandalf/points/search", sr)
 	require.Equal(t, http.StatusOK, resp.Code)
 	var respBody v1.SearchPointsResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
@@ -415,7 +413,7 @@ func Test_UpdatePoints(t *testing.T) {
 			},
 		},
 	}
-	resp := makeRequest(t, router, "PUT", "/v1/collections/gandalf/points", r)
+	resp := makeRequest(t, router, "PUT", "/collections/gandalf/points", r)
 	require.Equal(t, http.StatusBadRequest, resp.Code)
 	// ---------------------------
 	// Update the point
@@ -429,7 +427,7 @@ func Test_UpdatePoints(t *testing.T) {
 		},
 	}
 	// ---------------------------
-	resp = makeRequest(t, router, "PUT", "/v1/collections/gandalf/points", r)
+	resp = makeRequest(t, router, "PUT", "/collections/gandalf/points", r)
 	require.Equal(t, http.StatusOK, resp.Code)
 	var respBody v1.UpdatePointsResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
@@ -440,7 +438,7 @@ func Test_UpdatePoints(t *testing.T) {
 	sr := v1.SearchPointsRequest{
 		Vector: []float32{3, 4},
 	}
-	resp = makeRequest(t, router, "POST", "/v1/collections/gandalf/points/search", sr)
+	resp = makeRequest(t, router, "POST", "/collections/gandalf/points/search", sr)
 	require.Equal(t, http.StatusOK, resp.Code)
 	var respBodySearch v1.SearchPointsResponse
 	err = json.Unmarshal(resp.Body.Bytes(), &respBodySearch)
@@ -478,7 +476,7 @@ func Test_DeletePoints(t *testing.T) {
 	r := v1.DeletePointsRequest{
 		Ids: []string{nodeS.Collections[0].Points[0].Id.String(), nodeS.Collections[0].Points[1].Id.String()},
 	}
-	resp := makeRequest(t, router, "DELETE", "/v1/collections/gandalf/points", r)
+	resp := makeRequest(t, router, "DELETE", "/collections/gandalf/points", r)
 	require.Equal(t, http.StatusOK, resp.Code)
 	var respBody v1.DeletePointsResponse
 	err := json.Unmarshal(resp.Body.Bytes(), &respBody)
