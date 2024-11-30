@@ -1,4 +1,4 @@
-package httpapi
+package middleware
 
 import (
 	"net/http"
@@ -15,7 +15,7 @@ import (
 
 // ---------------------------
 // Zerolog based middleware for logging HTTP requests
-func ZeroLoggerMetrics(metrics *httpMetrics, next http.Handler) http.Handler {
+func ZeroLoggerMetrics(metrics *HttpMetrics, next http.Handler) http.Handler {
 	handler := hlog.AccessHandler(func(r *http.Request, status, size int, duration time.Duration) {
 		hlog.FromRequest(r).Info().
 			Str("method", r.Method).
@@ -43,7 +43,7 @@ func ZeroLoggerMetrics(metrics *httpMetrics, next http.Handler) http.Handler {
 
 // ---------------------------
 
-func ProxySecretMiddleware(secret string, next http.Handler) http.Handler {
+func ProxySecret(secret string, next http.Handler) http.Handler {
 	log.Debug().Str("proxySecret", secret).Msg("ProxySecretMiddleware")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Proxy-Secret") != secret {
@@ -54,7 +54,7 @@ func ProxySecretMiddleware(secret string, next http.Handler) http.Handler {
 	})
 }
 
-func WhiteListIPMiddleware(whitelist []string, next http.Handler) http.Handler {
+func WhiteListIP(whitelist []string, next http.Handler) http.Handler {
 	slices.Sort(whitelist)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, found := slices.BinarySearch(whitelist, r.RemoteAddr)
@@ -66,7 +66,7 @@ func WhiteListIPMiddleware(whitelist []string, next http.Handler) http.Handler {
 	})
 }
 
-func RecoverMiddleware(next http.Handler) http.Handler {
+func Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {

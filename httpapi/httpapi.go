@@ -35,9 +35,9 @@ type HttpApiConfig struct {
 
 func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.Registry) http.Handler {
 	// ---------------------------
-	var metrics *httpMetrics
+	var metrics *middleware.HttpMetrics
 	if cfg.EnableMetrics && reg != nil {
-		metrics = setupAndListenMetrics(cfg, reg)
+		metrics = middleware.SetupAndListenMetrics(cfg.MetricsHttpHost, cfg.MetricsHttpPort, reg)
 	}
 	// ---------------------------
 	mux := http.NewServeMux()
@@ -49,14 +49,14 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.
 	if cfg.WhiteListIPs == nil || (len(cfg.WhiteListIPs) == 1 && cfg.WhiteListIPs[0] == "*") {
 		log.Warn().Strs("whiteListIPs", cfg.WhiteListIPs).Msg("WhiteListIPMiddleware is disabled")
 	} else {
-		handler = WhiteListIPMiddleware(cfg.WhiteListIPs, handler)
+		handler = middleware.WhiteListIP(cfg.WhiteListIPs, handler)
 	}
 	if len(cfg.ProxySecret) > 0 {
 		log.Info().Msg("ProxySecretMiddleware is enabled")
-		handler = ProxySecretMiddleware(cfg.ProxySecret, handler)
+		handler = middleware.ProxySecret(cfg.ProxySecret, handler)
 	}
-	handler = ZeroLoggerMetrics(metrics, handler)
-	handler = RecoverMiddleware(handler)
+	handler = middleware.ZeroLoggerMetrics(metrics, handler)
+	handler = middleware.Recover(handler)
 	// ---------------------------
 	return handler
 }

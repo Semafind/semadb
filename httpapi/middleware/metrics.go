@@ -1,4 +1,4 @@
-package httpapi
+package middleware
 
 import (
 	"net/http"
@@ -9,7 +9,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type httpMetrics struct {
+type HttpMetrics struct {
 	// ---------------------------
 	requestCount    *prometheus.CounterVec
 	requestDuration *prometheus.HistogramVec
@@ -17,9 +17,9 @@ type httpMetrics struct {
 	// ---------------------------
 }
 
-func setupAndListenMetrics(cfg HttpApiConfig, reg *prometheus.Registry) *httpMetrics {
+func SetupAndListenMetrics(host string, port int, reg *prometheus.Registry) *HttpMetrics {
 	// ---------------------------
-	metrics := &httpMetrics{
+	metrics := &HttpMetrics{
 		requestCount: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Name: "http_request_count",
@@ -51,7 +51,7 @@ func setupAndListenMetrics(cfg HttpApiConfig, reg *prometheus.Registry) *httpMet
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{Registry: reg}))
 	metricsServer := &http.Server{
-		Addr:    cfg.MetricsHttpHost + ":" + strconv.Itoa(cfg.MetricsHttpPort),
+		Addr:    host + ":" + strconv.Itoa(port),
 		Handler: mux,
 	}
 	// ---------------------------
