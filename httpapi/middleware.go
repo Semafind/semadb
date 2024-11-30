@@ -2,102 +2,79 @@ package httpapi
 
 import (
 	"net/http"
+	"regexp"
+	"runtime/debug"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/hlog"
 	"github.com/rs/zerolog/log"
-	"github.com/semafind/semadb/httpapi/middleware"
+	"github.com/semafind/semadb/httpapi/utils"
 )
 
 // ---------------------------
-
-func ZerologLoggerMetrics(metrics *httpMetrics) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		// ---------------------------
-		// Start timer
-		start := time.Now()
-		path := c.Request.URL.Path
-		raw := c.Request.URL.RawQuery
-		reqSize := c.Request.ContentLength
-		// ---------------------------
-		// Process request
-		c.Next()
-		// ---------------------------
-		// Stop timer and gather information
-		latency := time.Since(start)
-
-		method := c.Request.Method
-		statusCode := c.Writer.Status()
-		lastError := c.Errors.ByType(gin.ErrorTypePrivate).Last()
-
-		bodySize := c.Writer.Size()
-
-		if raw != "" {
-			path = path + "?" + raw
-		}
-		// ---------------------------
-		var logEvent *zerolog.Event
-		if statusCode == 500 || lastError != nil {
-			logEvent = log.Error()
-		} else {
-			logEvent = log.Info()
-		}
-		logEvent.Err(lastError).
-			Dur("latency", latency).
-			Str("clientIP", c.ClientIP()).
-			Str("remoteIP", c.RemoteIP()).
-			Str("method", method).Str("path", path).
-			Int("statusCode", statusCode).
-			Int64("requestSize", reqSize).
-			Int("bodySize", bodySize).
-			Str("path", path)
-		// Extract app headers if any
-		appH, ok := c.Keys["appHeaders"]
-		if ok {
-			appHeaders := appH.(middleware.AppHeaders)
-			// We are not logging the user ID for privacy reasons
-			logEvent = logEvent.Str("planId", appHeaders.PlanId)
-		}
-		logEvent.Msg("HTTPAPI")
-		// ---------------------------
+// Zerolog based middleware for logging HTTP requests
+func ZeroLoggerMetrics(metrics *httpMetrics, next http.Handler) http.Handler {
+	handler := hlog.AccessHandler(func(r *http.Request, status, size int, duration time.Duration) {
+		hlog.FromRequest(r).Info().
+			Str("method", r.Method).
+			Stringer("url", r.URL).
+			Int("status", status).
+			Int("size", size).
+			Dur("duration", duration).
+			Msg("")
 		if metrics != nil {
-			// Example handler names
-			// github.com/semafind/semadb/httpapi.(*SemaDBHandlers).ListCollections-fm
-			// github.com/semafind/semadb/httpapi.(*SemaDBHandlers).CreateCollection-fm
-			fullHName := c.HandlerName()
-			parts := strings.Split(fullHName, ".")
-			hname := parts[len(parts)-1][:len(parts[len(parts)-1])-3]
-			ssCode := strconv.Itoa(statusCode)
-			metrics.requestCount.WithLabelValues(ssCode, method, hname).Inc()
-			metrics.requestDuration.WithLabelValues(ssCode, method, hname).Observe(latency.Seconds())
-			metrics.requestSize.WithLabelValues(ssCode, method, hname).Observe(float64(reqSize))
-			metrics.responseSize.WithLabelValues(ssCode, method, hname).Observe(float64(bodySize))
+			// Canonicalize the URL by removing url parameters
+			// Replace anything of the form collections/mycol23 with collections/:id
+			re := regexp.MustCompile(`collections/[a-zA-Z0-9]+`)
+			canonical := re.ReplaceAll([]byte(r.URL.Path), []byte("collections/{collectionId}"))
+			hname := string(canonical)
+			ssCode := strconv.Itoa(status)
+			metrics.requestCount.WithLabelValues(ssCode, r.Method, hname).Inc()
+			metrics.requestDuration.WithLabelValues(ssCode, r.Method, hname).Observe(duration.Seconds())
+			metrics.requestSize.WithLabelValues(ssCode, r.Method, hname).Observe(float64(size))
+			// metrics.responseSize.WithLabelValues(ssCode, r.Method, hname).Observe(float64(bodySize))
 		}
-	}
+	})(next)
+	handler = hlog.NewHandler(log.Logger)(handler)
+	return handler
 }
 
 // ---------------------------
 
-func ProxySecretMiddleware(secret string) gin.HandlerFunc {
+func ProxySecretMiddleware(secret string, next http.Handler) http.Handler {
 	log.Debug().Str("proxySecret", secret).Msg("ProxySecretMiddleware")
-	return func(c *gin.Context) {
-		if c.GetHeader("X-Proxy-Secret") != secret {
-			c.AbortWithStatusJSON(http.StatusProxyAuthRequired, gin.H{"error": "forbidden"})
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Proxy-Secret") != secret {
+			utils.Encode(w, http.StatusProxyAuthRequired, map[string]string{"error": "forbidden"})
+			return
 		}
-	}
+		next.ServeHTTP(w, r)
+	})
 }
 
-func WhiteListIPMiddleware(whitelist []string) gin.HandlerFunc {
+func WhiteListIPMiddleware(whitelist []string, next http.Handler) http.Handler {
 	slices.Sort(whitelist)
-	return func(c *gin.Context) {
-		remoteIP := c.RemoteIP()
-		_, found := slices.BinarySearch(whitelist, remoteIP)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, found := slices.BinarySearch(whitelist, r.RemoteAddr)
 		if !found {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			utils.Encode(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+			return
 		}
-	}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func RecoverMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Error().Interface("error", err).Msg("panic recovered")
+				log.Error().Str("stack", string(debug.Stack())).Msg("stack trace")
+				w.WriteHeader(http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }

@@ -14,7 +14,6 @@ type httpMetrics struct {
 	requestCount    *prometheus.CounterVec
 	requestDuration *prometheus.HistogramVec
 	requestSize     *prometheus.HistogramVec
-	responseSize    *prometheus.HistogramVec
 	// ---------------------------
 }
 
@@ -44,19 +43,10 @@ func setupAndListenMetrics(cfg HttpApiConfig, reg *prometheus.Registry) *httpMet
 			},
 			[]string{"code", "method", "handler"},
 		),
-		responseSize: prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    "http_response_size_bytes",
-				Help:    "HTTP request sizes in bytes.",
-				Buckets: []float64{0, 1 << 10, 1 << 15, 1 << 20},
-			},
-			[]string{"code", "method", "handler"},
-		),
 	}
 	reg.MustRegister(metrics.requestCount)
 	reg.MustRegister(metrics.requestDuration)
 	reg.MustRegister(metrics.requestSize)
-	reg.MustRegister(metrics.responseSize)
 	// ---------------------------
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{Registry: reg}))
