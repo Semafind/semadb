@@ -1,48 +1,53 @@
 package v1
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
+	"github.com/semafind/semadb/httpapi/utils"
 	"github.com/semafind/semadb/models"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-func pongHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"message": "pong from semadb",
-	})
-}
-
 // ---------------------------
+
+func handlePing(w http.ResponseWriter, r *http.Request) {
+	utils.Encode(w, http.StatusOK, map[string]string{"message": "pong from semadb"})
+}
 
 type SemaDBHandlers struct {
 	clusterNode *cluster.ClusterNode
 }
 
 // Requires middleware.AppHeaderMiddleware to be used
-func SetupV1Handlers(clusterNode *cluster.ClusterNode, rgroup *gin.RouterGroup) {
-	rgroup.GET("/ping", pongHandler)
+func SetupV1Handlers(clusterNode *cluster.ClusterNode) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ping", handlePing)
 	semaDBHandlers := &SemaDBHandlers{clusterNode: clusterNode}
 	// https://stackoverflow.blog/2020/03/02/best-practices-for-rest-api-design/
-	rgroup.POST("/collections", semaDBHandlers.CreateCollection)
-	rgroup.GET("/collections", semaDBHandlers.ListCollections)
-	colRoutes := rgroup.Group("/collections/:collectionId", semaDBHandlers.CollectionURIMiddleware())
-	colRoutes.GET("", semaDBHandlers.GetCollection)
-	colRoutes.DELETE("", semaDBHandlers.DeleteCollection)
+	mux.HandleFunc("GET /collections", semaDBHandlers.HandleListCollections)
+	mux.HandleFunc("POST /collections", semaDBHandlers.HandleCreateCollection)
+	// ---------------------------
+	withCol := func(next http.HandlerFunc) http.Handler {
+		return semaDBHandlers.CollectionURIMiddleware(http.HandlerFunc(next))
+	}
+	mux.Handle("GET /collections/{collectionId}", withCol(semaDBHandlers.HandleGetCollection))
+	mux.Handle("DELETE /collections/{collectionId}", withCol(semaDBHandlers.HandleDeleteCollection))
 	// We're batching point requests for peformance reasons. Alternatively we
 	// can provide points/:pointId endpoint in the future.
-	colRoutes.POST("/points", semaDBHandlers.InsertPoints)
-	colRoutes.PUT("/points", semaDBHandlers.UpdatePoints)
-	colRoutes.DELETE("/points", semaDBHandlers.DeletePoints)
-	colRoutes.POST("/points/search", semaDBHandlers.SearchPoints)
+	mux.Handle("POST /collections/{collectionId}/points", withCol(semaDBHandlers.HandleInsertPoints))
+	mux.Handle("PUT /collections/{collectionId}/points", withCol(semaDBHandlers.HandleUpdatePoints))
+	mux.Handle("DELETE /collections/{collectionId}/points", withCol(semaDBHandlers.HandleDeletePoints))
+	mux.Handle("POST /collections/{collectionId}/points/search", withCol(semaDBHandlers.HandleSearchPoints))
+	// ---------------------------
+	return mux
 }
 
 // ---------------------------
@@ -53,13 +58,33 @@ type CreateCollectionRequest struct {
 	DistanceMetric string `json:"distanceMetric" binding:"required,oneof=euclidean cosine dot"`
 }
 
-func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
-	var req CreateCollectionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+func (req CreateCollectionRequest) Validate() error {
+	if len(req.Id) < 3 || len(req.Id) > 16 {
+		return fmt.Errorf("id must be between 3 and 16 characters")
+	}
+	// Check alphanum
+	for _, r := range req.Id {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+			return fmt.Errorf("id must be alphanumeric")
+		}
+	}
+	if req.VectorSize < 1 || req.VectorSize > 4096 {
+		return fmt.Errorf("vectorSize must be between 1 and 4096, got %d", req.VectorSize)
+	}
+	if req.DistanceMetric != models.DistanceEuclidean && req.DistanceMetric != models.DistanceCosine && req.DistanceMetric != models.DistanceDot {
+		return fmt.Errorf("distanceMetric must be one of euclidean, cosine, dot, got %s", req.DistanceMetric)
+	}
+	return nil
+}
+
+func (sdbh *SemaDBHandlers) HandleCreateCollection(w http.ResponseWriter, r *http.Request) {
+	req, err := utils.DecodeValid[CreateCollectionRequest](r)
+	if err != nil {
+		utils.Encode(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	appHeaders := c.MustGet("appHeaders").(middleware.AppHeaders)
+	appHeaders := middleware.GetAppHeaders(r.Context())
+	userPlan := middleware.GetUserPlan(r.Context())
 	// ---------------------------
 	vamanaCollection := models.Collection{
 		UserId:    appHeaders.UserId,
@@ -67,7 +92,7 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 		Replicas:  1,
 		Timestamp: time.Now().Unix(),
 		CreatedAt: time.Now().Unix(),
-		UserPlan:  c.MustGet("userPlan").(models.UserPlan),
+		UserPlan:  userPlan,
 		IndexSchema: models.IndexSchema{
 			"vector": {
 				Type: "vectorVamana",
@@ -84,17 +109,15 @@ func (sdbh *SemaDBHandlers) CreateCollection(c *gin.Context) {
 	}
 	log.Debug().Interface("collection", vamanaCollection).Msg("CreateCollection")
 	// ---------------------------
-	err := sdbh.clusterNode.CreateCollection(vamanaCollection)
-	switch err {
+	switch err := sdbh.clusterNode.CreateCollection(vamanaCollection); err {
 	case nil:
-		c.JSON(http.StatusOK, gin.H{"message": "collection created"})
+		utils.Encode(w, http.StatusOK, map[string]string{"message": "collection created"})
 	case cluster.ErrQuotaReached:
-		c.JSON(http.StatusForbidden, gin.H{"error": "quota reached"})
+		utils.Encode(w, http.StatusForbidden, map[string]string{"error": "quota reached"})
 	case cluster.ErrExists:
-		c.JSON(http.StatusConflict, gin.H{"error": "collection exists"})
+		utils.Encode(w, http.StatusConflict, map[string]string{"error": "collection exists"})
 	default:
-		c.Error(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		utils.Encode(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		log.Error().Err(err).Str("id", vamanaCollection.Id).Msg("CreateCollection failed")
 	}
 }
@@ -109,13 +132,12 @@ type ListCollectionsResponse struct {
 	Collections []ListCollectionItem `json:"collections"`
 }
 
-func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
-	appHeaders := c.MustGet("appHeaders").(middleware.AppHeaders)
+func (sdbh *SemaDBHandlers) HandleListCollections(w http.ResponseWriter, r *http.Request) {
+	appHeaders := middleware.GetAppHeaders(r.Context())
 	// ---------------------------
 	collections, err := sdbh.clusterNode.ListCollections(appHeaders.UserId)
 	if err != nil {
-		c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		utils.Encode(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		log.Error().Err(err).Msg("ListCollections failed")
 		return
 	}
@@ -124,33 +146,33 @@ func (sdbh *SemaDBHandlers) ListCollections(c *gin.Context) {
 		colItems[i] = ListCollectionItem{Id: col.Id, VectorSize: col.IndexSchema["vector"].VectorVamana.VectorSize, DistanceMetric: col.IndexSchema["vector"].VectorVamana.DistanceMetric}
 	}
 	resp := ListCollectionsResponse{Collections: colItems}
-	c.JSON(http.StatusOK, resp)
+	utils.Encode(w, http.StatusOK, resp)
 	// ---------------------------
 }
 
 // ---------------------------
 
-type GetCollectionUri struct {
-	CollectionId string `uri:"collectionId" binding:"required,alphanum,min=3,max=16"`
-}
+type contextKey string
 
-func (sdbh *SemaDBHandlers) CollectionURIMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		var uri GetCollectionUri
-		if err := c.ShouldBindUri(&uri); err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+const collectionContextKey contextKey = "collection"
+
+// Extracts collectionId from the URI and fetches the collection from the cluster.
+func (sdbh *SemaDBHandlers) CollectionURIMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		collectionId := r.PathValue("collectionId")
+		if len(collectionId) < 3 || len(collectionId) > 16 {
+			utils.Encode(w, http.StatusBadRequest, map[string]string{"error": "collectionId must be between 3 and 16 characters"})
 			return
 		}
-		appHeaders := c.MustGet("appHeaders").(middleware.AppHeaders)
-		collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserId, uri.CollectionId)
+		appHeaders := middleware.GetAppHeaders(r.Context())
+		collection, err := sdbh.clusterNode.GetCollection(appHeaders.UserId, collectionId)
 		if err == cluster.ErrNotFound {
-			errMsg := fmt.Sprintf("collection %s not found", uri.CollectionId)
-			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": errMsg})
+			errMsg := fmt.Sprintf("collection %s not found", collectionId)
+			utils.Encode(w, http.StatusNotFound, map[string]string{"error": errMsg})
 			return
 		}
 		if err != nil {
-			c.Error(err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			utils.Encode(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
 		// ---------------------------
@@ -158,10 +180,11 @@ func (sdbh *SemaDBHandlers) CollectionURIMiddleware() gin.HandlerFunc {
 		// This is because the user plan might change and we want the latest
 		// active one rather than the one saved in the collection. This means
 		// any downstream operation will use the latest user plan.
-		collection.UserPlan = c.MustGet("userPlan").(models.UserPlan)
+		collection.UserPlan = middleware.GetUserPlan(r.Context())
 		// ---------------------------
-		c.Set("collection", collection)
-	}
+		newCtx := context.WithValue(r.Context(), collectionContextKey, collection)
+		next.ServeHTTP(w, r.WithContext(newCtx))
+	})
 }
 
 // ---------------------------
@@ -178,18 +201,17 @@ type GetCollectionResponse struct {
 	Shards         []ShardItem `json:"shards"`
 }
 
-func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
+func (sdbh *SemaDBHandlers) HandleGetCollection(w http.ResponseWriter, r *http.Request) {
 	// ---------------------------
-	collection := c.MustGet("collection").(models.Collection)
+	collection := r.Context().Value(collectionContextKey).(models.Collection)
 	// ---------------------------
 	shards, err := sdbh.clusterNode.GetShardsInfo(collection)
 	if errors.Is(err, cluster.ErrShardUnavailable) {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "one or more shards are unavailable"})
+		utils.Encode(w, http.StatusServiceUnavailable, map[string]string{"error": "one or more shards are unavailable"})
 		return
 	}
 	if err != nil {
-		c.Error(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		utils.Encode(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	// ---------------------------
@@ -203,26 +225,25 @@ func (sdbh *SemaDBHandlers) GetCollection(c *gin.Context) {
 		DistanceMetric: collection.IndexSchema["vector"].VectorVamana.DistanceMetric,
 		Shards:         shardItems,
 	}
-	c.JSON(http.StatusOK, resp)
+	utils.Encode(w, http.StatusOK, resp)
 }
 
 // ---------------------------
 
-func (sdbh *SemaDBHandlers) DeleteCollection(c *gin.Context) {
+func (sdbh *SemaDBHandlers) HandleDeleteCollection(w http.ResponseWriter, r *http.Request) {
 	// ---------------------------
-	collection := c.MustGet("collection").(models.Collection)
+	collection := r.Context().Value(collectionContextKey).(models.Collection)
 	// ---------------------------
 	deletedShardIds, err := sdbh.clusterNode.DeleteCollection(collection)
 	if err != nil {
-		c.Error(err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		utils.Encode(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	status := http.StatusOK
 	if len(deletedShardIds) != len(collection.ShardIds) {
 		status = http.StatusAccepted
 	}
-	c.JSON(status, gin.H{"message": "collection deleted"})
+	utils.Encode(w, status, map[string]string{"message": "collection deleted"})
 }
 
 // ---------------------------
@@ -233,8 +254,32 @@ type InsertSinglePointRequest struct {
 	Metadata any       `json:"metadata"`
 }
 
+func (req InsertSinglePointRequest) Validate() error {
+	if len(req.Id) > 0 {
+		if _, err := uuid.Parse(req.Id); err != nil {
+			return fmt.Errorf("id must be a valid uuid")
+		}
+	}
+	if len(req.Vector) < 1 || len(req.Vector) > 2000 {
+		return fmt.Errorf("vector size must be between 1 and 2000, got %d", len(req.Vector))
+	}
+	return nil
+}
+
 type InsertPointsRequest struct {
 	Points []InsertSinglePointRequest `json:"points" binding:"required,max=10000,dive"`
+}
+
+func (req InsertPointsRequest) Validate() error {
+	if len(req.Points) < 1 || len(req.Points) > 10000 {
+		return fmt.Errorf("points size must be between 1 and 10000, got %d", len(req.Points))
+	}
+	for i, point := range req.Points {
+		if err := point.Validate(); err != nil {
+			return fmt.Errorf("point at index %d: %w", i, err)
+		}
+	}
+	return nil
 }
 
 type InsertPointsResponse struct {
@@ -242,25 +287,25 @@ type InsertPointsResponse struct {
 	FailedRanges []cluster.FailedRange `json:"failedRanges"`
 }
 
-func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
+func (sdbh *SemaDBHandlers) HandleInsertPoints(w http.ResponseWriter, r *http.Request) {
 	// ---------------------------
-	var req InsertPointsRequest
 	startTime := time.Now()
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	req, err := utils.DecodeValid[InsertPointsRequest](r)
+	if err != nil {
+		utils.Encode(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	log.Debug().Str("bindTime", time.Since(startTime).String()).Msg("InsertPoints bind")
 	// ---------------------------
 	// Get corresponding collection
-	collection := c.MustGet("collection").(models.Collection)
+	collection := r.Context().Value(collectionContextKey).(models.Collection)
 	// ---------------------------
 	// Convert request points into internal points, doing checks along the way
 	points := make([]models.Point, len(req.Points))
 	for i, point := range req.Points {
 		if len(point.Vector) != int(collection.IndexSchema["vector"].VectorVamana.VectorSize) {
 			errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d for point at index %d", collection.IndexSchema["vector"].VectorVamana.VectorSize, len(point.Vector), i)
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			utils.Encode(w, http.StatusBadRequest, map[string]string{"error": errMsg})
 			return
 		}
 		pointId := uuid.New()
@@ -271,12 +316,12 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 		binaryPointData, err := msgpack.Marshal(pointData)
 		if err != nil {
 			errMsg := fmt.Sprintf("failed to JSON encode point at index %d, please ensure all fields are JSON compatible", i)
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			utils.Encode(w, http.StatusBadRequest, map[string]string{"error": errMsg})
 			return
 		}
 		if len(binaryPointData) > collection.UserPlan.MaxPointSize {
 			errMsg := fmt.Sprintf("point %d exceeds maximum point size %d > %d", i, len(binaryPointData), collection.UserPlan.MaxPointSize)
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			utils.Encode(w, http.StatusBadRequest, map[string]string{"error": errMsg})
 			return
 		}
 		points[i] = models.Point{
@@ -288,23 +333,22 @@ func (sdbh *SemaDBHandlers) InsertPoints(c *gin.Context) {
 	// Insert points returns a range of errors for failed shards
 	failedRanges, err := sdbh.clusterNode.InsertPoints(collection, points)
 	if errors.Is(err, cluster.ErrQuotaReached) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "quota reached"})
+		utils.Encode(w, http.StatusForbidden, map[string]string{"error": "quota reached"})
 		return
 	}
 	if errors.Is(err, cluster.ErrShardUnavailable) {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "one or more shards are unavailable"})
+		utils.Encode(w, http.StatusServiceUnavailable, map[string]string{"error": "one or more shards are unavailable"})
 		return
 	}
 	if err != nil {
-		c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		utils.Encode(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	resp := InsertPointsResponse{Message: "success", FailedRanges: failedRanges}
 	if len(failedRanges) > 0 {
 		resp.Message = "partial success"
 	}
-	c.JSON(http.StatusOK, resp)
+	utils.Encode(w, http.StatusOK, resp)
 	// ---------------------------
 }
 
@@ -316,8 +360,30 @@ type UpdateSinglePointRequest struct {
 	Metadata any       `json:"metadata"`
 }
 
+func (req UpdateSinglePointRequest) Validate() error {
+	if _, err := uuid.Parse(req.Id); err != nil {
+		return fmt.Errorf("id must be a valid uuid, got %s", req.Id)
+	}
+	if len(req.Vector) < 1 || len(req.Vector) > 2000 {
+		return fmt.Errorf("vector size must be between 1 and 2000, got %d", len(req.Vector))
+	}
+	return nil
+}
+
 type UpdatePointsRequest struct {
 	Points []UpdateSinglePointRequest `json:"points" binding:"required,max=100,dive"`
+}
+
+func (req UpdatePointsRequest) Validate() error {
+	if len(req.Points) < 1 || len(req.Points) > 100 {
+		return fmt.Errorf("points size must be between 1 and 100, got %d", len(req.Points))
+	}
+	for i, point := range req.Points {
+		if err := point.Validate(); err != nil {
+			return fmt.Errorf("point at index %d: %w", i, err)
+		}
+	}
+	return nil
 }
 
 type UpdatePointsResponse struct {
@@ -325,23 +391,23 @@ type UpdatePointsResponse struct {
 	FailedPoints []cluster.FailedPoint `json:"failedPoints"`
 }
 
-func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
+func (sdbh *SemaDBHandlers) HandleUpdatePoints(w http.ResponseWriter, r *http.Request) {
 	// ---------------------------
-	var req UpdatePointsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	req, err := utils.DecodeValid[UpdatePointsRequest](r)
+	if err != nil {
+		utils.Encode(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	// ---------------------------
 	// Get corresponding collection
-	collection := c.MustGet("collection").(models.Collection)
+	collection := r.Context().Value(collectionContextKey).(models.Collection)
 	// ---------------------------
 	// Convert request points into internal points, doing checks along the way
 	points := make([]models.Point, len(req.Points))
 	for i, point := range req.Points {
 		if len(point.Vector) != int(collection.IndexSchema["vector"].VectorVamana.VectorSize) {
 			errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d for point at index %d", collection.IndexSchema["vector"].VectorVamana.VectorSize, len(point.Vector), i)
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			utils.Encode(w, http.StatusBadRequest, map[string]string{"error": errMsg})
 			return
 		}
 		points[i] = models.Point{
@@ -351,12 +417,12 @@ func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 		binaryPointData, err := msgpack.Marshal(pointData)
 		if err != nil {
 			errMsg := fmt.Sprintf("failed to JSON encode %d, please ensure all fields are JSON compatible", i)
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			utils.Encode(w, http.StatusBadRequest, map[string]string{"error": errMsg})
 			return
 		}
 		if len(binaryPointData) > collection.UserPlan.MaxPointSize {
 			errMsg := fmt.Sprintf("point %d exceeds maximum point size %d > %d", i, len(binaryPointData), collection.UserPlan.MaxPointSize)
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+			utils.Encode(w, http.StatusBadRequest, map[string]string{"error": errMsg})
 			return
 		}
 		points[i].Data = binaryPointData
@@ -365,15 +431,14 @@ func (sdbh *SemaDBHandlers) UpdatePoints(c *gin.Context) {
 	// Update points returns a list of failed points
 	failedPoints, err := sdbh.clusterNode.UpdatePoints(collection, points)
 	if err != nil {
-		c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		utils.Encode(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	resp := UpdatePointsResponse{Message: "success", FailedPoints: failedPoints}
 	if len(failedPoints) > 0 {
 		resp.Message = "partial success"
 	}
-	c.JSON(http.StatusOK, resp)
+	utils.Encode(w, http.StatusOK, resp)
 }
 
 // ---------------------------
@@ -382,16 +447,28 @@ type DeletePointsRequest struct {
 	Ids []string `json:"ids" binding:"required,max=100,dive,uuid"`
 }
 
+func (req DeletePointsRequest) Validate() error {
+	if len(req.Ids) < 1 || len(req.Ids) > 100 {
+		return fmt.Errorf("ids size must be between 1 and 100, got %d", len(req.Ids))
+	}
+	for i, id := range req.Ids {
+		if _, err := uuid.Parse(id); err != nil {
+			return fmt.Errorf("id at index %d must be a valid uuid", i)
+		}
+	}
+	return nil
+}
+
 type DeletePointsResponse struct {
 	Message      string                `json:"message"`
 	FailedPoints []cluster.FailedPoint `json:"failedPoints"`
 }
 
-func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
+func (sdbh *SemaDBHandlers) HandleDeletePoints(w http.ResponseWriter, r *http.Request) {
 	// ---------------------------
-	var req DeletePointsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	req, err := utils.DecodeValid[DeletePointsRequest](r)
+	if err != nil {
+		utils.Encode(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	// ---------------------------
@@ -402,19 +479,18 @@ func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
 	}
 	// ---------------------------
 	// Get corresponding collection
-	collection := c.MustGet("collection").(models.Collection)
+	collection := r.Context().Value(collectionContextKey).(models.Collection)
 	// ---------------------------
 	failedPoints, err := sdbh.clusterNode.DeletePoints(collection, pointIds)
 	if err != nil {
-		c.Error(err)
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		utils.Encode(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	resp := DeletePointsResponse{Message: "success", FailedPoints: failedPoints}
 	if len(failedPoints) > 0 {
 		resp.Message = "partial success"
 	}
-	c.JSON(http.StatusOK, resp)
+	utils.Encode(w, http.StatusOK, resp)
 }
 
 // ---------------------------
@@ -422,6 +498,16 @@ func (sdbh *SemaDBHandlers) DeletePoints(c *gin.Context) {
 type SearchPointsRequest struct {
 	Vector []float32 `json:"vector" binding:"required,max=2000"`
 	Limit  int       `json:"limit" binding:"min=0,max=75"`
+}
+
+func (req SearchPointsRequest) Validate() error {
+	if len(req.Vector) < 1 || len(req.Vector) > 2000 {
+		return fmt.Errorf("vector size must be between 1 and 2000")
+	}
+	if req.Limit < 0 || req.Limit > 75 {
+		return fmt.Errorf("limit must be between 0 and 75")
+	}
+	return nil
 }
 
 type SearchPointResult struct {
@@ -434,11 +520,11 @@ type SearchPointsResponse struct {
 	Points []SearchPointResult `json:"points"`
 }
 
-func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
+func (sdbh *SemaDBHandlers) HandleSearchPoints(w http.ResponseWriter, r *http.Request) {
 	// ---------------------------
-	var req SearchPointsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	req, err := utils.DecodeValid[SearchPointsRequest](r)
+	if err != nil {
+		utils.Encode(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
 	// Default limit is 10
@@ -447,12 +533,12 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	}
 	// ---------------------------
 	// Get corresponding collection
-	collection := c.MustGet("collection").(models.Collection)
+	collection := r.Context().Value(collectionContextKey).(models.Collection)
 	// ---------------------------
 	// Check vector dimension
 	if len(req.Vector) != int(collection.IndexSchema["vector"].VectorVamana.VectorSize) {
 		errMsg := fmt.Sprintf("invalid vector dimension, expected %d got %d", collection.IndexSchema["vector"].VectorVamana.VectorSize, len(req.Vector))
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": errMsg})
+		utils.Encode(w, http.StatusBadRequest, map[string]string{"error": errMsg})
 		return
 	}
 	// ---------------------------
@@ -471,7 +557,7 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 	}
 	points, err := sdbh.clusterNode.SearchPoints(collection, sr)
 	if err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		utils.Encode(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
 	results := make([]SearchPointResult, len(points))
@@ -488,6 +574,6 @@ func (sdbh *SemaDBHandlers) SearchPoints(c *gin.Context) {
 		}
 	}
 	resp := SearchPointsResponse{Points: results}
-	c.JSON(http.StatusOK, resp)
+	utils.Encode(w, http.StatusOK, resp)
 	// ---------------------------
 }

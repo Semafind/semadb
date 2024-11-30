@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
@@ -34,39 +33,35 @@ type HttpApiConfig struct {
 
 // ---------------------------
 
-func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.Registry) *gin.Engine {
-	router := gin.New()
+func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.Registry) http.Handler {
 	// ---------------------------
 	var metrics *httpMetrics
 	if cfg.EnableMetrics && reg != nil {
 		metrics = setupAndListenMetrics(cfg, reg)
 	}
 	// ---------------------------
-	router.Use(ZerologLoggerMetrics(metrics), gin.Recovery())
+	mux := http.NewServeMux()
+	mux.Handle("/v1/", http.StripPrefix("/v1", httpv1.SetupV1Handlers(cnode)))
+	mux.Handle("/v2/", http.StripPrefix("/v2", httpv2.SetupV2Handlers(cnode)))
 	// ---------------------------
-	if len(cfg.ProxySecret) > 0 {
-		log.Info().Msg("ProxySecretMiddleware is enabled")
-		router.Use(ProxySecretMiddleware(cfg.ProxySecret))
-	}
+	var handler http.Handler = mux
+	handler = middleware.AppHeaderMiddleware(cfg.UserPlans, handler)
 	if cfg.WhiteListIPs == nil || (len(cfg.WhiteListIPs) == 1 && cfg.WhiteListIPs[0] == "*") {
 		log.Warn().Strs("whiteListIPs", cfg.WhiteListIPs).Msg("WhiteListIPMiddleware is disabled")
 	} else {
-		router.Use(WhiteListIPMiddleware(cfg.WhiteListIPs))
+		handler = WhiteListIPMiddleware(cfg.WhiteListIPs, handler)
 	}
+	if len(cfg.ProxySecret) > 0 {
+		log.Info().Msg("ProxySecretMiddleware is enabled")
+		handler = ProxySecretMiddleware(cfg.ProxySecret, handler)
+	}
+	handler = ZeroLoggerMetrics(metrics, handler)
+	handler = RecoverMiddleware(handler)
 	// ---------------------------
-	v1 := router.Group("/v1", middleware.AppHeaderMiddleware(cfg.UserPlans))
-	httpv1.SetupV1Handlers(cnode, v1)
-	// ---------------------------
-	v2 := router.Group("/v2", middleware.AppHeaderMiddleware(cfg.UserPlans))
-	httpv2.SetupV2Handlers(cnode, v2)
-	return router
+	return handler
 }
 
 func RunHTTPServer(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.Registry) *http.Server {
-	// ---------------------------
-	if !cfg.Debug {
-		gin.SetMode(gin.ReleaseMode)
-	}
 	// ---------------------------
 	server := &http.Server{
 		Addr:    cfg.HttpHost + ":" + strconv.Itoa(cfg.HttpPort),
