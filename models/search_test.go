@@ -47,7 +47,7 @@ func TestSearch_QueryValidate(t *testing.T) {
 			fail: true,
 		},
 		{
-			name: "_id StringArray Non-UUID",
+			name: "_id StringArray Non-UUID Valid",
 			query: models.Query{
 				Property: "_id",
 				StringArray: &models.SearchStringArrayOptions{
@@ -57,6 +57,119 @@ func TestSearch_QueryValidate(t *testing.T) {
 			},
 			fail: false,
 		},
+		{
+			name: "Valid vector vamana",
+			query: models.Query{
+				Property: "propVectorVamana",
+				VectorVamana: &models.SearchVectorVamanaOptions{
+					Vector:     []float32{1.0, 2.0},
+					Operator:   models.OperatorNear,
+					SearchSize: 25,
+					Limit:      10,
+				},
+			},
+			fail: false,
+		},
+		{
+			name: "Valid Vector Vamana filter",
+			query: models.Query{
+				Property: "propVectorVamana",
+				VectorVamana: &models.SearchVectorVamanaOptions{
+					Vector:     []float32{1.0, 2.0},
+					Operator:   models.OperatorNear,
+					SearchSize: 25,
+					Limit:      10,
+					Filter: &models.Query{
+						Property: "propInteger",
+						Integer: &models.SearchIntegerOptions{
+							Operator: models.OperatorEquals,
+							Value:    1,
+						},
+					},
+				},
+			},
+			fail: false,
+		},
+		{
+			name: "Invalid Vector Vamana filter",
+			query: models.Query{
+				Property: "propVectorVamana",
+				VectorVamana: &models.SearchVectorVamanaOptions{
+					Vector:     []float32{1.0, 2.0},
+					Operator:   models.OperatorNear,
+					SearchSize: 25,
+					Limit:      10,
+					Filter: &models.Query{
+						Property: "propInteger",
+						Integer: &models.SearchIntegerOptions{
+							Operator: "gandalf",
+							Value:    1,
+						},
+					},
+				},
+			},
+			fail: true,
+		},
+		{
+			name: "Valid text query",
+			query: models.Query{
+				Property: "propText",
+				Text: &models.SearchTextOptions{
+					Value:    "text",
+					Operator: models.OperatorContainsAny,
+					Limit:    10,
+				},
+			},
+			fail: false,
+		},
+		{
+			name: "Valid composite query",
+			query: models.Query{
+				Property: "_and",
+				And: []models.Query{
+					{
+						Property: "propString",
+						String: &models.SearchStringOptions{
+							Operator: models.OperatorEquals,
+							Value:    "string",
+						},
+					},
+					{
+						Property: "_or",
+						Or: []models.Query{
+							{
+								Property: "propFloat",
+								Float: &models.SearchFloatOptions{
+									Operator: models.OperatorEquals,
+									Value:    1.0,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	// ---------------------------
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.query.Validate()
+			if tt.fail {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSearch_QuerySchemaValidate(t *testing.T) {
+	// ---------------------------
+	tests := []struct {
+		name  string
+		query models.Query
+		fail  bool
+	}{
 		{
 			name: "Invalid vector vamana length",
 			query: models.Query{
@@ -158,7 +271,7 @@ func TestSearch_QueryValidate(t *testing.T) {
 	// ---------------------------
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.query.Validate(sampleSchema)
+			err := tt.query.ValidateSchema(sampleSchema)
 			if tt.fail {
 				require.Error(t, err)
 			} else {
