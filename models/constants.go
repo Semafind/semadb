@@ -28,6 +28,7 @@ const (
 // ---------------------------
 
 const (
+	OperatorNear        = "near"
 	OperatorContainsAll = "containsAll"
 	OperatorContainsAny = "containsAny"
 	OperatorEquals      = "equals"
