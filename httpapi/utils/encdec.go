@@ -32,7 +32,6 @@ func Encode[T any](w http.ResponseWriter, status int, v T) {
 }
 
 // DecodeValid decodes the request body into the object and then validates it.
-// Look at problems to see if there are any issues.
 func DecodeValid[T Validator](r *http.Request) (T, error) {
 	var v T
 	if r.Header.Get("Content-Type") != "application/json" {
