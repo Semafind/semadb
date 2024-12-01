@@ -2,7 +2,7 @@ package conversion
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -79,7 +79,7 @@ func Benchmark_float32ToBytes(b *testing.B) {
 
 func Test_EdgeListToBytes(t *testing.T) {
 	for i := 0; i < 10; i++ {
-		randSize := rand.Intn(10)
+		randSize := rand.IntN(10)
 		randEdges := make([]uint64, randSize)
 		for j := 0; j < randSize; j++ {
 			randEdges[j] = rand.Uint64()
