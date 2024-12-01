@@ -2,7 +2,7 @@ package distance
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/semafind/semadb/distance/asm"

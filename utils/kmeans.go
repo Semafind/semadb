@@ -2,7 +2,7 @@ package utils
 
 import (
 	"math"
-	"math/rand"
+	"math/rand/v2"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -58,7 +58,7 @@ func (km *KMeans) Fit(X [][]float32) {
 	// Assign one random point as the first centroid
 	alreadyCentroid := make(map[int]struct{})
 	km.Centroids = make([][]float32, km.K)
-	randId := rand.Intn(len(X))
+	randId := rand.IntN(len(X))
 	alreadyCentroid[randId] = struct{}{}
 	km.Centroids[0] = X[randId][km.Offset : km.Offset+km.VectorLen]
 	// For the remainder find the furthest point from the existing centroids

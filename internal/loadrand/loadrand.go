@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math/rand"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"time"
@@ -25,7 +25,7 @@ func randVector(size int) []float32 {
 func randString(size int) string {
 	str := make([]byte, size)
 	for i := 0; i < size; i++ {
-		str[i] = byte(rand.Intn(256))
+		str[i] = byte(rand.IntN(256))
 	}
 	return string(str)
 }
@@ -70,13 +70,14 @@ func makeRequest(method string, path string, body any) {
 }
 
 const ENDPOINT = "http://localhost:8081/v1"
-const VECTORSIZE = 768
-const NUMVECTORS = 100000
+const VECTORSIZE = 1536
+const NUMVECTORS = 10000
 const BATCHSIZE = 10000
 
 func main() {
 	// Create collection first
 	colName := strconv.Itoa(VECTORSIZE) + "d"
+	makeRequest("DELETE", "/collections/"+colName, nil)
 	makeRequest("POST", "/collections", httpapi.CreateCollectionRequest{
 		Id:             colName,
 		VectorSize:     VECTORSIZE,

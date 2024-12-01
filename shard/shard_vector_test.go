@@ -2,7 +2,7 @@ package shard
 
 import (
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"path/filepath"
 	"sync"
 	"testing"

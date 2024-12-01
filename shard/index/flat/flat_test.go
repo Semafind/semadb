@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
-	"math/rand"
+	"math/rand/v2"
 	"slices"
 	"sync"
 	"testing"
