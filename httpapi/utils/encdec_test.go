@@ -2,7 +2,9 @@ package utils_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -44,7 +46,7 @@ func TestEncode(t *testing.T) {
 	}
 }
 
-type testMap map[string]string
+type testMap map[string]any
 
 func (t testMap) Validate() error {
 	if _, ok := t["hello"]; !ok {
@@ -100,11 +102,44 @@ func TestDecodeValid(t *testing.T) {
 	}
 }
 
+func randVector(size int) []float32 {
+	vector := make([]float32, size)
+	for i := 0; i < size; i++ {
+		vector[i] = rand.Float32()
+	}
+	return vector
+}
+
 // Benchmark decodevalid
 func BenchmarkDecodeValid(b *testing.B) {
-	r := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(`{"hello": "world"}`)))
-	r.Header.Set("Content-Type", "application/json")
-	for i := 0; i < b.N; i++ {
-		_, _ = utils.DecodeValid[testMap](r)
+	tests := []struct {
+		name       string
+		pointSize  int
+		vectorSize int
+	}{
+		{"small", 1000, 1536},
+		{"medium", 5000, 1536},
+		{"large", 7000, 1536},
+	}
+	for _, tt := range tests {
+		points := make([]map[string]any, tt.pointSize)
+		for i := 0; i < tt.pointSize; i++ {
+			points[i] = map[string]any{"vector": randVector(tt.vectorSize)}
+		}
+		data := map[string]any{"points": points, "hello": "world"}
+		payload, err := json.Marshal(data)
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.Run(tt.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				r := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(payload))
+				r.Header.Set("Content-Type", "application/json")
+				_, err := utils.DecodeValid[testMap](r)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
