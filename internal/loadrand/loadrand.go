@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -12,6 +11,7 @@ import (
 	"time"
 
 	httpapi "github.com/semafind/semadb/httpapi/v1"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func randVector(size int) []float32 {
@@ -34,11 +34,14 @@ func makeRequest(method string, path string, body any) {
 	// Create request
 	var encBody io.Reader
 	if body != nil {
-		jsonBody, err := json.Marshal(body)
+		var buff bytes.Buffer
+		encoder := msgpack.NewEncoder(&buff)
+		encoder.SetCustomStructTag("json")
+		err := encoder.Encode(body)
 		if err != nil {
 			log.Fatal(err)
 		}
-		encBody = bytes.NewReader(jsonBody)
+		encBody = &buff
 	}
 	req, err := http.NewRequest(method, ENDPOINT+path, encBody)
 	log.Printf("Request: %s", req.URL)
@@ -48,7 +51,7 @@ func makeRequest(method string, path string, body any) {
 	// Set headers
 	req.Header.Set("X-User-Id", "loadrand")
 	req.Header.Set("X-Plan-Id", "BASIC")
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/msgpack")
 	// Send request
 	startTime := time.Now()
 	resp, err := http.DefaultClient.Do(req)

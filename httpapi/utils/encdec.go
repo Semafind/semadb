@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/rs/zerolog/log"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 // Validator is an object that can be validated.
@@ -34,13 +35,23 @@ func Encode[T any](w http.ResponseWriter, status int, v T) {
 // DecodeValid decodes the request body into the object and then validates it.
 func DecodeValid[T Validator](r *http.Request) (T, error) {
 	var v T
-	if r.Header.Get("Content-Type") != "application/json" {
-		return v, fmt.Errorf("expected content type application/json, got %s", r.Header.Get("Content-Type"))
+	ctype := r.Header.Get("Content-Type")
+	switch ctype {
+	case "application/json":
+		if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
+			return v, fmt.Errorf("decode json: %w", err)
+		}
+	case "application/msgpack":
+		dec := msgpack.NewDecoder(r.Body)
+		// This allows the message pack decoder to use the json struct tags.
+		dec.SetCustomStructTag("json")
+		if err := dec.Decode(&v); err != nil {
+			return v, fmt.Errorf("decode msgpack: %w", err)
+		}
+	default:
+		return v, fmt.Errorf("invalid content type %s expected application/json or application/msgpack", ctype)
 	}
 	// ---------------------------
-	if err := json.NewDecoder(r.Body).Decode(&v); err != nil {
-		return v, fmt.Errorf("decode json: %w", err)
-	}
 	if err := v.Validate(); err != nil {
 		return v, fmt.Errorf("validation error: %w", err)
 	}

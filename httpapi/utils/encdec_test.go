@@ -11,6 +11,7 @@ import (
 
 	"github.com/semafind/semadb/httpapi/utils"
 	"github.com/stretchr/testify/require"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 func TestEncode(t *testing.T) {
@@ -86,6 +87,12 @@ func TestDecodeValid(t *testing.T) {
 			content: "application/json",
 			fail:    true,
 		},
+		{
+			name:    "msgpack decoding",
+			body:    func() []byte { b, _ := msgpack.Marshal(testMap{"hello": "world"}); return b }(),
+			content: "application/msgpack",
+			fail:    false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -127,19 +134,32 @@ func BenchmarkDecodeValid(b *testing.B) {
 			points[i] = map[string]any{"vector": randVector(tt.vectorSize)}
 		}
 		data := map[string]any{"points": points, "hello": "world"}
-		payload, err := json.Marshal(data)
-		if err != nil {
-			b.Fatal(err)
-		}
-		b.Run(tt.name, func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
-				r := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(payload))
-				r.Header.Set("Content-Type", "application/json")
-				_, err := utils.DecodeValid[testMap](r)
+		for _, encoding := range []string{"application/json", "application/msgpack"} {
+			var payload []byte
+			switch encoding {
+			case "application/json":
+				var err error
+				payload, err = json.Marshal(data)
+				if err != nil {
+					b.Fatal(err)
+				}
+			case "application/msgpack":
+				var err error
+				payload, err = msgpack.Marshal(data)
 				if err != nil {
 					b.Fatal(err)
 				}
 			}
-		})
+			b.Run(tt.name+"-"+encoding, func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					r := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(payload))
+					r.Header.Set("Content-Type", encoding)
+					_, err := utils.DecodeValid[testMap](r)
+					if err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		}
 	}
 }
