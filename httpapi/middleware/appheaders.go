@@ -27,7 +27,7 @@ func AppHeaderMiddleware(userPlans map[string]models.UserPlan, next http.Handler
 			PlanId: r.Header.Get("X-Plan-Id"),
 		}
 		if appHeaders.UserId == "" || appHeaders.PlanId == "" {
-			utils.Encode(w, http.StatusBadRequest, map[string]string{"error": "missing X-User-ID or X-Plan-Id headers"})
+			utils.Encode(w, http.StatusBadRequest, map[string]string{"error": "missing X-User-Id or X-Plan-Id headers"})
 			return
 		}
 		log.Debug().Interface("appHeaders", appHeaders).Msg("AppHeaderMiddleware")
