@@ -41,6 +41,87 @@ SemaDB is a multi-index, multi-vector, document-based vector database / search e
 
 ## Getting Started
 
+SemaDB has an easy to use HTTP API to perform operations. After running (see below), you can create a collection, add points and search them:
+
+```python
+import requests
+base_url = "https://semadb.p.rapidapi.com"
+# Or use an appropriate base_url if you are using a self-hosted instance, e.g.
+# base_url = "http://localhost:8081/v2"
+
+headers = {
+	"content-type": "application/json",
+	"X-RapidAPI-Key": "<SEMADB_API_KEY>",
+	"X-RapidAPI-Host": "semadb.p.rapidapi.com"
+    # Or if self-hosting
+    # "X-User-Id": "<USER_ID>",
+    # "X-User-Plan": "BASIC"
+}
+
+# Create Collection
+
+payload = {
+	"id": "mycollection",
+    "indexSchema": {
+        "vector": {
+            "type": "vectorVamana",
+            "vectorVamana": {
+                "vectorSize": 384, # e.g. Sentence transformers give embeddings of size 384
+                "distanceMetric": "cosine",
+                "searchSize": 75, # How exhaustive the search should be?
+                "degreeBound": 64, # How dense the graph should be?
+                "alpha": 1.2, # How much longer edges should be preferred?
+            }
+        }
+    }
+}
+
+response = requests.post(base_url + "/collections", json=payload, headers=headers)
+
+print(response.json())
+# {"message": "collection created"}
+
+# Insert Points
+
+payload = {
+  "points": [
+    {
+      "vector": [...],
+      "myfield": "..."
+    },
+  ]
+}
+
+response = requests.post(base_url+"/collections/mycollection/points", json=payload, headers=headers)
+
+print(response.json())
+
+# Search
+
+payload = {
+    "query": {
+        "property": "vector",
+        "vectorVamana": {
+            "vector": [...], # Vector to search
+            "operator": "near",
+            "searchSize": 75,
+            "limit": 3, # top 3 results
+        }
+    },
+    # Restrict what is returned
+    "select": ["myfield"],
+    "limit": 3, # overall search limit if hybrid search etc.
+}
+
+response = requests.post(base_url+"/collections/mycollection/points/search", json=payload, headers=headers)
+
+print(response.json())
+```
+
+For further instructions, please refer to the [getting started guide](https://semadb.com/docs/getting-started/) and the [full documentation](https://semadb.com/).
+
+## Running
+
 To get started from source, please follow the instructions to install [Go](https://go.dev/doc/install). That is the only dependency required to run SemaDB. We try to keep SemaDB as self-contained as possible and up-to-date with the latest Go releases.
 
 SemaDB reads all the configuration from a yaml file, there are some examples contained in the `config` folder. You can run a single server using:
