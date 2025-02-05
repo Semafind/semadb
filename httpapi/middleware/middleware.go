@@ -44,6 +44,10 @@ func ZeroLoggerMetrics(metrics *HttpMetrics, next http.Handler) http.Handler {
 // ---------------------------
 
 func ProxySecret(secret string, next http.Handler) http.Handler {
+	if len(secret) == 0 {
+		log.Warn().Msg("ProxySecretMiddleware is disabled")
+		return next
+	}
 	log.Debug().Str("proxySecret", secret).Msg("ProxySecretMiddleware")
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Proxy-Secret") != secret {
@@ -55,6 +59,11 @@ func ProxySecret(secret string, next http.Handler) http.Handler {
 }
 
 func WhiteListIP(whitelist []string, next http.Handler) http.Handler {
+	if whitelist == nil || (len(whitelist) == 1 && whitelist[0] == "*") {
+		log.Warn().Strs("whiteListIPs", whitelist).Msg("WhiteListIPMiddleware is disabled")
+		return next
+	}
+	log.Debug().Strs("whiteListIPs", whitelist).Msg("WhiteListIPMiddleware")
 	slices.Sort(whitelist)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, found := slices.BinarySearch(whitelist, r.RemoteAddr)

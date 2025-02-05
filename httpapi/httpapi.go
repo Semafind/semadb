@@ -46,15 +46,8 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.
 	// ---------------------------
 	var handler http.Handler = mux
 	handler = middleware.AppHeaderMiddleware(cfg.UserPlans, handler)
-	if cfg.WhiteListIPs == nil || (len(cfg.WhiteListIPs) == 1 && cfg.WhiteListIPs[0] == "*") {
-		log.Warn().Strs("whiteListIPs", cfg.WhiteListIPs).Msg("WhiteListIPMiddleware is disabled")
-	} else {
-		handler = middleware.WhiteListIP(cfg.WhiteListIPs, handler)
-	}
-	if len(cfg.ProxySecret) > 0 {
-		log.Info().Msg("ProxySecretMiddleware is enabled")
-		handler = middleware.ProxySecret(cfg.ProxySecret, handler)
-	}
+	handler = middleware.WhiteListIP(cfg.WhiteListIPs, handler)
+	handler = middleware.ProxySecret(cfg.ProxySecret, handler)
 	handler = middleware.ZeroLoggerMetrics(metrics, handler)
 	handler = middleware.Recover(handler)
 	// ---------------------------
