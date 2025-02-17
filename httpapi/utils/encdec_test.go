@@ -93,6 +93,12 @@ func TestDecodeValid(t *testing.T) {
 			content: "application/msgpack",
 			fail:    false,
 		},
+		{
+			name:    "msgpack decoding error",
+			body:    func() []byte { b, _ := msgpack.Marshal("hello"); return b }(),
+			content: "application/msgpack",
+			fail:    true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -116,6 +122,41 @@ func randVector(size int) []float32 {
 	}
 	return vector
 }
+
+/* The following benchmark is commented out to avoid external dependencies.
+ * Currently it doesn't show any significant difference between encoding/json and
+ * goccy/go-json. */
+/* func BenchmarkDecodeJSON(b *testing.B) {
+	pointSize := 1000
+	vectorSize := 1536
+	points := make([]map[string]any, pointSize)
+	for i := 0; i < 1000; i++ {
+		points[i] = map[string]any{"vector": randVector(vectorSize)}
+	}
+	data := map[string]any{"points": points, "hello": "world"}
+	payload, err := json.Marshal(data)
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, decodeLibrary := range []string{"encoding/json", "goccy/go-json"} {
+		b.Run(decodeLibrary, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				// Unmarshal the payload
+				var v map[string]any
+				var err error
+				switch decodeLibrary {
+				case "encoding/json":
+					err = json.Unmarshal(payload, &v)
+				case "goccy/go-json":
+					err = gojson.Unmarshal(payload, &v)
+				}
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}*/
 
 // Benchmark decodevalid
 func BenchmarkDecodeValid(b *testing.B) {
