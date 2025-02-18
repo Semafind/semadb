@@ -214,6 +214,7 @@ func (im indexManager) searchParallel(
 	isDisjunction bool,
 ) (*roaring64.Bitmap, []models.SearchResult, error) {
 	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
 	// ---------------------------
 	sets := make([]*roaring64.Bitmap, len(queries))
 	results := make([][]models.SearchResult, len(queries))
