@@ -28,7 +28,7 @@ SemaDB is a multi-index, multi-vector, document-based vector database / search e
 - **Hybrid search**: combine vector and keyword search to find the most relevant documents in a single search request. Use weights to adjust the importance of each search type.
 - **Filter search**: filter search results based on other queries or metadata.
 - **Hybrid, filter, multi-vector, multi-index search**: combine all the above search types in a single query. For example, "find me the nearest restaurants (geo index) that are open now (inverted index), have a rating of 4 or more (integer index), and serve a dish similar to this image (vector search) and have a similar description to this text (vector search)".
-- **Simple REST API**: fully JSON based, restful API for interacting with the database. No need to learn a new query language, install custom clients or libraries.
+- **Simple REST API**: JSON or [MessagePack](https://msgpack.org/) based, restful API for interacting with the database. No need to learn a new query language, install custom clients or libraries.
 - **Real-time**: changes are visible immediately and search results are returned in milliseconds, even for large datasets.
 - **Single binary**: the entire database is contained in a single binary. No need to install additional dependencies or services.
 - **Multiple deployment modes**: standalone, container, or cloud. SemaDB can be deployed in a variety of ways to suit your needs.
@@ -93,6 +93,11 @@ payload = {
 }
 
 response = requests.post(base_url+"/collections/mycollection/points", json=payload, headers=headers)
+
+## Or with message pack for faster compact encoding, recommended for inserting points
+import msgpack
+headers["content-type"] = "application/msgpack"
+response = requests.post(base_url+"/collections/mycollection/points", data=msgpack.dumps(payload), headers=headers)
 
 print(response.json())
 
