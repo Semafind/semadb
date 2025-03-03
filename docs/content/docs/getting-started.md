@@ -7,7 +7,7 @@ weight: 10
 
 This page demonstrates how to get start with semantic search using SemaDB. We will create a collection, use [Sentence Transformers](https://www.sbert.net/) to create vector representations of the sentences we would like to search, insert them into the collection and use SemaDB's search functionality.
 
-SemaDB doesn't use a custom client library, instead it has a JSON Rest API that can be accessed using any programming language. In this example we will use Python to interact with the API using the [requests library](https://requests.readthedocs.io/en/latest/).
+SemaDB doesn't use a custom client library, instead it has a JSON or [MessagePack](https://msgpack.org/) Rest API that can be accessed using any programming language. In this example we will use Python to interact with the API using the [requests library](https://requests.readthedocs.io/en/latest/).
 
 > You can try [SemaDB Cloud Beta](https://rapidapi.com/semafind-semadb/api/semadb) for free without having to install anything and follow this guide. Otherwise you'll need a running instance of SemaDB. You can follow the instructions on the [main readme](/).
 
@@ -113,6 +113,25 @@ which should print something like:
 ```
 
 In this basic example we only have 1 field (`vector`) that is indexed. But you can have any mixture of indexed and non-indexed fields. Refer to the [indexing page concept page]({{< ref "concepts/indexing" >}}) for more information.
+
+### MessagePack Encoding
+
+JSON is very flexible and easy-to-use; however, when inserting large amounts of data it can be slow. [MessagePack](https://msgpack.org/) is a binary format that is more compact and faster to encode and decode. It is supported by SemaDB and *recommended* for inserting points in bulk.
+
+```python
+import msgpack # pip install msgpack
+
+payload = { "points": points } # Same as before
+headers["content-type"] = "application/msgpack" # Change the content type to msgpack
+response = requests.post(base_url+"/collections/mycollection/points", data=msgpack.dumps(payload), headers=headers)
+
+# Responses are always in JSON
+print(response.json())
+```
+
+This will give the same result as before, but will be considerably faster for large amounts of data.
+
+> Make sure to change the content type back to JSON for other requests in this tutorial.
 
 ## Vector Search
 
