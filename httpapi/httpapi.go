@@ -8,6 +8,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
+	"github.com/semafind/semadb/httpapi/utils"
 	httpv1 "github.com/semafind/semadb/httpapi/v1"
 	httpv2 "github.com/semafind/semadb/httpapi/v2"
 	"github.com/semafind/semadb/models"
@@ -40,18 +41,28 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.
 		metrics = middleware.SetupAndListenMetrics(cfg.MetricsHttpHost, cfg.MetricsHttpPort, reg)
 	}
 	// ---------------------------
-	mux := http.NewServeMux()
-	mux.Handle("/v1/", http.StripPrefix("/v1", httpv1.SetupV1Handlers(cnode)))
-	mux.Handle("/v2/", http.StripPrefix("/v2", httpv2.SetupV2Handlers(cnode)))
+	apiMux := http.NewServeMux()
+	apiMux.Handle("/v1/", http.StripPrefix("/v1", httpv1.SetupV1Handlers(cnode)))
+	apiMux.Handle("/v2/", http.StripPrefix("/v2", httpv2.SetupV2Handlers(cnode)))
 	// ---------------------------
-	var handler http.Handler = mux
+	var handler http.Handler = apiMux
 	handler = middleware.AppHeaderMiddleware(cfg.UserPlans, handler)
 	handler = middleware.WhiteListIP(cfg.WhiteListIPs, handler)
 	handler = middleware.ProxySecret(cfg.ProxySecret, handler)
 	handler = middleware.ZeroLoggerMetrics(metrics, handler)
-	handler = middleware.Recover(handler)
 	// ---------------------------
-	return handler
+	/* We're moving health check outside of logging and proxy to make it more
+	 * accessible in deployments. It will also not be logged to not be swamped
+	 * by k8s healthchecks. */
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		utils.Encode(w, http.StatusOK, map[string]string{"status": "ok"})
+	})
+	mux.Handle("/", handler)
+	var globalHandler http.Handler = mux
+	globalHandler = middleware.Recover(globalHandler)
+	// ---------------------------
+	return globalHandler
 }
 
 func RunHTTPServer(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.Registry) *http.Server {

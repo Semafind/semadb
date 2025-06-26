@@ -18,10 +18,6 @@ import (
 
 // ---------------------------
 
-func handlePing(w http.ResponseWriter, r *http.Request) {
-	utils.Encode(w, http.StatusOK, map[string]string{"message": "pong from semadb"})
-}
-
 type SemaDBHandlers struct {
 	clusterNode *cluster.ClusterNode
 }
@@ -29,7 +25,6 @@ type SemaDBHandlers struct {
 // Requires middleware.AppHeaderMiddleware to be used
 func SetupV2Handlers(clusterNode *cluster.ClusterNode) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ping", handlePing)
 	semaDBHandlers := &SemaDBHandlers{clusterNode: clusterNode}
 	// https://stackoverflow.blog/2020/03/02/best-practices-for-rest-api-design/
 	mux.HandleFunc("GET /collections", semaDBHandlers.HandleListCollections)

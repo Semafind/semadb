@@ -125,24 +125,6 @@ func makeRequest(t *testing.T, router http.Handler, method string, endpoint stri
 	return recorder
 }
 
-func Test_pongHandler(t *testing.T) {
-	router := setupTestRouter(t, clusterNodeState{})
-	req, err := http.NewRequest("GET", "/ping", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	// With App Headers
-	req.Header.Set("X-User-Id", "testy")
-	req.Header.Set("X-Plan-Id", "BASIC")
-	w = httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, "{\"message\":\"pong from semadb\"}\n", w.Body.String())
-}
-
 func Test_CreateCollection(t *testing.T) {
 	router := setupTestRouter(t, clusterNodeState{})
 	// ---------------------------

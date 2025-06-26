@@ -11,13 +11,6 @@ GET http://localhost:8091/metrics HTTP/1.1
 
 ###
 
-# Ping
-GET {{baseUrl}}/ping HTTP/1.1
-X-User-Id: {{userId}}
-X-Plan-Id: {{package}}
-
-###
-
 # CreateCollection
 POST {{baseUrl}}/collections HTTP/1.1
 Content-Type: application/json
