@@ -7,11 +7,13 @@ COPY . .
 RUN go mod download && go mod verify
 
 RUN go build -v -o /semadb ./
+RUN go build -v -o /healthcheck ./cmd/healthcheck
 
 # FROM gcr.io/distroless/static-debian12
 FROM debian:bookworm-slim
 
 COPY --from=build /semadb /
+COPY --from=build /healthcheck /healthcheck
 
 EXPOSE 8080 9898
 
