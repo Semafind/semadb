@@ -68,7 +68,7 @@ paths:
                 value:
                   id: mycollection
                   indexSchema:
-                    myvector:
+                    vector:
                       type: vectorVamana
                       vectorVamana:
                         vectorSize: 2
@@ -140,7 +140,7 @@ paths:
                   value:
                     id: mycollection
                     indexSchema:
-                      myvector:
+                      vector:
                         type: vectorVamana
                         vectorVamana:
                           vectorSize: 2
@@ -206,12 +206,12 @@ paths:
                 description: A sample list of points to insert
                 value:
                   points:
-                    - myvector: [4.2, 2.4]
-                    - myvector: [1.2, 3.4]
+                    - vector: [4.2, 2.4]
+                    - vector: [1.2, 3.4]
                       foo: bar
                       externalId: 42
                     - _id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-                      myvector: [3.4, 2.4]
+                      vector: [3.4, 2.4]
                       externalId: 43
       responses:
         '200':
@@ -274,7 +274,7 @@ paths:
                 value:
                   points:
                     - _id: 3fa85f64-5717-4562-b3fc-2c963f66afa6
-                      myvector: [4.2, 2.4]
+                      vector: [4.2, 2.4]
                       wizard: harry
       responses:
         '200':
@@ -371,7 +371,7 @@ paths:
                 description: A sample vector to search with default limit
                 value:
                   query:
-                    property: myvector
+                    property: vector
                     vectorVamana:
                       vector: [4.2, 2.4]
                       operator: near
