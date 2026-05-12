@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     env:
-      GO_VERSION: 1.25.0
+      GO_VERSION: 1.25.6
       HUGO_VERSION: 0.148.2
     steps:
       - uses: actions/checkout@v4
