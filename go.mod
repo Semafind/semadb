@@ -1,6 +1,6 @@
 module github.com/semafind/semadb
 
-go 1.25.6
+go 1.27.0
 
 require (
 	github.com/RoaringBitmap/roaring v1.9.4
