@@ -3,6 +3,7 @@ package vamana
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/rand/v2"
 	"runtime"
@@ -10,8 +11,6 @@ import (
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
@@ -48,11 +47,11 @@ type IndexVamana struct {
 	maxNodeId atomic.Uint64
 	// ---------------------------
 	bucket diskstore.Bucket
-	logger zerolog.Logger
+	logger *slog.Logger
 }
 
 func NewIndexVamana(name string, params models.IndexVectorVamanaParameters, bucket diskstore.Bucket) (*IndexVamana, error) {
-	logger := log.With().Str("component", "IndexVamana").Str("name", name).Logger()
+	logger := slog.With("component", "IndexVamana", "name", name)
 	// ---------------------------
 	index := &IndexVamana{
 		parameters: params,
@@ -75,7 +74,7 @@ func NewIndexVamana(name string, params models.IndexVectorVamanaParameters, buck
 	if maxNodeIdVal := bucket.Get([]byte(MAXNODEIDKEY)); maxNodeIdVal != nil {
 		index.maxNodeId.Store(conversion.BytesToUint64(maxNodeIdVal))
 	}
-	logger.Debug().Uint64("maxNodeId", index.maxNodeId.Load()).Msg("IndexVamana- New")
+	logger.Debug("IndexVamana- New", "maxNodeId", index.maxNodeId.Load())
 	// ---------------------------
 	return index, nil
 }
@@ -252,7 +251,7 @@ func (v *IndexVamana) insertUpdateDelete(ctx context.Context, pointQueue <-chan 
 		}
 	}
 	// ---------------------------
-	v.logger.Debug().Str("duration", time.Since(startTime).String()).Msg("IndexVamana- Write")
+	v.logger.Debug("IndexVamana- Write", "duration", time.Since(startTime).String())
 	// ---------------------------
 	// Check vector store optimisation, this may include quantisation etc.
 	if err := v.vecStore.Fit(); err != nil {
@@ -281,7 +280,7 @@ func (v *IndexVamana) Search(ctx context.Context, query models.SearchVectorVaman
 	if err != nil {
 		return nil, nil, fmt.Errorf("could not perform graph search: %w", err)
 	}
-	v.logger.Debug().Str("component", "shard").Str("duration", time.Since(startTime).String()).Msg("SearchPoints - GreedySearch")
+	v.logger.Debug("SearchPoints - GreedySearch", "component", "shard", "duration", time.Since(startTime).String())
 	results := make([]models.SearchResult, 0, min(len(searchSet.items), query.Limit))
 	resultSet := roaring64.New()
 	// ---------------------------

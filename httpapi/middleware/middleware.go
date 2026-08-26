@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log/slog"
 	"net/http"
 	"regexp"
 	"runtime/debug"
@@ -8,47 +9,70 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/rs/zerolog/hlog"
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/httpapi/utils"
 )
 
+var collectionsRegex = regexp.MustCompile(`collections/[a-zA-Z0-9]+`)
+
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	statusCode   int
+	bytesWritten int
+}
+
+func (lrw *loggingResponseWriter) WriteHeader(code int) {
+	lrw.statusCode = code
+	lrw.ResponseWriter.WriteHeader(code)
+}
+
+func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
+	n, err := lrw.ResponseWriter.Write(b)
+	lrw.bytesWritten += n
+	return n, err
+}
+
+func (lrw *loggingResponseWriter) Unwrap() http.ResponseWriter {
+	return lrw.ResponseWriter
+}
+
 // ---------------------------
-// Zerolog based middleware for logging HTTP requests
-func ZeroLoggerMetrics(metrics *HttpMetrics, next http.Handler) http.Handler {
-	handler := hlog.AccessHandler(func(r *http.Request, status, size int, duration time.Duration) {
-		hlog.FromRequest(r).Info().
-			Str("method", r.Method).
-			Stringer("url", r.URL).
-			Int("status", status).
-			Int("size", size).
-			Dur("duration", duration).
-			Msg("")
+// Standard slog based middleware for logging HTTP requests and metrics
+func LoggerMetrics(metrics *HttpMetrics, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(lrw, r)
+		duration := time.Since(start)
+
+		slog.Info("",
+			"method", r.Method,
+			"url", r.URL.String(),
+			"status", lrw.statusCode,
+			"size", lrw.bytesWritten,
+			"duration", duration,
+		)
+
 		if metrics != nil {
 			// Canonicalize the URL by removing url parameters
-			// Replace anything of the form collections/mycol23 with collections/:id
-			re := regexp.MustCompile(`collections/[a-zA-Z0-9]+`)
-			canonical := re.ReplaceAll([]byte(r.URL.Path), []byte("collections/{collectionId}"))
+			// Replace anything of the form collections/mycol23 with collections/{collectionId}
+			canonical := collectionsRegex.ReplaceAll([]byte(r.URL.Path), []byte("collections/{collectionId}"))
 			hname := string(canonical)
-			ssCode := strconv.Itoa(status)
+			ssCode := strconv.Itoa(lrw.statusCode)
 			metrics.requestCount.WithLabelValues(ssCode, r.Method, hname).Inc()
 			metrics.requestDuration.WithLabelValues(ssCode, r.Method, hname).Observe(duration.Seconds())
-			metrics.requestSize.WithLabelValues(ssCode, r.Method, hname).Observe(float64(size))
-			// metrics.responseSize.WithLabelValues(ssCode, r.Method, hname).Observe(float64(bodySize))
+			metrics.requestSize.WithLabelValues(ssCode, r.Method, hname).Observe(float64(lrw.bytesWritten))
 		}
-	})(next)
-	handler = hlog.NewHandler(log.Logger)(handler)
-	return handler
+	})
 }
 
 // ---------------------------
 
 func ProxySecret(secret string, next http.Handler) http.Handler {
 	if len(secret) == 0 {
-		log.Warn().Msg("ProxySecretMiddleware is disabled")
+		slog.Warn("ProxySecretMiddleware is disabled")
 		return next
 	}
-	log.Debug().Str("proxySecret", secret).Msg("ProxySecretMiddleware")
+	slog.Debug("ProxySecretMiddleware", "proxySecret", secret)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Proxy-Secret") != secret {
 			utils.Encode(w, http.StatusProxyAuthRequired, map[string]string{"error": "forbidden"})
@@ -60,10 +84,10 @@ func ProxySecret(secret string, next http.Handler) http.Handler {
 
 func WhiteListIP(whitelist []string, next http.Handler) http.Handler {
 	if whitelist == nil || (len(whitelist) == 1 && whitelist[0] == "*") {
-		log.Warn().Strs("whiteListIPs", whitelist).Msg("WhiteListIPMiddleware is disabled")
+		slog.Warn("WhiteListIPMiddleware is disabled", "whiteListIPs", whitelist)
 		return next
 	}
-	log.Debug().Strs("whiteListIPs", whitelist).Msg("WhiteListIPMiddleware")
+	slog.Debug("WhiteListIPMiddleware", "whiteListIPs", whitelist)
 	slices.Sort(whitelist)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, found := slices.BinarySearch(whitelist, r.RemoteAddr)
@@ -79,8 +103,8 @@ func Recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
 			if err := recover(); err != nil {
-				log.Error().Interface("error", err).Msg("panic recovered")
-				log.Error().Str("stack", string(debug.Stack())).Msg("stack trace")
+				slog.Error("panic recovered", "error", err)
+				slog.Error("stack trace", "stack", string(debug.Stack()))
 				w.WriteHeader(http.StatusInternalServerError)
 			}
 		}()

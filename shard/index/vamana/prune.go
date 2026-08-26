@@ -94,7 +94,7 @@ func (v *IndexVamana) removeInboundEdges(deleteSet map[uint64]struct{}) error {
 	if err != nil {
 		return fmt.Errorf("could not scan edges: %w", err)
 	}
-	v.logger.Debug().Int("deleteSetSize", len(deleteSet)).Int("toPruneSize", len(toPrune)).Int("toSaveSize", len(toSave)).Str("duration", time.Since(startTime).String()).Msg("EdgeScan")
+	v.logger.Debug("EdgeScan", "deleteSetSize", len(deleteSet), "toPruneSize", len(toPrune), "toSaveSize", len(toSave), "duration", time.Since(startTime).String())
 	// ---------------------------
 	startTime = time.Now()
 	toPrunePoints, err := v.vecStore.GetMany(toPrune...)
@@ -110,7 +110,7 @@ func (v *IndexVamana) removeInboundEdges(deleteSet map[uint64]struct{}) error {
 			return fmt.Errorf("could not prune delete neighbour: %w", err)
 		}
 	}
-	v.logger.Debug().Int("toPruneSize", len(toPrune)).Str("duration", time.Since(startTime).String()).Msg("PruneDeleteNeighbour")
+	v.logger.Debug("PruneDeleteNeighbour", "toPruneSize", len(toPrune), "duration", time.Since(startTime).String())
 	// ---------------------------
 	/* This saving business happens because when deleting points, we can
 	 * potentially create disconnected nodes. That is, all the incoming edges of

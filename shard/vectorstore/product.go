@@ -2,10 +2,10 @@ package vectorstore
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"sync"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/distance"
@@ -241,7 +241,7 @@ func (pq *productQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 		return func(y VectorStorePoint) float32 {
 			pointY, ok := y.(*productQuantizedPoint)
 			if !ok {
-				log.Warn().Uint64("id", y.Id()).Msg("point not found for pq distance calculation")
+				slog.Warn("point not found for pq distance calculation", "id", y.Id())
 				return math.MaxFloat32
 			}
 			return pq.distFn(x, pointY.Vector)
@@ -265,7 +265,7 @@ func (pq *productQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 	return func(y VectorStorePoint) float32 {
 		pointY, ok := y.(*productQuantizedPoint)
 		if !ok {
-			log.Warn().Uint64("id", y.Id()).Msg("point not found for pq distance calculation")
+			slog.Warn("point not found for pq distance calculation", "id", y.Id())
 			return math.MaxFloat32
 		}
 		var dist float32
@@ -283,7 +283,7 @@ func (pq *productQuantizer) DistanceFromPoint(x VectorStorePoint) PointIdDistFn 
 		return func(y VectorStorePoint) float32 {
 			pointY, okY := y.(*productQuantizedPoint)
 			if !okX || !okY {
-				log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
+				slog.Warn("point not found for distance calculation", "idX", x.Id(), "idY", y.Id())
 				return math.MaxFloat32
 			}
 			return pq.distFn(pointX.Vector, pointY.Vector)
@@ -293,7 +293,7 @@ func (pq *productQuantizer) DistanceFromPoint(x VectorStorePoint) PointIdDistFn 
 	return func(y VectorStorePoint) float32 {
 		pointY, okY := y.(*productQuantizedPoint)
 		if !okX || !okY {
-			log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
+			slog.Warn("point not found for distance calculation", "idX", x.Id(), "idY", y.Id())
 			return math.MaxFloat32
 		}
 		var dist float32

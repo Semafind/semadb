@@ -3,9 +3,9 @@ package mrpc
 import (
 	"bufio"
 	"io"
+	"log/slog"
 	"net/rpc"
 
-	"github.com/rs/zerolog/log"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -68,7 +68,7 @@ func (c *msgpackCodec) WriteResponse(r *rpc.Response, body any) (err error) {
 		if c.encBuf.Flush() == nil {
 			// Couldn't encode the header. Should not happen, so if it does,
 			// shut down the connection to signal that the connection is broken.
-			log.Error().Err(err).Msg("rpc: msgpack error encoding response")
+			slog.Error("rpc: msgpack error encoding response", "error", err)
 			c.Close()
 		}
 		return
@@ -77,7 +77,7 @@ func (c *msgpackCodec) WriteResponse(r *rpc.Response, body any) (err error) {
 		if c.encBuf.Flush() == nil {
 			// Was a msgpack problem encoding the body but the header has been written.
 			// Shut down the connection to signal that the connection is broken.
-			log.Error().Err(err).Msg("rpc: msgpack error encoding body")
+			slog.Error("rpc: msgpack error encoding body", "error", err)
 			c.Close()
 		}
 		return

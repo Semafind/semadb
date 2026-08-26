@@ -1,12 +1,13 @@
 package middleware
 
 import (
+	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/rs/zerolog/log"
 )
 
 type HttpMetrics struct {
@@ -58,9 +59,10 @@ func SetupAndListenMetrics(host string, port int, reg *prometheus.Registry) *Htt
 	// We start the server in the background. We can in the future add a
 	// graceful shutdown here.
 	go func() {
-		log.Info().Str("httpAddr", metricsServer.Addr).Msg("HTTPAPI.ServeMetrics")
+		slog.Info("HTTPAPI.ServeMetrics", "httpAddr", metricsServer.Addr)
 		if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Err(err).Msg("failed to start http server")
+			slog.Error("failed to start http server", "error", err)
+			os.Exit(1)
 		}
 	}()
 	// ---------------------------

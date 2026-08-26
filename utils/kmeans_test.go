@@ -2,11 +2,11 @@ package utils_test
 
 import (
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"sync"
 	"testing"
 
-	"github.com/rs/zerolog"
 	"github.com/semafind/semadb/utils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -93,8 +93,8 @@ func TestKMeans_Large(t *testing.T) {
 func BenchmarkKMeans_Fit(b *testing.B) {
 	datasetSize := []int{1000, 10000}
 	vectorSize := []int{4, 8, 16}
-	// Disable zerolog
-	zerolog.SetGlobalLevel(zerolog.Disabled)
+	// Disable logging during benchmark
+	slog.SetDefault(slog.New(slog.DiscardHandler))
 	for _, ds := range datasetSize {
 		for _, vs := range vectorSize {
 			benchmarkName := fmt.Sprintf("DatasetSize=%d-VectorSize=%d", ds, vs)

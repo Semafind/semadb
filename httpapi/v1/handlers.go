@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
 	"github.com/semafind/semadb/httpapi/utils"
@@ -102,7 +102,7 @@ func (sdbh *SemaDBHandlers) HandleCreateCollection(w http.ResponseWriter, r *htt
 			},
 		},
 	}
-	log.Debug().Interface("collection", vamanaCollection).Msg("CreateCollection")
+	slog.Debug("CreateCollection", "collection", vamanaCollection)
 	// ---------------------------
 	switch err := sdbh.clusterNode.CreateCollection(vamanaCollection); err {
 	case nil:
@@ -113,7 +113,7 @@ func (sdbh *SemaDBHandlers) HandleCreateCollection(w http.ResponseWriter, r *htt
 		utils.Encode(w, http.StatusConflict, map[string]string{"error": "collection exists"})
 	default:
 		utils.Encode(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		log.Error().Err(err).Str("id", vamanaCollection.Id).Msg("CreateCollection failed")
+		slog.Error("CreateCollection failed", "error", err, "id", vamanaCollection.Id)
 	}
 }
 
@@ -133,7 +133,7 @@ func (sdbh *SemaDBHandlers) HandleListCollections(w http.ResponseWriter, r *http
 	collections, err := sdbh.clusterNode.ListCollections(appHeaders.UserId)
 	if err != nil {
 		utils.Encode(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		log.Error().Err(err).Msg("ListCollections failed")
+		slog.Error("ListCollections failed", "error", err)
 		return
 	}
 	colItems := make([]ListCollectionItem, len(collections))
@@ -290,7 +290,7 @@ func (sdbh *SemaDBHandlers) HandleInsertPoints(w http.ResponseWriter, r *http.Re
 		utils.Encode(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
 	}
-	log.Debug().Str("bindTime", time.Since(startTime).String()).Msg("InsertPoints bind")
+	slog.Debug("InsertPoints bind", "bindTime", time.Since(startTime).String())
 	// ---------------------------
 	// Get corresponding collection
 	collection := r.Context().Value(collectionContextKey).(models.Collection)

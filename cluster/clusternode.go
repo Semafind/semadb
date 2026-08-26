@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/rpc"
 	"os"
@@ -11,8 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster/mrpc"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/utils"
@@ -58,7 +57,7 @@ type ClusterNodeConfig struct {
 }
 
 type ClusterNode struct {
-	logger zerolog.Logger
+	logger *slog.Logger
 	// ---------------------------
 	cfg ClusterNodeConfig
 	// ---------------------------
@@ -88,16 +87,17 @@ func NewNode(config ClusterNodeConfig) (*ClusterNode, error) {
 		if envHostname == "" {
 			hostname, err := os.Hostname()
 			if err != nil {
-				log.Fatal().Err(err).Msg("Failed to get hostname")
+				slog.Error("Failed to get hostname", "error", err)
+				os.Exit(1)
 			}
-			log.Warn().Str("hostname", hostname).Msg("host not set, using hostname")
+			slog.Warn("host not set, using hostname", "hostname", hostname)
 			envHostname = hostname
 		}
 		envHostname = envHostname + config.RpcDomain + ":" + strconv.Itoa(config.RpcPort)
-		log.Info().Str("hostname", envHostname).Msg("Full hostname")
+		slog.Info("Full hostname", "hostname", envHostname)
 	}
 	// ---------------------------
-	logger := log.With().Str("hostname", envHostname).Str("component", "clusterNode").Logger()
+	logger := slog.With("hostname", envHostname, "component", "clusterNode")
 	// ---------------------------
 	// Setup local node database
 	rootDir := config.RootDir
@@ -149,10 +149,11 @@ func (c *ClusterNode) Serve() error {
 	// ---------------------------
 	go func() {
 		// service connections
-		c.logger.Info().Str("rpcHost", c.cfg.RpcHost).Msg("rpcServe")
-		defer c.logger.Info().Msg("rpcServe stopped")
+		c.logger.Info("rpcServe", "rpcHost", c.cfg.RpcHost)
+		defer c.logger.Info("rpcServe stopped")
 		if err := rpcServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			c.logger.Fatal().Err(err).Msg("Failed to listen and serve RPC")
+			c.logger.Error("Failed to listen and serve RPC", "error", err)
+			os.Exit(1)
 		}
 	}()
 	// ---------------------------
@@ -160,9 +161,9 @@ func (c *ClusterNode) Serve() error {
 	go func() {
 		<-c.doneCh
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		c.logger.Debug().Msg("rpcServer.Shutdown")
+		c.logger.Debug("rpcServer.Shutdown")
 		if err := rpcServer.Shutdown(ctx); err != nil {
-			log.Error().Err(err).Msg("RPC server forced to shut")
+			slog.Error("RPC server forced to shut", "error", err)
 		}
 		cancel()
 		c.bgWaitGroup.Done()
@@ -174,8 +175,8 @@ func (c *ClusterNode) Serve() error {
 	}
 	c.bgWaitGroup.Add(1)
 	go func() {
-		c.logger.Info().Int("backupFrequency", c.cfg.BackupFrequency).Int("backupCount", c.cfg.BackupCount).Msg("backupNodeDB")
-		defer c.logger.Info().Msg("backupNodeDB stopped")
+		c.logger.Info("backupNodeDB", "backupFrequency", c.cfg.BackupFrequency, "backupCount", c.cfg.BackupCount)
+		defer c.logger.Info("backupNodeDB stopped")
 		ticker := time.NewTicker(time.Duration(c.cfg.BackupFrequency) * time.Second)
 		for {
 			select {
@@ -187,7 +188,7 @@ func (c *ClusterNode) Serve() error {
 				// ---------------------------
 				err := utils.BackupBBolt(c.nodedb, c.cfg.BackupFrequency, c.cfg.BackupCount)
 				if err != nil {
-					c.logger.Error().Err(err).Msg("Failed to backup node database")
+					c.logger.Error("Failed to backup node database", "error", err)
 				}
 				// ---------------------------
 			}

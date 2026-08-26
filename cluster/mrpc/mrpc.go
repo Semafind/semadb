@@ -12,12 +12,11 @@ import (
 	"bufio"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/rpc"
 	"time"
-
-	"github.com/rs/zerolog/log"
 )
 
 const connected = "200 Connected to Go RPC"
@@ -62,17 +61,17 @@ func NewHTTPServer(addr string, rpcServer *rpc.Server) *http.Server {
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			if _, err := io.WriteString(w, "405 must CONNECT\n"); err != nil {
-				log.Error().Str("remoteAddr", r.RemoteAddr).Err(err).Msg("rpc server wrong method")
+				slog.Error("rpc server wrong method", "remoteAddr", r.RemoteAddr, "error", err)
 			}
 			return
 		}
 		conn, _, err := w.(http.Hijacker).Hijack()
 		if err != nil {
-			log.Error().Str("remoteAddr", r.RemoteAddr).Err(err).Msg("rpc hijacking")
+			slog.Error("rpc hijacking", "remoteAddr", r.RemoteAddr, "error", err)
 			return
 		}
 		if _, err := io.WriteString(conn, "HTTP/1.0 "+connected+"\n\n"); err != nil {
-			log.Error().Str("remoteAddr", r.RemoteAddr).Err(err).Msg("rpc server connection")
+			slog.Error("rpc server connection", "remoteAddr", r.RemoteAddr, "error", err)
 			conn.Close()
 			return
 		}

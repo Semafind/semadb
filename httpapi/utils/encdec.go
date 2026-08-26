@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 
-	"github.com/rs/zerolog/log"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -24,7 +24,7 @@ func Encode[T any](w http.ResponseWriter, status int, v T) {
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(v); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		log.Error().Err(err).Msg("could not encode response")
+		slog.Error("could not encode response", "error", err)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}

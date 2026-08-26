@@ -2,8 +2,8 @@ package shard
 
 import (
 	"fmt"
+	"log/slog"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 )
@@ -57,7 +57,7 @@ func NewIdCounter(bucket diskstore.Bucket, freeIdsKey []byte, nextFreeIdKey []by
 		nextFreeId = conversion.BytesToUint64(nextFreeIdBytes)
 	}
 	// ---------------------------
-	log.Debug().Uint64("nextFreeId", nextFreeId).Int("freeIds", len(freeIds)).Msg("NewIdCounter")
+	slog.Debug("NewIdCounter", "nextFreeId", nextFreeId, "freeIds", len(freeIds))
 	idCounter := &IdCounter{
 		bucket:        bucket,
 		freeIdsKey:    freeIdsKey,

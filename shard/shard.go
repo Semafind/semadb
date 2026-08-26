@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
@@ -26,7 +25,7 @@ type Shard struct {
 	collection models.Collection
 	// ---------------------------
 	cacheManager *cache.Manager
-	logger       zerolog.Logger
+	logger       *slog.Logger
 }
 
 // ---------------------------
@@ -59,7 +58,7 @@ func NewShard(dbFile string, collection models.Collection, cacheManager *cache.M
 		db:           db,
 		collection:   collection,
 		cacheManager: cacheManager,
-		logger:       log.With().Str("component", "shard").Str("name", dbFile).Logger(),
+		logger:       slog.With("component", "shard", "name", dbFile),
 	}
 	return shard, nil
 }
@@ -132,7 +131,7 @@ func (s *Shard) Info() (si shardInfo, err error) {
 
 func (s *Shard) InsertPoints(points []models.Point) error {
 	// ---------------------------
-	s.logger.Debug().Int("count", len(points)).Msg("InsertPoints")
+	s.logger.Debug("InsertPoints", "count", len(points))
 	// ---------------------------
 	// Check for duplicate ids
 	ids := make(map[uuid.UUID]struct{}, len(points))
@@ -215,10 +214,10 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 		txTime = time.Now()
 		return nil
 	})
-	s.logger.Debug().Str("duration", time.Since(txTime).String()).Msg("InsertPoints - Transaction Done")
+	s.logger.Debug("InsertPoints - Transaction Done", "duration", time.Since(txTime).String())
 	if err != nil {
 		cacheTx.Commit(true)
-		s.logger.Error().Err(err).Msg("could not insert points")
+		s.logger.Error("could not insert points", "error", err)
 		return fmt.Errorf("could not insert points: %w", err)
 	}
 	cacheTx.Commit(false)
@@ -229,7 +228,7 @@ func (s *Shard) InsertPoints(points []models.Point) error {
 // ---------------------------
 
 func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
-	s.logger.Debug().Int("count", len(points)).Msg("UpdatePoints")
+	s.logger.Debug("UpdatePoints", "count", len(points))
 	// ---------------------------
 	// Note that some points may not exist, so we need to take care of that
 	// throughout this function
@@ -316,7 +315,7 @@ func (s *Shard) UpdatePoints(points []models.Point) ([]uuid.UUID, error) {
 	})
 	if err != nil {
 		cacheTx.Commit(true)
-		s.logger.Debug().Err(err).Msg("could not update points")
+		s.logger.Debug("could not update points", "error", err)
 		return nil, fmt.Errorf("could not update points: %w", err)
 	}
 	cacheTx.Commit(false)
@@ -457,7 +456,7 @@ func (s *Shard) SearchPoints(searchRequest models.SearchRequest) ([]models.Searc
 			utils.SortSearchResults(finalResults, searchRequest.Sort)
 		}
 		// ---------------------------
-		s.logger.Debug().Str("duration", time.Since(selectSortStart).String()).Msg("Search - Select Sort")
+		s.logger.Debug("Search - Select Sort", "duration", time.Since(selectSortStart).String())
 	}
 	/* End of select sort, if we skipped it then the encoded data is transmitted,
 	 * otherwise DecodedData is populated and sent instead. */

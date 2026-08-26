@@ -3,10 +3,10 @@ package flat
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/index/vamana"
@@ -122,7 +122,7 @@ func (inf IndexFlat) Search(ctx context.Context, options models.SearchVectorFlat
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to iterate over points: %w", err)
 	}
-	log.Debug().Dur("elapsed", time.Since(startTime)).Msg("search flat")
+	slog.Debug("search flat", "elapsed", time.Since(startTime))
 	// ---------------------------
 	rSet := roaring64.New()
 	for _, r := range res {

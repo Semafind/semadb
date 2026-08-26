@@ -1,11 +1,12 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
 	"github.com/semafind/semadb/httpapi/utils"
@@ -49,7 +50,7 @@ func setupRouter(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheus.
 	handler = middleware.AppHeaderMiddleware(cfg.UserPlans, handler)
 	handler = middleware.WhiteListIP(cfg.WhiteListIPs, handler)
 	handler = middleware.ProxySecret(cfg.ProxySecret, handler)
-	handler = middleware.ZeroLoggerMetrics(metrics, handler)
+	handler = middleware.LoggerMetrics(metrics, handler)
 	// ---------------------------
 	/* We're moving health check outside of logging and proxy to make it more
 	 * accessible in deployments. It will also not be logged to not be swamped
@@ -72,9 +73,10 @@ func RunHTTPServer(cnode *cluster.ClusterNode, cfg HttpApiConfig, reg *prometheu
 		Handler: setupRouter(cnode, cfg, reg),
 	}
 	go func() {
-		log.Info().Str("httpAddr", server.Addr).Msg("HTTPAPI.Serve")
+		slog.Info("HTTPAPI.Serve", "httpAddr", server.Addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal().Err(err).Msg("failed to start http server")
+			slog.Error("failed to start http server", "error", err)
+			os.Exit(1)
 		}
 	}()
 	// ---------------------------

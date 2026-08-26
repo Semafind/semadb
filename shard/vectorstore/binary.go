@@ -2,10 +2,10 @@ package vectorstore
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"time"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/distance"
@@ -178,7 +178,7 @@ func (bq *binaryQuantizer) Fit() error {
 		point.isDirty = true
 		return nil
 	})
-	log.Debug().Dur("duration", time.Since(startTime)).Int("thresholdLen", len(bq.threshold)).Msg("fitted binary quantizer")
+	slog.Debug("fitted binary quantizer", "duration", time.Since(startTime), "thresholdLen", len(bq.threshold))
 	// ---------------------------
 	return err
 
@@ -193,7 +193,7 @@ func (bq *binaryQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 		return func(y VectorStorePoint) float32 {
 			pointY, ok := y.(*binaryQuantizedPoint)
 			if !ok {
-				log.Warn().Uint64("id", y.Id()).Msg("point not found for distance calculation")
+				slog.Warn("point not found for distance calculation", "id", y.Id())
 				return math.MaxFloat32
 			}
 			return bq.bitDistFn(encodedX, pointY.BinaryVector)
@@ -203,7 +203,7 @@ func (bq *binaryQuantizer) DistanceFromFloat(x []float32) PointIdDistFn {
 	return func(y VectorStorePoint) float32 {
 		pointY, ok := y.(*binaryQuantizedPoint)
 		if !ok {
-			log.Warn().Uint64("id", y.Id()).Msg("point not found for distance calculation")
+			slog.Warn("point not found for distance calculation", "id", y.Id())
 			return math.MaxFloat32
 		}
 		return bq.floatDistFn(x, pointY.Vector)
@@ -216,7 +216,7 @@ func (bq *binaryQuantizer) DistanceFromPoint(x VectorStorePoint) PointIdDistFn {
 		return func(y VectorStorePoint) float32 {
 			pointB, okB := y.(*binaryQuantizedPoint)
 			if !okX || !okB {
-				log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
+				slog.Warn("point not found for distance calculation", "idX", x.Id(), "idY", y.Id())
 				return math.MaxFloat32
 			}
 			return bq.bitDistFn(pointX.BinaryVector, pointB.BinaryVector)
@@ -226,7 +226,7 @@ func (bq *binaryQuantizer) DistanceFromPoint(x VectorStorePoint) PointIdDistFn {
 	return func(y VectorStorePoint) float32 {
 		pointB, okB := y.(*binaryQuantizedPoint)
 		if !okX || !okB {
-			log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
+			slog.Warn("point not found for distance calculation", "idX", x.Id(), "idY", y.Id())
 			return math.MaxFloat32
 		}
 		return bq.floatDistFn(pointX.Vector, pointB.Vector)

@@ -3,8 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
+	"os"
 
-	"github.com/rs/zerolog/log"
 	"go.etcd.io/bbolt"
 )
 
@@ -22,7 +23,7 @@ func dumpBucket(tx *bbolt.Tx, name []byte, prefix string) {
 		return nil
 	})
 	if err != nil {
-		log.Error().Err(err).Str("bucket", string(name)).Msg("could not dump bucket")
+		slog.Error("could not dump bucket", "bucket", string(name), "error", err)
 	}
 	// Recurse into all sub-buckets
 	err = b.ForEachBucket(func(name []byte) error {
@@ -30,7 +31,7 @@ func dumpBucket(tx *bbolt.Tx, name []byte, prefix string) {
 		return nil
 	})
 	if err != nil {
-		log.Error().Err(err).Str("bucket", string(name)).Msg("could not recurse into bucket")
+		slog.Error("could not recurse into bucket", "bucket", string(name), "error", err)
 	}
 
 }
@@ -40,11 +41,12 @@ func main() {
 	var dbPath string
 	flag.StringVar(&dbPath, "path", "", "Path to the database")
 	flag.Parse()
-	log.Info().Str("path", dbPath).Msg("starting dumpKeys")
+	slog.Info("starting dumpKeys", "path", dbPath)
 	// ---------------------------
 	db, err := bbolt.Open(dbPath, 0600, nil)
 	if err != nil {
-		log.Fatal().Err(err).Msg("could not open database")
+		slog.Error("could not open database", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 	// ---------------------------
@@ -60,7 +62,8 @@ func main() {
 		return nil
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("could not read database")
+		slog.Error("could not read database", "error", err)
+		os.Exit(1)
 	}
 	// ---------------------------
 }

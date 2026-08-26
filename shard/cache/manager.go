@@ -2,12 +2,11 @@ package cache
 
 import (
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/rs/zerolog/log"
 )
 
 // Every item that is stored in the cache must implement this interface. It is
@@ -54,7 +53,7 @@ func (m *Manager) Release(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.sharedCaches, name)
-	log.Debug().Str("name", name).Int("numCaches", len(m.sharedCaches)).Msg("Released cache")
+	slog.Debug("Released cache", "name", name, "numCaches", len(m.sharedCaches))
 }
 
 // Checks if the total size of the cache is over the limit and if so, it will
@@ -101,7 +100,7 @@ func (m *Manager) checkAndPrune() {
 			break
 		}
 		delete(m.sharedCaches, s.name)
-		log.Debug().Str("name", s.name).Msg("Pruning cache")
+		slog.Debug("Pruning cache", "name", s.name)
 		totalSize -= s.size
 	}
 }
@@ -168,7 +167,7 @@ func (t *Transaction) With(name string, readOnly bool, createFn func() (Cachable
 					// give a blank cache to operate on to keep the ball rolling. No
 					// one else will benefit from this cache but it's better than
 					// waiting.
-					log.Debug().Str("name", name).Msg("Creating read only cold cache")
+					slog.Debug("Creating read only cold cache", "name", name)
 					freshCachable, err := createFn()
 					if err != nil {
 						t.failed.Store(true)
@@ -205,7 +204,7 @@ func (t *Transaction) With(name string, readOnly bool, createFn func() (Cachable
 			t.mu.Unlock()
 		}
 		if cacheToUse.scrapped {
-			log.Debug().Str("name", name).Bool("readOnly", readOnly).Msg("Cache is scrapped, using temporary new cache")
+			slog.Debug("Cache is scrapped, using temporary new cache", "name", name, "readOnly", readOnly)
 			/* Cold temporary start, what has happened is although the cache was
 			 * in the manager, while we were waiting for the lock on it, it got
 			 * scrapped and is not longer good to use. To keep things running, we
@@ -225,7 +224,7 @@ func (t *Transaction) With(name string, readOnly bool, createFn func() (Cachable
 			 * delete it from the manager which happens below. */
 		}
 		if cacheToUse == existingCache {
-			log.Debug().Str("name", name).Bool("readOnly", readOnly).Msg("Reusing cache")
+			slog.Debug("Reusing cache", "name", name, "readOnly", readOnly)
 			defer t.manager.checkAndPrune()
 		}
 		if err := f(cacheToUse.item); err != nil {
@@ -240,7 +239,7 @@ func (t *Transaction) With(name string, readOnly bool, createFn func() (Cachable
 		}
 		return nil
 	}
-	log.Debug().Str("name", name).Bool("readOnly", readOnly).Msg("Creating new cache")
+	slog.Debug("Creating new cache", "name", name, "readOnly", readOnly)
 	freshCachable, err := createFn()
 	if err != nil {
 		t.failed.Store(true)
@@ -296,7 +295,7 @@ func (t *Transaction) Commit(fail bool) {
 			s.scrapped = true
 			delete(t.manager.sharedCaches, name)
 		}
-		log.Debug().Str("name", name).Bool("failed", failed).Msg("Committing cache")
+		slog.Debug("Committing cache", "name", name, "failed", failed)
 		// Recall that we should be holding all the write locks to these caches within the transaction
 		s.mu.Unlock()
 	}

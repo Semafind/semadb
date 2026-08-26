@@ -4,13 +4,13 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"log/slog"
 	"math/rand/v2"
 	"slices"
 	"sync"
 	"testing"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/rs/zerolog"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/distance"
@@ -132,7 +132,7 @@ func Test_Search(t *testing.T) {
 }
 
 func Test_Recall(t *testing.T) {
-	zerolog.SetGlobalLevel(zerolog.Disabled)
+	slog.SetDefault(slog.New(slog.DiscardHandler))
 	distFnNames := []string{models.DistanceCosine, models.DistanceEuclidean, models.DistanceDot, models.DistanceHaversine}
 	for _, distFnName := range distFnNames {
 		testName := fmt.Sprintf("distFn=%s", distFnName)

@@ -2,9 +2,9 @@ package vectorstore
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/distance"
@@ -77,7 +77,7 @@ func (ps plainStore) DistanceFromFloat(x []float32) PointIdDistFn {
 	return func(y VectorStorePoint) float32 {
 		point, ok := y.(plainPoint)
 		if !ok {
-			log.Warn().Uint64("id", y.Id()).Msg("point not found for distance calculation")
+			slog.Warn("point not found for distance calculation", "id", y.Id())
 			return math.MaxFloat32
 		}
 		return ps.distFn(x, point.Vector)
@@ -89,7 +89,7 @@ func (ps plainStore) DistanceFromPoint(x VectorStorePoint) PointIdDistFn {
 	return func(y VectorStorePoint) float32 {
 		pointY, okY := y.(plainPoint)
 		if !okX || !okY {
-			log.Warn().Uint64("idX", x.Id()).Uint64("idY", y.Id()).Msg("point not found for distance calculation")
+			slog.Warn("point not found for distance calculation", "idX", x.Id(), "idY", y.Id())
 			return math.MaxFloat32
 		}
 		return ps.distFn(pointX.Vector, pointY.Vector)

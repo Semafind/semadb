@@ -98,7 +98,7 @@ func (c *ClusterNode) GetShardsInfo(col models.Collection) ([]shardInfo, error) 
 		}
 		getInfoResponse := RPCGetShardInfoResponse{}
 		if err := c.RPCGetShardInfo(&getInfoRequest, &getInfoResponse); err != nil {
-			c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", shardId).Msg("could not get shard info")
+			c.logger.Error("could not get shard info", "error", err, "userId", col.UserId, "collectionId", col.Id, "shardId", shardId)
 			return nil, fmt.Errorf("could not get shard info: %w: %w", ErrShardUnavailable, err)
 		}
 		// ---------------------------
@@ -154,7 +154,7 @@ func (c *ClusterNode) DeleteCollection(col models.Collection) ([]string, error) 
 			}
 			deleteShardResponse := RPCDeleteCollectionShardsResponse{}
 			if err := c.RPCDeleteCollectionShards(&deleteShardRequest, &deleteShardResponse); err != nil {
-				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Msg("Could not delete collection shards")
+				c.logger.Error("Could not delete collection shards", "error", err, "userId", col.UserId, "collectionId", col.Id)
 			} else {
 				mu.Lock()
 				deletedShardIds = append(deletedShardIds, deleteShardResponse.DeletedShardIds...)
@@ -244,7 +244,7 @@ func (c *ClusterNode) InsertPoints(col models.Collection, points []models.Point)
 			}
 			insertResp := RPCInsertPointsResponse{}
 			if err := c.RPCInsertPoints(&insertReq, &insertResp); err != nil {
-				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", sId).Msg("could not insert points")
+				c.logger.Error("could not insert points", "error", err, "userId", col.UserId, "collectionId", col.Id, "shardId", sId)
 				mu.Lock()
 				failedRanges = append(failedRanges, FailedRange{
 					ShardId: sId,
@@ -339,7 +339,7 @@ func (c *ClusterNode) SearchPoints(col models.Collection, sr models.SearchReques
 					// If we encounter an error, we only want to report it once.
 					searchErr = fmt.Errorf("shard could not search points: %w", err)
 				})
-				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", sId).Msg("could not search points")
+				c.logger.Error("could not search points", "error", err, "userId", col.UserId, "collectionId", col.Id, "shardId", sId)
 			} else {
 				// Alternatively we can stream the results into a channel and
 				// loop over. This is more straightforward for now.
@@ -415,7 +415,7 @@ func (c *ClusterNode) UpdatePoints(col models.Collection, points []models.Point)
 			}
 			updateResp := RPCUpdatePointsResponse{}
 			if err := c.RPCUpdatePoints(&updateReq, &updateResp); err != nil {
-				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", sId).Msg("could not update points")
+				c.logger.Error("could not update points", "error", err, "userId", col.UserId, "collectionId", col.Id, "shardId", sId)
 			} else {
 				mu.Lock()
 				results = append(results, updateResp.UpdatedIds...)
@@ -504,7 +504,7 @@ func (c *ClusterNode) DeletePoints(col models.Collection, pointIds []uuid.UUID) 
 			}
 			deleteResp := RPCDeletePointsResponse{}
 			if err := c.RPCDeletePoints(&deleteReq, &deleteResp); err != nil {
-				c.logger.Error().Err(err).Str("userId", col.UserId).Str("collectionId", col.Id).Str("shardId", sId).Msg("could not delete points")
+				c.logger.Error("could not delete points", "error", err, "userId", col.UserId, "collectionId", col.Id, "shardId", sId)
 			} else {
 				mu.Lock()
 				deletedIds = append(deletedIds, deleteResp.DeletedIds...)

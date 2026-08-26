@@ -3,9 +3,9 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/httpapi/utils"
 	"github.com/semafind/semadb/models"
 )
@@ -30,7 +30,7 @@ func AppHeaderMiddleware(userPlans map[string]models.UserPlan, next http.Handler
 			utils.Encode(w, http.StatusBadRequest, map[string]string{"error": "missing X-User-Id or X-Plan-Id headers"})
 			return
 		}
-		log.Debug().Interface("appHeaders", appHeaders).Msg("AppHeaderMiddleware")
+		slog.Debug("AppHeaderMiddleware", "appHeaders", appHeaders)
 		// ---------------------------
 		newCtx := context.WithValue(r.Context(), appHeadersKey, appHeaders)
 		// Extract user plan

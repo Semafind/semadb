@@ -2,9 +2,9 @@ package cache
 
 import (
 	"errors"
+	"log/slog"
 	"sync"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/diskstore"
 )
 
@@ -143,7 +143,7 @@ func (ic *ItemCache[K, T]) Count() int {
 		return nil
 	})
 	if err != nil {
-		log.Warn().Err(err).Msg("error counting item cache items in bucket")
+		slog.Warn("error counting item cache items in bucket", "error", err)
 		return 0
 	}
 	cacheCount := 0

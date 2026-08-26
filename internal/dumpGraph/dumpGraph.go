@@ -3,8 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log/slog"
+	"os"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 )
@@ -20,11 +21,12 @@ func main() {
 	var buckeName string
 	flag.StringVar(&buckeName, "bucket", "index/vectorVamana/vector", "Name of the bucket to dump")
 	flag.Parse()
-	log.Info().Str("path", dbPath).Msg("starting dumpGraph")
+	slog.Info("starting dumpGraph", "path", dbPath)
 	// ---------------------------
 	db, err := diskstore.Open(dbPath)
 	if err != nil {
-		log.Fatal().Err(err).Msg("could not open database")
+		slog.Error("could not open database", "error", err)
+		os.Exit(1)
 	}
 	defer db.Close()
 	// ---------------------------
@@ -49,7 +51,8 @@ func main() {
 		})
 	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("could not read graph index")
+		slog.Error("could not read graph index", "error", err)
+		os.Exit(1)
 	}
 	// ---------------------------
 }

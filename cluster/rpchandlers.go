@@ -45,7 +45,7 @@ type RPCSetNodeKeyValueResponse struct {
 }
 
 func (c *ClusterNode) RPCSetNodeKeyValue(args *RPCSetNodeKeyValueRequest, reply *RPCSetNodeKeyValueResponse) error {
-	c.logger.Debug().Int("kvCount", len(args.KeyValues)).Str("Bucket", args.Bucket).Msg("RPCSetNodeKeyValue")
+	c.logger.Debug("RPCSetNodeKeyValue", "kvCount", len(args.KeyValues), "Bucket", args.Bucket)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCSetNodeKeyValue", args, reply)
 	}
@@ -84,7 +84,7 @@ type RPCSendShardResponse struct {
 }
 
 func (c *ClusterNode) RPCSendShard(args *RPCSendShardRequest, reply *RPCSendShardResponse) error {
-	c.logger.Debug().Str("userId", args.UserId).Str("collectionId", args.CollectionId).Str("shardId", args.ShardId).Int("chunkIndex", args.ChunkIndex).Int("chunkSize", len(args.ChunkData)).Msg("RPCSendShard")
+	c.logger.Debug("RPCSendShard", "userId", args.UserId, "collectionId", args.CollectionId, "shardId", args.ShardId, "chunkIndex", args.ChunkIndex, "chunkSize", len(args.ChunkData))
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCSendShard", args, reply)
 	}
@@ -136,7 +136,7 @@ type RPCCreateCollectionResponse struct {
 }
 
 func (c *ClusterNode) RPCCreateCollection(args *RPCCreateCollectionRequest, reply *RPCCreateCollectionResponse) error {
-	c.logger.Debug().Str("collectionId", args.Collection.Id).Msg("RPCCreateCollection")
+	c.logger.Debug("RPCCreateCollection", "collectionId", args.Collection.Id)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCCreateCollection", args, reply)
 	}
@@ -194,7 +194,7 @@ type RPCDeleteCollectionResponse struct {
 }
 
 func (c *ClusterNode) RPCDeleteCollection(args *RPCDeleteCollectionRequest, reply *RPCDeleteCollectionResponse) error {
-	c.logger.Debug().Str("userId", args.Collection.UserId).Str("collectionId", args.Collection.Id).Msg("RPCDeleteCollection")
+	c.logger.Debug("RPCDeleteCollection", "userId", args.Collection.UserId, "collectionId", args.Collection.Id)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCDeleteCollection", args, reply)
 	}
@@ -225,7 +225,7 @@ type RPCListCollectionsResponse struct {
 }
 
 func (c *ClusterNode) RPCListCollections(args *RPCListCollectionsRequest, reply *RPCListCollectionsResponse) error {
-	c.logger.Debug().Str("userId", args.UserId).Msg("RPCListCollections")
+	c.logger.Debug("RPCListCollections", "userId", args.UserId)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCListCollections", args, reply)
 	}
@@ -265,7 +265,7 @@ type RPCGetCollectionResponse struct {
 }
 
 func (c *ClusterNode) RPCGetCollection(args *RPCGetCollectionRequest, reply *RPCGetCollectionResponse) error {
-	c.logger.Debug().Str("userId", args.UserId).Str("collectionId", args.CollectionId).Msg("RPCGetCollection")
+	c.logger.Debug("RPCGetCollection", "userId", args.UserId, "collectionId", args.CollectionId)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCGetCollection", args, reply)
 	}
@@ -304,7 +304,7 @@ type RPCCreateShardResponse struct {
 }
 
 func (c *ClusterNode) RPCCreateShard(args *RPCCreateShardRequest, reply *RPCCreateShardResponse) error {
-	c.logger.Debug().Str("userId", args.UserId).Str("collectionId", args.CollectionId).Msg("RPCCreateShard")
+	c.logger.Debug("RPCCreateShard", "userId", args.UserId, "collectionId", args.CollectionId)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCCreateShard", args, reply)
 	}
@@ -357,7 +357,7 @@ type RPCGetShardInfoResponse struct {
 }
 
 func (c *ClusterNode) RPCGetShardInfo(args *RPCGetShardInfoRequest, reply *RPCGetShardInfoResponse) error {
-	c.logger.Debug().Str("userId", args.Collection.UserId).Str("collectionId", args.Collection.Id).Str("shardId", args.ShardId).Msg("RPCGetShardInfo")
+	c.logger.Debug("RPCGetShardInfo", "userId", args.Collection.UserId, "collectionId", args.Collection.Id, "shardId", args.ShardId)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCGetShardInfo", args, reply)
 	}
@@ -382,7 +382,7 @@ type RPCDeleteCollectionShardsResponse struct {
 }
 
 func (c *ClusterNode) RPCDeleteCollectionShards(args *RPCDeleteCollectionShardsRequest, reply *RPCDeleteCollectionShardsResponse) error {
-	c.logger.Debug().Str("userId", args.Collection.UserId).Str("collectionId", args.Collection.Id).Msg("RPCDeleteCollectionShards")
+	c.logger.Debug("RPCDeleteCollectionShards", "userId", args.Collection.UserId, "collectionId", args.Collection.Id)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCDeleteCollectionShards", args, reply)
 	}
@@ -408,7 +408,7 @@ type RPCInsertPointsResponse struct {
 }
 
 func (c *ClusterNode) RPCInsertPoints(args *RPCInsertPointsRequest, reply *RPCInsertPointsResponse) error {
-	c.logger.Debug().Str("userId", args.Collection.UserId).Str("collectionId", args.Collection.Id).Str("shardId", args.ShardId).Msg("RPCInsertPoints")
+	c.logger.Debug("RPCInsertPoints", "userId", args.Collection.UserId, "collectionId", args.Collection.Id, "shardId", args.ShardId)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCInsertPoints", args, reply)
 	}
@@ -437,7 +437,7 @@ type RPCUpdatePointsResponse struct {
 }
 
 func (c *ClusterNode) RPCUpdatePoints(args *RPCUpdatePointsRequest, reply *RPCUpdatePointsResponse) error {
-	c.logger.Debug().Str("userId", args.Collection.UserId).Str("collectionId", args.Collection.Id).Str("shardId", args.ShardId).Msg("RPCUpdatePoints")
+	c.logger.Debug("RPCUpdatePoints", "userId", args.Collection.UserId, "collectionId", args.Collection.Id, "shardId", args.ShardId)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCUpdatePoints", args, reply)
 	}
@@ -466,7 +466,7 @@ type RPCDeletePointsResponse struct {
 }
 
 func (c *ClusterNode) RPCDeletePoints(args *RPCDeletePointsRequest, reply *RPCDeletePointsResponse) error {
-	c.logger.Debug().Str("userId", args.Collection.UserId).Str("collectionId", args.Collection.Id).Str("shardId", args.ShardId).Msg("RPCDeletePoints")
+	c.logger.Debug("RPCDeletePoints", "userId", args.Collection.UserId, "collectionId", args.Collection.Id, "shardId", args.ShardId)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCDeletePoints", args, reply)
 	}
@@ -499,7 +499,7 @@ type RPCSearchPointsResponse struct {
 }
 
 func (c *ClusterNode) RPCSearchPoints(args *RPCSearchPointsRequest, reply *RPCSearchPointsResponse) error {
-	c.logger.Debug().Str("userId", args.Collection.UserId).Str("collectionId", args.Collection.Id).Str("shardId", args.ShardId).Msg("RPCSearchPoints")
+	c.logger.Debug("RPCSearchPoints", "userId", args.Collection.UserId, "collectionId", args.Collection.Id, "shardId", args.ShardId)
 	if args.Dest != c.MyHostname {
 		return c.internalRoute("ClusterNode.RPCSearchPoints", args, reply)
 	}

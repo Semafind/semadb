@@ -5,12 +5,12 @@ import (
 	"C"
 	"fmt"
 	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime/pprof"
 
 	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
 	"github.com/semafind/semadb/shard/cache"
@@ -26,7 +26,7 @@ var globalShard *shard.Shard
 var globalVectorSize int
 
 func init() {
-	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
 }
 
 var collection = models.Collection{

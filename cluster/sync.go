@@ -21,7 +21,7 @@ func (c *ClusterNode) syncUserCollections() error {
 	// We go through all the collections we have stored and see if any should be
 	// on other servers.
 	// ---------------------------
-	c.logger.Info().Msg("starting user entry sync")
+	c.logger.Info("starting user entry sync")
 	postage := make(map[string]RPCSetNodeKeyValueRequest, len(c.Servers))
 	// ---------------------------
 	err := c.nodedb.Read(func(bm diskstore.BucketManager) error {
@@ -63,7 +63,7 @@ func (c *ClusterNode) syncUserCollections() error {
 	}
 	// ---------------------------
 	for dest, req := range postage {
-		c.logger.Info().Int("count", len(req.KeyValues)).Str("dest", dest).Msg("user collections to send")
+		c.logger.Info("user collections to send", "count", len(req.KeyValues), "dest", dest)
 	}
 	// ---------------------------
 	// We need to do this sending business after we have read otherwise we might
@@ -78,7 +78,7 @@ func (c *ClusterNode) syncUserCollections() error {
 		wg.Add(1)
 		go func(dest string, req RPCSetNodeKeyValueRequest) {
 			defer wg.Done()
-			c.logger.Debug().Int("count", len(req.KeyValues)).Str("dest", dest).Msg("sending user collections")
+			c.logger.Debug("sending user collections", "count", len(req.KeyValues), "dest", dest)
 			rpcResp := RPCSetNodeKeyValueResponse{}
 			if err := c.RPCSetNodeKeyValue(&req, &rpcResp); err != nil {
 				errs <- fmt.Errorf("failed to send user collections to %s: %w", dest, err)
@@ -117,14 +117,14 @@ func (c *ClusterNode) syncUserCollections() error {
 		}
 	}
 	// ---------------------------
-	c.logger.Info().Int("contactedServers", len(postage)).Msg("finished user entry sync")
+	c.logger.Info("finished user entry sync", "contactedServers", len(postage))
 	return nil
 }
 
 const CHUNKSIZE = 8 * 1024 * 1024 // 8MB
 
 func (c *ClusterNode) sendShardFile(destination string, path string) error {
-	c.logger.Debug().Str("path", path).Str("destination", destination).Msg("sending shard")
+	c.logger.Debug("sending shard", "path", path, "destination", destination)
 	f, err := os.Open(path)
 	if err != nil {
 		return fmt.Errorf("failed to open shard file: %w", err)
@@ -194,7 +194,7 @@ func (c *ClusterNode) sendShardFile(destination string, path string) error {
 			break
 		}
 	}
-	c.logger.Debug().Dur("duration", time.Since(startTime)).Str("path", path).Str("destination", destination).Msg("sent shard")
+	c.logger.Debug("sent shard", "duration", time.Since(startTime), "path", path, "destination", destination)
 	return nil
 }
 
@@ -207,7 +207,7 @@ func (c *ClusterNode) syncShards() error {
 	// rootDir/userCollections/userId/collectionId/shardId/sharddb.bbolt
 	// e.g. /data/userCollections/alice/mycollection/00a9e56b-c882-4991-babf-29aacf6fc681/sharddb.bbolt
 	// ---------------------------
-	c.logger.Info().Msg("starting shard sync")
+	c.logger.Info("starting shard sync")
 	// ---------------------------
 	shardDir := filepath.Join(c.cfg.ShardManager.RootDir, USERCOLSDIR) // This would be /data/userCollections
 	shardPaths := make([]string, 0)
@@ -224,7 +224,7 @@ func (c *ClusterNode) syncShards() error {
 	// Destination to a list of shard paths
 	postage := make(map[string][]string, len(c.Servers))
 	// ---------------------------
-	c.logger.Debug().Int("count", len(shardPaths)).Msg("found shards to sync")
+	c.logger.Debug("found shards to sync", "count", len(shardPaths))
 	for _, path := range shardPaths {
 		shardId := filepath.Base(filepath.Dir(path)) // the UUID of the shard
 		destination := RendezvousHash(shardId, c.Servers, 1)[0]
@@ -262,17 +262,17 @@ func (c *ClusterNode) syncShards() error {
 		}
 	}
 	// ---------------------------
-	c.logger.Info().Int("contactedServers", len(postage)).Msg("finished shard sync")
+	c.logger.Info("finished shard sync", "contactedServers", len(postage))
 	return nil
 }
 
 func (c *ClusterNode) Sync() error {
 	if len(c.Servers) == 1 && c.Servers[0] == c.MyHostname {
 		// We are the only server, so no need to sync anything.
-		c.logger.Info().Msg("no other servers to sync user entries with")
+		c.logger.Info("no other servers to sync user entries with")
 		return nil
 	}
-	c.logger.Info().Strs("servers", c.Servers).Str("myhostname", c.MyHostname).Msg("syncing cluster node state")
+	c.logger.Info("syncing cluster node state", "servers", c.Servers, "myhostname", c.MyHostname)
 	if err := c.syncUserCollections(); err != nil {
 		return fmt.Errorf("failed to sync user collections: %w", err)
 	}

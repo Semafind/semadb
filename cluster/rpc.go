@@ -14,7 +14,7 @@ func (c *ClusterNode) rpcClient(destination string) (*rpc.Client, error) {
 	if client, ok := c.rpcClients[destination]; ok {
 		return client, nil
 	}
-	c.logger.Debug().Str("destination", destination).Msg("Creating new rpc client")
+	c.logger.Debug("Creating new rpc client", "destination", destination)
 	client, err := mrpc.DialHTTP("tcp", destination)
 	if err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func (args RPCRequestArgs) Destination() string {
 
 func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply any) error {
 	destination := args.Destination()
-	c.logger.Debug().Str("destination", destination).Msg(remoteFn + ": routing")
+	c.logger.Debug(remoteFn+": routing", "destination", destination)
 	// ---------------------------
 	startTime := time.Now()
 	defer func() {
@@ -56,7 +56,7 @@ func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply a
 			// Exponential backoff and minimum 2 second delay, so we start 2
 			// seconds, 4 seconds, 8 seconds, etc.
 			delay := time.Duration(1<<uint(i)) * time.Second
-			c.logger.Error().Dur("delay", delay).Err(retryErr).Str("destination", destination).Int("attempt", i+1).Msg("Retrying rpc call")
+			c.logger.Error("Retrying rpc call", "delay", delay, "error", retryErr, "destination", destination, "attempt", i+1)
 			time.Sleep(delay)
 		}
 		retryErr = nil
@@ -79,7 +79,7 @@ func (c *ClusterNode) internalRoute(remoteFn string, args Destinationer, reply a
 					c.rpcClientsMu.Lock()
 					delete(c.rpcClients, destination)
 					c.rpcClientsMu.Unlock()
-					c.logger.Debug().Str("destination", destination).Msg("Removed dead client")
+					c.logger.Debug("Removed dead client", "destination", destination)
 					// We don't count this as a retry because the client was
 					// shutdown and no request was actually made. This may occur
 					// if a previous remote call returned an error and the

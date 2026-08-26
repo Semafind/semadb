@@ -1,11 +1,11 @@
 package utils
 
 import (
+	"log/slog"
 	"math"
 	"math/rand/v2"
 	"time"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/distance"
 	"github.com/semafind/semadb/models"
 )
@@ -43,7 +43,7 @@ func (km *KMeans) Fit(X [][]float32) {
 	 * Read more at: https://en.wikipedia.org/wiki/K-means_clustering
 	 */
 	distFn, _ := distance.GetFloatDistanceFn(models.DistanceEuclidean)
-	logger := log.With().Str("module", "kmeans").Int("size", len(X)).Logger()
+	logger := slog.With("module", "kmeans", "size", len(X))
 	// ---------------------------
 	/* Initialise centroids following kmeans++, we effectively find the furthest
 	 * points from existing centroids. Although this obviously takes more time,
@@ -81,7 +81,7 @@ func (km *KMeans) Fit(X [][]float32) {
 		}
 		km.Centroids[i] = X[furthestId][km.Offset : km.Offset+km.VectorLen]
 	}
-	logger.Debug().Dur("duration", time.Since(startTime)).Msg("initialising centroids")
+	logger.Debug("initialising centroids", "duration", time.Since(startTime))
 	// ---------------------------
 	km.Labels = make([]uint8, len(X))
 	// The sums are used to calculate the mean and then update the centroids
@@ -146,5 +146,5 @@ func (km *KMeans) Fit(X [][]float32) {
 		}
 		// ---------------------------
 	}
-	logger.Debug().Dur("duration", time.Since(startTime)).Msg("fitting KMeans")
+	logger.Debug("fitting KMeans", "duration", time.Since(startTime))
 }

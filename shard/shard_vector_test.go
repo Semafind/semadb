@@ -739,9 +739,6 @@ func TestShard_LargeInsertUpdateSearch(t *testing.T) {
 // 	require.NoError(t, err)
 // 	t.Log("Found", len(datasetFiles), "files:", datasetFiles)
 // 	// ---------------------------
-// 	// Disable zerolog
-// 	zerolog.SetGlobalLevel(zerolog.Disabled)
-// 	// ---------------------------
 // 	// Preload dataset files so we don't measure the time it takes to load them
 // 	datasets := make(map[string]loadhdf5.VectorCollection, len(datasetFiles))
 // 	for _, datasetFile := range datasetFiles {

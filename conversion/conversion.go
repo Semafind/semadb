@@ -2,10 +2,9 @@ package conversion
 
 import (
 	"encoding/binary"
+	"log/slog"
 	"math"
 	"unsafe"
-
-	"github.com/rs/zerolog/log"
 )
 
 var Float32ToBytes func([]float32) []byte = float32ToBytesSafe
@@ -49,7 +48,7 @@ func init() {
 	// Determine native endianness
 	var i uint16 = 0xABCD
 	isLittleEndian := *(*byte)(unsafe.Pointer(&i)) == 0xCD
-	log.Info().Bool("isLittleEndian", isLittleEndian).Msg("Endianness")
+	slog.Info("Endianness", "isLittleEndian", isLittleEndian)
 	if isLittleEndian {
 		Float32ToBytes = float32ToBytesRaw
 		BytesToFloat32 = bytesToFloat32Raw

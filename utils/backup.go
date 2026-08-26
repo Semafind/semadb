@@ -3,6 +3,7 @@ package utils
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/rs/zerolog/log"
 	"github.com/semafind/semadb/diskstore"
 )
 
@@ -59,7 +59,7 @@ func BackupBBolt(db diskstore.DiskStore, backupFrequency, backupCount int) error
 		if err != nil {
 			errs = append(errs, fmt.Errorf("could not create backup: %w", err))
 		} else {
-			log.Debug().Str("component", "backupBBolt").Str("backupFile", backupFile).Msg("Created backup")
+			slog.Debug("Created backup", "component", "backupBBolt", "backupFile", backupFile)
 			backupFiles = append(backupFiles, backupFile)
 		}
 	}
