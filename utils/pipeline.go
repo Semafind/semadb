@@ -174,6 +174,7 @@ func MergeErrorsWithContext(ctx context.Context, cs ...<-chan error) <-chan erro
 	}
 	go func() {
 		wg.Wait()
+		cancel(nil)
 		errC <- context.Cause(ctx)
 		close(errC)
 	}()
