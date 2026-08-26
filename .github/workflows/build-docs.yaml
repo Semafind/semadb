@@ -34,15 +34,15 @@ jobs:
       GO_VERSION: 1.27.0
       HUGO_VERSION: 0.148.2
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
     # Compile redoc
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
       - run: npx @redocly/cli build-docs openapi.yaml 
         working-directory: httpapi/v2
       - run: mv httpapi/v2/redoc-static.html docs/static/api-reference.html
     # Compile hugo website
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ env.GO_VERSION }}
       - name: Install Hugo
@@ -71,9 +71,9 @@ jobs:
         run: hugo
 
       - name: Setup pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
       - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ./docs/public
   deploy:
@@ -85,4 +85,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
