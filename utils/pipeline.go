@@ -157,16 +157,20 @@ func MergeWithContext[T any](ctx context.Context, cs ...<-chan T) <-chan T {
 func MergeErrorsWithContext(ctx context.Context, cs ...<-chan error) <-chan error {
 	errC := make(chan error, 1)
 	var wg sync.WaitGroup
-	ctx, cancel := context.WithCancelCause(ctx)
+	var firstErr error
+	var once sync.Once
+	ctx, cancel := context.WithCancel(ctx)
 	wg.Add(len(cs))
 	for _, c := range cs {
 		go func(c <-chan error) {
 			select {
 			case <-ctx.Done():
-				cancel(ctx.Err())
 			case err := <-c:
 				if err != nil {
-					cancel(err)
+					once.Do(func() {
+						firstErr = err
+					})
+					cancel()
 				}
 			}
 			wg.Done()
@@ -174,8 +178,8 @@ func MergeErrorsWithContext(ctx context.Context, cs ...<-chan error) <-chan erro
 	}
 	go func() {
 		wg.Wait()
-		cancel(nil)
-		errC <- context.Cause(ctx)
+		cancel()
+		errC <- firstErr
 		close(errC)
 	}()
 	return errC
