@@ -2,10 +2,10 @@ package cluster
 
 import (
 	"fmt"
-	"testing"
-	"uuid"
 	"github.com/semafind/semadb/models"
 	"github.com/stretchr/testify/require"
+	"testing"
+	"uuid"
 )
 
 func randPoints(size int) []models.Point {

@@ -4,16 +4,16 @@ package main
 import (
 	"C"
 	"fmt"
+	"github.com/semafind/semadb/models"
+	"github.com/semafind/semadb/shard"
+	"github.com/semafind/semadb/shard/cache"
+	"github.com/vmihailenco/msgpack/v5"
 	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime/pprof"
 	"uuid"
-	"github.com/semafind/semadb/models"
-	"github.com/semafind/semadb/shard"
-	"github.com/semafind/semadb/shard/cache"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 /* This module provides a C interface to the shard package. It is used by the

@@ -4,15 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"net/http"
-	"time"
-	"uuid"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
 	"github.com/semafind/semadb/httpapi/utils"
 	"github.com/semafind/semadb/models"
 	"github.com/vmihailenco/msgpack/v5"
+	"log/slog"
+	"net/http"
+	"time"
+	"uuid"
 )
 
 // ---------------------------

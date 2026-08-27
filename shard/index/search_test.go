@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"uuid"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
@@ -13,6 +12,7 @@ import (
 	"github.com/semafind/semadb/shard/pointstore"
 	"github.com/semafind/semadb/utils"
 	"github.com/stretchr/testify/require"
+	"uuid"
 )
 
 /*

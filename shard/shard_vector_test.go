@@ -7,7 +7,6 @@ import (
 	"sync"
 	"testing"
 
-	"uuid"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
@@ -17,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmihailenco/msgpack/v5"
+	"uuid"
 )
 
 var sampleIndexSchema = models.IndexSchema{

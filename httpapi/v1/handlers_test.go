@@ -4,17 +4,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"testing"
-	"uuid"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
 	v1 "github.com/semafind/semadb/httpapi/v1"
 	"github.com/semafind/semadb/models"
 	"github.com/stretchr/testify/require"
 	"github.com/vmihailenco/msgpack/v5"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"uuid"
 )
 
 type requestTest struct {

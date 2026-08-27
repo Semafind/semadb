@@ -2,13 +2,13 @@ package cluster
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"uuid"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
 	"github.com/vmihailenco/msgpack/v5"
+	"os"
+	"path/filepath"
+	"uuid"
 )
 
 // ---------------------------

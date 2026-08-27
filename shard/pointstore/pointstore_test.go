@@ -1,12 +1,12 @@
 package pointstore_test
 
 import (
-	"testing"
-	"uuid"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/pointstore"
 	"github.com/stretchr/testify/require"
+	"testing"
+	"uuid"
 )
 
 func checkCount(t *testing.T, b diskstore.Bucket, expected int) {

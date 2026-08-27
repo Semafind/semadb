@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"uuid"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index/flat"
@@ -16,6 +15,7 @@ import (
 	"github.com/semafind/semadb/shard/index/text"
 	"github.com/semafind/semadb/shard/index/vamana"
 	"github.com/semafind/semadb/shard/pointstore"
+	"uuid"
 )
 
 func (im indexManager) Search(
