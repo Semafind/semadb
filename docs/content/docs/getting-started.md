@@ -89,7 +89,7 @@ embeddings = embeddings / np.linalg.norm(embeddings, axis=1, keepdims=True)
 print(embeddings.shape)
 ```
 
-which should print `(3, 384)` as we have 3 sentences and the embeddings are of size 384. We can not insert the data into the collection.
+which should print `(3, 384)` as we have 3 sentences and the embeddings are of size 384. We can now insert the data into the collection.
 
 ```python
 # Insert the points into the collection for searching
