@@ -165,6 +165,9 @@ func MergeErrorsWithContext(ctx context.Context, cs ...<-chan error) <-chan erro
 		go func(c <-chan error) {
 			select {
 			case <-ctx.Done():
+				once.Do(func() {
+					firstErr = ctx.Err()
+				})
 			case err := <-c:
 				if err != nil {
 					once.Do(func() {
