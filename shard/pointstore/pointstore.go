@@ -8,8 +8,8 @@ package pointstore
 import (
 	"errors"
 	"fmt"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
@@ -110,10 +110,10 @@ func GetPointByNodeId(bucket diskstore.ReadOnlyBucket, nodeId uint64, withData b
 	if pointIdBytes == nil {
 		return ShardPoint{}, ErrPointDoesNotExist
 	}
-	pointId, err := uuid.FromBytes(pointIdBytes)
-	if err != nil {
-		return ShardPoint{}, fmt.Errorf("could not parse point id: %w", err)
+	if len(pointIdBytes) != 16 {
+		return ShardPoint{}, fmt.Errorf("could not parse point id: invalid byte length %d", len(pointIdBytes))
 	}
+	pointId := uuid.UUID(pointIdBytes)
 	var data []byte
 	if withData {
 		data = bucket.Get(conversion.NodeKey(nodeId, 'd'))

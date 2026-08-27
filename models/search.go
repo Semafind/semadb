@@ -2,8 +2,7 @@ package models
 
 import (
 	"fmt"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 /* The search query design is based on the following key steps:

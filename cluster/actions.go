@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"slices"
 	"sync"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/utils"
 )

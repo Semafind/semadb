@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/google/uuid"
+	"uuid"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"
 	"github.com/semafind/semadb/shard/index/flat"

@@ -3,8 +3,7 @@ package cluster
 import (
 	"fmt"
 	"testing"
-
-	"github.com/google/uuid"
+	"uuid"
 	"github.com/semafind/semadb/models"
 	"github.com/stretchr/testify/require"
 )

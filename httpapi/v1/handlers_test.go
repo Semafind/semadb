@@ -8,8 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"github.com/google/uuid"
+	"uuid"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
 	v1 "github.com/semafind/semadb/httpapi/v1"

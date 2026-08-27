@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/google/uuid"
+	"uuid"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"

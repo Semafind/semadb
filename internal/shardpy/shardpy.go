@@ -9,8 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/pprof"
-
-	"github.com/google/uuid"
+	"uuid"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard"
 	"github.com/semafind/semadb/shard/cache"

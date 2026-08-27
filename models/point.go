@@ -3,8 +3,8 @@ package models
 import (
 	"bytes"
 	"fmt"
+	"uuid"
 
-	"github.com/google/uuid"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
@@ -17,15 +17,15 @@ func (p PointAsMap) ExtractIdField(createNew bool) (uuid.UUID, error) {
 		if createNew {
 			return uuid.New(), nil
 		}
-		return uuid.Nil, fmt.Errorf("missing _id field")
+		return uuid.Nil(), fmt.Errorf("missing _id field")
 	}
 	stringId, ok := id.(string)
 	if !ok {
-		return uuid.Nil, fmt.Errorf("invalid id type, expected string got %T", id)
+		return uuid.Nil(), fmt.Errorf("invalid id type, expected string got %T", id)
 	}
 	parsedId, err := uuid.Parse(stringId)
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("invalid id format, %s", err.Error())
+		return uuid.Nil(), fmt.Errorf("invalid id format, %s", err.Error())
 	}
 	// We remove the _id field because it is internal and not part of the
 	// actual point data. But to keep the API simpler, we combine the user

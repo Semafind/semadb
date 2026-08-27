@@ -7,8 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 	"github.com/semafind/semadb/cluster"
 	"github.com/semafind/semadb/httpapi/middleware"
 	"github.com/semafind/semadb/httpapi/utils"

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/google/uuid"
+	"uuid"
 	"github.com/semafind/semadb/conversion"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"

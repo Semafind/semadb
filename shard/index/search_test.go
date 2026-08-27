@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
-	"github.com/google/uuid"
+	"uuid"
 	"github.com/semafind/semadb/diskstore"
 	"github.com/semafind/semadb/models"
 	"github.com/semafind/semadb/shard/cache"

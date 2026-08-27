@@ -7,7 +7,6 @@ require (
 	github.com/bits-and-blooms/bitset v1.25.0
 	github.com/blevesearch/bleve/v2 v2.6.1
 	github.com/cespare/xxhash v1.1.0
-	github.com/google/uuid v1.6.0
 	github.com/lmittmann/tint v1.2.0
 	github.com/mmcloughlin/avo v0.6.0
 	github.com/prometheus/client_golang v1.24.1
