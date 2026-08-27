@@ -36,24 +36,13 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "Docker: Linting (golangci-lint)",
 			"type": "shell",
-			"label": "golangci-lint podman",
-			"command": "podman",
-			"args": [
-				"run",
-				"--rm", // Remove container after running
-				"-v", // Mount current directory to /app in container
-				"${workspaceFolder}:/app:Z",
-				"-w", // Set working directory in container
-				"/app",
-				"golangci/golangci-lint:v1.57.2", // Image to use
-				"golangci-lint", // Command to run
-				"run", // Additional argument for golangci-lint
-				"-v" // Additional argument for golangci-lint (might be empty)
-			],
+			"command": "docker run --rm -v ${workspaceFolder}:/app -w /app golangci/golangci-lint golangci-lint run -v",
 			"problemMatcher": [
 				"$go"
-			]
+			],
+			"detail": "Runs golangci-lint via a Docker container for the current workspace."
 		},
 		{
 			"type": "shell",
